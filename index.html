@@ -40,6 +40,7 @@
   .nav-tab .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--danger); margin-left:5px; vertical-align:middle; }
   .nav-tab svg{ width:16px; height:16px; flex-shrink:0; opacity:0.85; }
   .nav-tab.active svg{ opacity:1; }
+  body:not(.is-admin) .nav-tab[data-nav="employees"]{ display:none !important; }
 
   /* Printing-shop graphics */
   .brand-mark svg{ width:20px; height:20px; }
@@ -916,7 +917,12 @@
 
   <!-- ============ EMPLOYEES & WASTAGE ============ -->
   <section class="section-panel" id="panel-employees">
-    <div class="content-grid">
+    <div class="card" id="employeesAccessDenied" style="display:none; text-align:center; padding:50px 24px;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="width:40px; height:40px; color:var(--faint); margin-bottom:14px;"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <h2 style="border:none; padding:0; margin:0 0 6px; justify-content:center;">Admins only</h2>
+      <p style="color:var(--muted); font-size:13.5px; margin:0;">You are not authorized to view employee records or salaries. Contact an admin if you need access.</p>
+    </div>
+    <div class="content-grid" id="employeesPanelBody">
       <div class="main-col">
         <section class="card">
           <h2 class="collapsible" id="addEmployeeToggle"><span>+ Add Employee</span><span class="chev">▶</span></h2>
@@ -1108,13 +1114,27 @@
     return await fetchMembership();
   }
 
+  function applyAdminGating(){
+    // Belt-and-braces: hide the nav entry point AND refuse to render the panel's real
+    // content even if it's somehow reached directly (old cached tab, devtools, etc).
+    // The actual data is protected server-side by RLS regardless of any of this.
+    const employeesTab = document.querySelector('.nav-tab[data-nav="employees"]');
+    if (employeesTab) employeesTab.style.display = isAdmin ? 'inline-flex' : 'none';
+    document.body.classList.toggle('is-admin', isAdmin);
+    $('employeesAccessDenied').style.display = isAdmin ? 'none' : 'block';
+    $('employeesPanelBody').style.display = isAdmin ? 'grid' : 'none';
+    if (!isAdmin && document.getElementById('panel-employees').classList.contains('active')){
+      // If a non-admin somehow lands directly on this panel, bounce them back to Stock.
+      document.querySelector('.nav-tab[data-nav="stock"]').click();
+    }
+  }
+
   function showApp(session){
     $('authGate').style.display = 'none';
     $('appShell').style.display = 'block';
     $('userBar').style.display = 'flex';
     $('userEmail').textContent = session?.user?.email || '';
-    const employeesTab = document.querySelector('.nav-tab[data-nav="employees"]');
-    if (employeesTab) employeesTab.style.display = isAdmin ? 'inline-flex' : 'none';
+    applyAdminGating();
     loadEverything();
   }
   function showAuthGate(message){
@@ -1222,6 +1242,14 @@
     el.textContent = msg;
     el.className = 'status-msg show ' + (ok ? 'ok' : 'err');
     setTimeout(() => { el.classList.remove('show'); }, 4500);
+  }
+  // Second layer of defense on top of RLS: refuse admin-only actions with a clear
+  // message instead of letting them hit the database and fail with a raw RLS error.
+  function requireAdmin(statusEl){
+    if (isAdmin) return true;
+    if (statusEl) showStatus(statusEl, 'You are not authorized for this — admin access required.', false);
+    else alert('You are not authorized for this — admin access required.');
+    return false;
   }
   function toggleCollapsible(headerEl, bodyEl){
     headerEl.addEventListener('click', function(){
@@ -2094,6 +2122,7 @@
 
   $('saveEmployeeBtn').addEventListener('click', async function(){
     const statusEl = $('employeeStatus');
+    if (!requireAdmin(statusEl)) return;
     const name = $('empName').value.trim();
     if (!name){ showStatus(statusEl, 'Enter an employee name.', false); return; }
     this.disabled = true;
@@ -2119,6 +2148,7 @@
     tbody.innerHTML = rows.map(e => '<tr><td>' + (e.employee_code || '—') + '</td><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
       '<td><div class="row-actions"><button class="emp-edit-salary" data-id="' + e.id + '" title="Edit salary">✎</button><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>').join('');
     tbody.querySelectorAll('.emp-edit-salary').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
       const e = employees.find(x => x.id === this.dataset.id);
       const val = window.prompt('New monthly salary for "' + e.name + '" (₹)', e.monthly_salary);
       if (val === null) return;
@@ -2130,6 +2160,7 @@
       if ($('salEmployee').value === e.id) await loadSalarySummary();
     }));
     tbody.querySelectorAll('.emp-del').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
       const e = employees.find(x => x.id === this.dataset.id);
       if (!window.confirm('Deactivate "' + e.name + '"?')) return;
       const { error } = await supabaseClient.from('employees').update({ is_active:false }).eq('id', e.id);
@@ -2150,6 +2181,7 @@
   // ---- Excel/CSV import ----
   $('importEmployeesBtn').addEventListener('click', async function(){
     const statusEl = $('empImportStatus');
+    if (!requireAdmin(statusEl)) return;
     const fileInput = $('empImportFile');
     const file = fileInput.files[0];
     if (!file){ showStatus(statusEl, 'Choose a file first.', false); return; }
@@ -2370,6 +2402,7 @@
 
   $('saveAttendanceBtn').addEventListener('click', async function(){
     const statusEl = $('attendanceStatus');
+    if (!requireAdmin(statusEl)) return;
     const empId = $('salEmployee').value;
     const totalDays = parseFloat($('salDaysWorked').value);
     const standardDays = parseFloat($('salStandardDays').value) || 26;
@@ -2390,6 +2423,7 @@
 
   $('saveEmpPaymentBtn').addEventListener('click', async function(){
     const statusEl = $('empPaymentStatus');
+    if (!requireAdmin(statusEl)) return;
     const empId = $('salEmployee').value;
     const amount = parseFloat($('payAmountEmp').value);
     if (!empId){ showStatus(statusEl, 'Choose an employee.', false); return; }
