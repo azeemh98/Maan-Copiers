@@ -391,6 +391,19 @@
               <input type="date" id="movDate">
             </div>
           </div>
+          <div class="field" id="movReasonWrap" style="display:none;">
+            <label for="movReason">Reason for stock out</label>
+            <select id="movReason">
+              <option value="normal">Normal Use / Sale</option>
+              <option value="machine_error">Printing Error by Machine</option>
+              <option value="process_error">Print, Cut, Lamination Error</option>
+              <option value="employee_error">By Employee (Wastage)</option>
+            </select>
+          </div>
+          <div class="row2" id="movEmployeeWrap" style="display:none;">
+            <div class="field"><label for="movEmployee">Employee responsible</label><select id="movEmployee"></select></div>
+            <div class="field"><label for="movAmount">Amount to charge (₹)</label><input type="number" id="movAmount" min="0" step="0.01" value="0"></div>
+          </div>
           <div class="field">
             <label for="movNote">Note (optional)</label>
             <input type="text" id="movNote" placeholder="e.g. Job #1234, supplier invoice, wastage...">
@@ -520,6 +533,23 @@
           <div class="hint" id="wsHint">Select an item to see current stock.</div>
           <button class="add-btn save-btn" id="saveWastageBtn"><span>Record Wastage</span><span></span></button>
           <div class="status-msg" id="wastageStatus"></div>
+        </section>
+
+        <section class="card">
+          <div class="table-head-row">
+            <h2>Wastage Log</h2>
+            <div class="search-wrap"><input type="text" id="wastageSearch" placeholder="Search item / employee…"></div>
+          </div>
+          <div class="cat-tabs" id="wastageReasonTabs">
+            <button class="cat-tab active" data-wreason="all">All</button>
+            <button class="cat-tab" data-wreason="machine_error">Machine</button>
+            <button class="cat-tab" data-wreason="process_error">Print/Cut/Lamination</button>
+            <button class="cat-tab" data-wreason="employee_error">By Employee</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Reason</th><th>Employee</th><th>Amount</th><th></th></tr></thead>
+            <tbody id="wastageTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
+          </table>
         </section>
 
       </div>
@@ -924,23 +954,6 @@
           <table class="data-table">
             <thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Monthly Salary</th><th>Joined</th><th></th></tr></thead>
             <tbody id="employeesTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
-          </table>
-        </section>
-
-        <section class="card">
-          <div class="table-head-row">
-            <h2>Wastage Log</h2>
-            <div class="search-wrap"><input type="text" id="wastageSearch" placeholder="Search item / employee…"></div>
-          </div>
-          <div class="cat-tabs" id="wastageReasonTabs">
-            <button class="cat-tab active" data-wreason="all">All</button>
-            <button class="cat-tab" data-wreason="machine_error">Machine</button>
-            <button class="cat-tab" data-wreason="process_error">Print/Cut/Lamination</button>
-            <button class="cat-tab" data-wreason="employee_error">By Employee</button>
-          </div>
-          <table class="data-table">
-            <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Reason</th><th>Employee</th><th>Amount</th><th></th></tr></thead>
-            <tbody id="wastageTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
           </table>
         </section>
 
@@ -1357,7 +1370,7 @@
   }
 
   async function refreshStockPanel(){
-    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary() ]);
+    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary(), loadWastageRecords() ]);
     const todayCount = await loadTodayCount();
     renderStats(todayCount);
     renderMaterialSelect();
@@ -1369,6 +1382,8 @@
     renderCalendar();
     renderWastageMaterialSelect();
     await loadWastageEmployeeOptions();
+    await populateEmployeeNameSelect($('movEmployee'));
+    renderWastageTable();
   }
 
   function renderStats(todayCount){
@@ -1389,14 +1404,19 @@
   // ---- Record movement ----
   let movType = 'entry';
   $('movDate').value = todayISO();
-  document.querySelectorAll('#panel-stock .pill-toggle .pill').forEach(btn => {
+  document.querySelectorAll('#panel-stock .pill-toggle .pill[data-type]').forEach(btn => {
     btn.addEventListener('click', function(){
       this.parentElement.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
       this.classList.add('active');
       movType = this.dataset.type;
       $('recordBtnLabel').textContent = movType === 'entry' ? 'Record Entry' : 'Record Exit';
+      $('movReasonWrap').style.display = movType === 'exit' ? 'block' : 'none';
+      if (movType === 'entry'){ $('movReason').value = 'normal'; $('movEmployeeWrap').style.display = 'none'; }
       updateMovHint();
     });
+  });
+  $('movReason').addEventListener('change', function(){
+    $('movEmployeeWrap').style.display = this.value === 'employee_error' ? 'grid' : 'none';
   });
 
   function renderMaterialSelect(){
@@ -1436,16 +1456,34 @@
     const statusEl = $('movStatus');
     if (!m){ showStatus(statusEl, 'Choose an item first.', false); return; }
     if (!qty || qty <= 0){ showStatus(statusEl, 'Enter a quantity greater than 0.', false); return; }
+    const reason = movType === 'exit' ? $('movReason').value : 'normal';
+    const isWastage = reason !== 'normal';
+    const employeeId = reason === 'employee_error' ? $('movEmployee').value : null;
+    if (reason === 'employee_error' && !employeeId){ showStatus(statusEl, 'Choose which employee is responsible.', false); return; }
+    const amount = reason === 'employee_error' ? (parseFloat($('movAmount').value) || 0) : 0;
     const txnDate = $('movDate').value || todayISO();
     this.disabled = true;
     try {
-      const { error } = await supabaseClient.from('stock_movements').insert({
+      const noteText = isWastage ? 'Wastage — ' + WASTAGE_REASON_LABEL[reason] + ($('movNote').value.trim() ? ' — ' + $('movNote').value.trim() : '') : ($('movNote').value.trim() || null);
+      const { data: mvRow, error } = await supabaseClient.from('stock_movements').insert({
         org_id: currentOrgId, material_id: m.material_id, type: movType, quantity: qty,
-        transaction_date: txnDate, note: $('movNote').value.trim() || null, created_by: currentUserId
-      });
+        transaction_date: txnDate, note: noteText, created_by: currentUserId,
+        source: isWastage ? 'wastage' : 'manual'
+      }).select().single();
       if (error) throw error;
-      showStatus(statusEl, (movType === 'entry' ? 'Entry' : 'Exit') + ' recorded — ' + fmtQty(qty) + ' ' + m.unit + '.', true);
+
+      if (isWastage){
+        const { error: wErr } = await supabaseClient.from('wastage_records').insert({
+          org_id: currentOrgId, material_id: m.material_id, quantity: qty, reason,
+          employee_id: employeeId, amount, wastage_date: txnDate, note: $('movNote').value.trim() || null,
+          movement_id: mvRow.id, created_by: currentUserId
+        });
+        if (wErr) throw wErr;
+      }
+
+      showStatus(statusEl, (movType === 'entry' ? 'Entry' : 'Exit') + ' recorded — ' + fmtQty(qty) + ' ' + m.unit + (isWastage ? ' (logged as wastage).' : '.'), true);
       $('movNote').value = ''; $('movQty').value = 1; $('movDate').value = todayISO();
+      $('movReason').value = 'normal'; $('movAmount').value = 0; $('movEmployeeWrap').style.display = 'none';
       await refreshStockPanel();
     } catch (err){ showStatus(statusEl, err.message || 'Could not record movement.', false); }
     finally { this.disabled = false; }
@@ -1541,13 +1579,10 @@
       updateMovHint(); window.scrollTo({ top:0, behavior:'smooth' }); $('movQty').focus();
     }));
     tbody.querySelectorAll('.quick-wastage').forEach(btn => btn.addEventListener('click', function(){
-      document.querySelector('.nav-tab[data-nav="employees"]').click();
-      setTimeout(() => {
-        $('wsMaterial').value = this.dataset.id;
-        updateWastageHint();
-        $('wsMaterial').scrollIntoView({ behavior:'smooth', block:'center' });
-        $('wsQty').focus();
-      }, 50);
+      $('wsMaterial').value = this.dataset.id;
+      updateWastageHint();
+      $('wsMaterial').scrollIntoView({ behavior:'smooth', block:'center' });
+      $('wsQty').focus();
     }));
     tbody.querySelectorAll('.quick-reorder').forEach(btn => btn.addEventListener('click', async function(){
       const m = materials.find(x => x.material_id === this.dataset.id);
@@ -2040,12 +2075,21 @@
 
   // Name-only lookup any org member can use to attribute wastage to an employee,
   // without exposing salaries/phone numbers/codes (those stay behind admin-only RLS).
+  let cachedEmployeeNames = null;
+  async function populateEmployeeNameSelect(selectEl){
+    if (!selectEl) return;
+    if (!cachedEmployeeNames){
+      const { data } = await supabaseClient.rpc('list_employee_names', { p_org_id: currentOrgId });
+      cachedEmployeeNames = data || [];
+    }
+    const prev = selectEl.value;
+    const opts = cachedEmployeeNames.map(e => '<option value="' + e.id + '">' + e.name + '</option>').join('');
+    selectEl.innerHTML = opts || '<option value="">No employees yet</option>';
+    if (prev && cachedEmployeeNames.some(e => e.id === prev)) selectEl.value = prev;
+  }
   async function loadWastageEmployeeOptions(){
-    const { data, error } = await supabaseClient.rpc('list_employee_names', { p_org_id: currentOrgId });
-    const prev = $('wsEmployee').value;
-    const opts = (data || []).map(e => '<option value="' + e.id + '">' + e.name + '</option>').join('');
-    $('wsEmployee').innerHTML = opts || '<option value="">No employees yet</option>';
-    if (!error && prev && (data || []).some(e => e.id === prev)) $('wsEmployee').value = prev;
+    cachedEmployeeNames = null; // force a fresh fetch since this is called once per refresh cycle
+    await populateEmployeeNameSelect($('wsEmployee'));
   }
 
   $('saveEmployeeBtn').addEventListener('click', async function(){
