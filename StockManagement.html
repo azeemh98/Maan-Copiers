@@ -101,6 +101,8 @@
   .pill-toggle .pill.active[data-type="entry"], .pill-toggle .pill.active[data-v="in"], .pill-toggle .pill.active[data-v="sale"]{ background:var(--ok-soft); color:var(--ok); }
   .pill-toggle .pill.active[data-type="exit"], .pill-toggle .pill.active[data-v="out"], .pill-toggle .pill.active[data-v="purchase"]{ background:var(--danger-soft); color:var(--danger); }
   .pill-toggle .pill.active[data-v="customer"], .pill-toggle .pill.active[data-v="supplier"], .pill-toggle .pill.active[data-v="both"]{ background:var(--accent-soft); color:var(--accent-dark); }
+  .pill-toggle .pill.active[data-reason="machine_error"], .pill-toggle .pill.active[data-reason="process_error"]{ background:var(--warn-soft); color:var(--warn); }
+  .pill-toggle .pill.active[data-reason="employee_error"]{ background:var(--danger-soft); color:var(--danger); }
 
   .add-btn{
     width:100%; margin-top:16px; padding:12px; background:var(--accent); border:none; border-radius:7px; color:#fff;
@@ -346,6 +348,7 @@
   <button class="nav-tab" data-nav="parties"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Parties</button>
   <button class="nav-tab" data-nav="invoices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2Z"/><path d="M9 8h6M9 12h6"/></svg>Sales &amp; Purchases</button>
   <button class="nav-tab" data-nav="payments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><circle cx="18" cy="14" r="2"/></svg>Payments</button>
+  <button class="nav-tab" data-nav="employees"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h3M15 12h3M6 16h12"/></svg>Employees</button>
   <button class="nav-tab" data-nav="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>Reports</button>
   <button class="nav-tab" data-nav="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg>Settings</button>
 </nav>
@@ -847,6 +850,123 @@
     </div>
   </section>
 
+  <!-- ============ EMPLOYEES & WASTAGE ============ -->
+  <section class="section-panel" id="panel-employees">
+    <div class="content-grid">
+      <div class="main-col">
+        <section class="card">
+          <h2 class="collapsible" id="addEmployeeToggle"><span>+ Add Employee</span><span class="chev">▶</span></h2>
+          <div id="addEmployeeBody" style="display:none; margin-top:18px;">
+            <div class="row2">
+              <div class="field"><label for="empName">Name</label><input type="text" id="empName" placeholder="Employee name"></div>
+              <div class="field"><label for="empPhone">Phone</label><input type="tel" id="empPhone" placeholder="10-digit mobile"></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label for="empSalary">Monthly salary (₹)</label><input type="number" id="empSalary" min="0" step="0.01" value="0"></div>
+              <div class="field"><label for="empJoining">Joining date</label><input type="date" id="empJoining"></div>
+            </div>
+            <button class="add-btn save-btn" id="saveEmployeeBtn"><span>Save Employee</span><span></span></button>
+            <div class="status-msg" id="employeeStatus"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Employees</h2>
+          <table class="data-table">
+            <thead><tr><th>Name</th><th>Phone</th><th>Monthly Salary</th><th>Joined</th><th></th></tr></thead>
+            <tbody id="employeesTableBody"><tr class="empty-row"><td colspan="5">Loading…</td></tr></tbody>
+          </table>
+        </section>
+
+        <section class="card">
+          <h2>Record Wastage</h2>
+          <div class="row2">
+            <div class="field">
+              <label for="wsMaterial">Item</label>
+              <select id="wsMaterial"><option value="">Loading items…</option></select>
+            </div>
+            <div class="field">
+              <label for="wsQty">Quantity (<span id="wsUnit">—</span>)</label>
+              <input type="number" id="wsQty" min="0.01" step="0.01" value="1">
+            </div>
+          </div>
+          <div class="field">
+            <label>Reason</label>
+            <div class="pill-toggle">
+              <button type="button" class="pill active" data-reason="machine_error">Printing Error by Machine</button>
+              <button type="button" class="pill" data-reason="process_error">Print, Cut, Lamination Error</button>
+              <button type="button" class="pill" data-reason="employee_error">By Employee</button>
+            </div>
+          </div>
+          <div class="row2" id="wsEmployeeWrap" style="display:none;">
+            <div class="field"><label for="wsEmployee">Employee responsible</label><select id="wsEmployee"></select></div>
+            <div class="field"><label for="wsAmount">Amount to charge (₹)</label><input type="number" id="wsAmount" min="0" step="0.01" value="0"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="wsDate">Date</label><input type="date" id="wsDate"></div>
+            <div class="field"><label for="wsNote">Note (optional)</label><input type="text" id="wsNote" placeholder="What happened..."></div>
+          </div>
+          <div class="hint" id="wsHint">Select an item to see current stock.</div>
+          <button class="add-btn save-btn" id="saveWastageBtn"><span>Record Wastage</span><span></span></button>
+          <div class="status-msg" id="wastageStatus"></div>
+        </section>
+
+        <section class="card">
+          <div class="table-head-row">
+            <h2>Wastage Log</h2>
+            <div class="search-wrap"><input type="text" id="wastageSearch" placeholder="Search item / employee…"></div>
+          </div>
+          <div class="cat-tabs" id="wastageReasonTabs">
+            <button class="cat-tab active" data-wreason="all">All</button>
+            <button class="cat-tab" data-wreason="machine_error">Machine</button>
+            <button class="cat-tab" data-wreason="process_error">Print/Cut/Lamination</button>
+            <button class="cat-tab" data-wreason="employee_error">By Employee</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Reason</th><th>Employee</th><th>Amount</th><th></th></tr></thead>
+            <tbody id="wastageTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
+          </table>
+        </section>
+
+        <section class="card">
+          <h2>Month-End Salary</h2>
+          <div class="row2">
+            <div class="field"><label for="salEmployee">Employee</label><select id="salEmployee"></select></div>
+            <div class="field"><label for="salMonth">Month</label><input type="month" id="salMonth"></div>
+          </div>
+          <div id="salarySummary"></div>
+          <div class="row3" style="margin-top:16px;">
+            <div class="field"><label for="payAmountEmp">Amount (₹)</label><input type="number" id="payAmountEmp" min="0.01" step="0.01"></div>
+            <div class="field"><label for="payTypeEmp">Type</label>
+              <select id="payTypeEmp">
+                <option value="salary">Salary</option>
+                <option value="advance">Advance</option>
+                <option value="bonus">Bonus</option>
+                <option value="deduction">Deduction</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field"><label for="payDateEmp">Date</label><input type="date" id="payDateEmp"></div>
+          </div>
+          <button class="add-btn save-btn" id="saveEmpPaymentBtn"><span>Record Payment</span><span></span></button>
+          <div class="status-msg" id="empPaymentStatus"></div>
+          <table class="data-table" style="margin-top:18px;">
+            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Note</th></tr></thead>
+            <tbody id="empPaymentsTableBody"><tr class="empty-row"><td colspan="4">Select an employee and month.</td></tr></tbody>
+          </table>
+        </section>
+      </div>
+
+      <aside class="side-col">
+        <section class="card sticky">
+          <h2>This Month</h2>
+          <div class="stat-card" style="margin-bottom:10px;"><div class="s-label">Total Wastage (₹)</div><div class="s-val" id="wsStatTotal">—</div></div>
+          <div class="stat-card warn"><div class="s-label">Charged to Employees</div><div class="s-val" id="wsStatEmployee">—</div></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+
   <!-- ============ REPORTS ============ -->
   <section class="section-panel" id="panel-reports">
     <section class="card">
@@ -1042,6 +1162,8 @@
   let openLedgerPartyId = null;
   let services = [], tickets = [];
   let ticketLineItems = [], ticketStatusFilter = 'all', walkInPartyId = null;
+  let employees = [], wastageRecords = [], wastageReasonFilter = 'all';
+  let empPayments = [];
 
   // ---------------- Formatting helpers ----------------
   function fmtQty(n){ n = Number(n) || 0; return Number.isInteger(n) ? n.toLocaleString('en-IN') : n.toLocaleString('en-IN', {maximumFractionDigits:2}); }
@@ -1077,6 +1199,7 @@
   const PAGE_META = {
     stock: ['Stock Management', 'Record material in/out and track remaining sheets and items across every product line.'],
     tickets: ['Walk-in Jobs', 'Printout, photocopy, lamination, binding and other daily cash jobs — print a slip for the customer.'],
+    employees: ['Employees & Wastage', 'Track wastage against stock and employees, and settle salaries at month end.'],
     parties: ['Customers & Suppliers', 'Manage parties and see who owes you, and who you owe.'],
     invoices: ['Sales & Purchases', 'Create GST-ready invoices — stock and party balances update automatically.'],
     payments: ['Payments', 'Record money in and out, and track business expenses.'],
@@ -1109,7 +1232,8 @@
       loadInvoices(),
       loadPayments(),
       loadExpenses(),
-      refreshTicketsPanel()
+      refreshTicketsPanel(),
+      refreshEmployeesPanel()
     ]);
     renderPartiesTable();
     renderOutstandingSummary();
@@ -1845,6 +1969,247 @@
       renderPartiesTable(); renderOutstandingSummary();
     } catch (err){ alert(err.message || 'Could not mark paid.'); }
   }
+
+  // ======================================================================
+  // EMPLOYEES & WASTAGE PANEL
+  // ======================================================================
+  toggleCollapsible($('addEmployeeToggle'), $('addEmployeeBody'));
+  $('wsDate').value = todayISO();
+  $('payDateEmp').value = todayISO();
+  $('salMonth').value = todayISO().slice(0,7);
+
+  async function refreshEmployeesPanel(){
+    await Promise.all([ loadEmployees(), loadWastageRecords() ]);
+    renderEmployeesTable();
+    renderEmployeeSelects();
+    renderWastageMaterialSelect();
+    renderWastageTable();
+    renderWastageStats();
+  }
+
+  async function loadEmployees(){
+    const { data, error } = await supabaseClient.from('employees').select('*').eq('org_id', currentOrgId).order('name');
+    employees = error ? [] : (data || []);
+  }
+
+  $('saveEmployeeBtn').addEventListener('click', async function(){
+    const statusEl = $('employeeStatus');
+    const name = $('empName').value.trim();
+    if (!name){ showStatus(statusEl, 'Enter an employee name.', false); return; }
+    this.disabled = true;
+    try {
+      const { error } = await supabaseClient.from('employees').insert({
+        org_id: currentOrgId, name, phone: $('empPhone').value.trim() || null,
+        monthly_salary: parseFloat($('empSalary').value) || 0,
+        joining_date: $('empJoining').value || null, created_by: currentUserId
+      });
+      if (error) throw error;
+      showStatus(statusEl, '"' + name + '" added.', true);
+      $('empName').value = ''; $('empPhone').value = ''; $('empSalary').value = 0; $('empJoining').value = '';
+      await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not save employee.', false); }
+    finally { this.disabled = false; }
+  });
+
+  function renderEmployeesTable(){
+    const tbody = $('employeesTableBody');
+    const rows = employees.filter(e => e.is_active);
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No employees yet — add one above.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(e => '<tr><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
+      '<td><div class="row-actions"><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>').join('');
+    tbody.querySelectorAll('.emp-del').forEach(btn => btn.addEventListener('click', async function(){
+      const e = employees.find(x => x.id === this.dataset.id);
+      if (!window.confirm('Deactivate "' + e.name + '"?')) return;
+      const { error } = await supabaseClient.from('employees').update({ is_active:false }).eq('id', e.id);
+      if (error){ alert(error.message); return; }
+      await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects();
+    }));
+  }
+
+  function renderEmployeeSelects(){
+    const active = employees.filter(e => e.is_active);
+    const opts = active.map(e => '<option value="' + e.id + '">' + e.name + '</option>').join('') || '<option value="">Add an employee first</option>';
+    const wsPrev = $('wsEmployee').value, salPrev = $('salEmployee').value;
+    $('wsEmployee').innerHTML = opts;
+    $('salEmployee').innerHTML = opts;
+    if (wsPrev) $('wsEmployee').value = wsPrev;
+    if (salPrev) $('salEmployee').value = salPrev;
+    else if (active.length) { $('salEmployee').value = active[0].id; loadSalarySummary(); }
+  }
+
+  // ---- Wastage reason pills ----
+  let wastageReason = 'machine_error';
+  document.querySelectorAll('#panel-employees .pill-toggle .pill').forEach(btn => btn.addEventListener('click', function(){
+    this.parentElement.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    wastageReason = this.dataset.reason;
+    $('wsEmployeeWrap').style.display = wastageReason === 'employee_error' ? 'grid' : 'none';
+  }));
+
+  function renderWastageMaterialSelect(){
+    const sel = $('wsMaterial');
+    const prevVal = sel.value;
+    const byCat = {};
+    materials.filter(m => m.is_active).forEach(m => (byCat[m.category] = byCat[m.category] || []).push(m));
+    let html = '';
+    Object.keys(byCat).sort().forEach(cat => {
+      html += '<optgroup label="' + cat + '">';
+      byCat[cat].forEach(m => { html += '<option value="' + m.material_id + '" data-remaining="' + m.remaining + '" data-unit="' + m.unit + '">' + m.name + ' — ' + fmtQty(m.remaining) + ' ' + m.unit + ' left</option>'; });
+      html += '</optgroup>';
+    });
+    sel.innerHTML = html || '<option value="">No items yet</option>';
+    if (prevVal && materials.some(m => m.material_id === prevVal)) sel.value = prevVal;
+    updateWastageHint();
+  }
+  function selectedWastageMaterial(){ const id = $('wsMaterial').value; return materials.find(m => m.material_id === id) || null; }
+  function updateWastageHint(){
+    const m = selectedWastageMaterial();
+    const qty = parseFloat($('wsQty').value) || 0;
+    if (!m){ $('wsUnit').textContent = '—'; $('wsHint').textContent = 'Select an item to see current stock.'; return; }
+    $('wsUnit').textContent = m.unit;
+    const after = m.remaining - qty;
+    $('wsHint').textContent = 'Current: ' + fmtQty(m.remaining) + ' ' + m.unit + '  →  after this wastage: ' + fmtQty(after) + ' ' + m.unit + (after < 0 ? '  ⚠ would go negative' : '');
+  }
+  $('wsMaterial').addEventListener('change', updateWastageHint);
+  $('wsQty').addEventListener('input', updateWastageHint);
+
+  $('saveWastageBtn').addEventListener('click', async function(){
+    const statusEl = $('wastageStatus');
+    const m = selectedWastageMaterial();
+    const qty = parseFloat($('wsQty').value);
+    if (!m){ showStatus(statusEl, 'Choose an item first.', false); return; }
+    if (!qty || qty <= 0){ showStatus(statusEl, 'Enter a quantity greater than 0.', false); return; }
+    const employeeId = wastageReason === 'employee_error' ? $('wsEmployee').value : null;
+    if (wastageReason === 'employee_error' && !employeeId){ showStatus(statusEl, 'Choose which employee is responsible.', false); return; }
+    const amount = wastageReason === 'employee_error' ? (parseFloat($('wsAmount').value) || 0) : 0;
+    const wDate = $('wsDate').value || todayISO();
+    this.disabled = true;
+    try {
+      const { data: mvRow, error: mvErr } = await supabaseClient.from('stock_movements').insert({
+        org_id: currentOrgId, material_id: m.material_id, type:'exit', quantity: qty, transaction_date: wDate,
+        note: 'Wastage — ' + WASTAGE_REASON_LABEL[wastageReason] + ($('wsNote').value.trim() ? ' — ' + $('wsNote').value.trim() : ''),
+        created_by: currentUserId, source:'wastage'
+      }).select().single();
+      if (mvErr) throw mvErr;
+
+      const { error: wErr } = await supabaseClient.from('wastage_records').insert({
+        org_id: currentOrgId, material_id: m.material_id, quantity: qty, reason: wastageReason,
+        employee_id: employeeId, amount, wastage_date: wDate, note: $('wsNote').value.trim() || null,
+        movement_id: mvRow.id, created_by: currentUserId
+      });
+      if (wErr) throw wErr;
+
+      showStatus(statusEl, 'Wastage recorded — ' + fmtQty(qty) + ' ' + m.unit + ' of ' + m.name + '.', true);
+      $('wsQty').value = 1; $('wsNote').value = ''; $('wsAmount').value = 0; $('wsDate').value = todayISO();
+      await Promise.all([ refreshStockPanel(), refreshEmployeesPanel() ]);
+      if ($('salEmployee').value) loadSalarySummary();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not record wastage.', false); }
+    finally { this.disabled = false; }
+  });
+
+  const WASTAGE_REASON_LABEL = { machine_error:'Printing Error by Machine', process_error:'Print, Cut, Lamination Error', employee_error:'By Employee' };
+
+  async function loadWastageRecords(){
+    const { data, error } = await supabaseClient.from('wastage_records').select('*, stock_materials(name, unit, category), employees(name)').eq('org_id', currentOrgId).order('wastage_date', { ascending:false }).limit(200);
+    wastageRecords = error ? [] : (data || []);
+  }
+
+  document.querySelectorAll('#wastageReasonTabs .cat-tab').forEach(btn => btn.addEventListener('click', function(){
+    document.querySelectorAll('#wastageReasonTabs .cat-tab').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    wastageReasonFilter = this.dataset.wreason;
+    renderWastageTable();
+  }));
+  $('wastageSearch').addEventListener('input', renderWastageTable);
+
+  function renderWastageTable(){
+    const term = $('wastageSearch').value.trim().toLowerCase();
+    let rows = wastageRecords.slice();
+    if (wastageReasonFilter !== 'all') rows = rows.filter(w => w.reason === wastageReasonFilter);
+    if (term) rows = rows.filter(w => (w.stock_materials?.name || '').toLowerCase().includes(term) || (w.employees?.name || '').toLowerCase().includes(term));
+    const tbody = $('wastageTableBody');
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No wastage recorded yet.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(w => {
+      const mat = w.stock_materials || { name:'Unknown', unit:'unit' };
+      const delBtn = isAdmin ? '<button class="ws-del danger" data-id="' + w.id + '" title="Delete">✕</button>' : '';
+      return '<tr><td>' + fmtDate(w.wastage_date) + '</td><td class="item-name">' + mat.name + '</td><td>' + fmtQty(w.quantity) + ' ' + mat.unit + '</td>' +
+        '<td>' + WASTAGE_REASON_LABEL[w.reason] + '</td><td>' + (w.employees?.name || '—') + '</td><td>' + (w.amount > 0 ? fmtMoney(w.amount) : '—') + '</td>' +
+        '<td><div class="row-actions">' + delBtn + '</div></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('.ws-del').forEach(btn => btn.addEventListener('click', async function(){
+      if (!window.confirm('Delete this wastage entry? This does not restore the stock automatically.')) return;
+      const { error } = await supabaseClient.from('wastage_records').delete().eq('id', this.dataset.id);
+      if (error){ alert(error.message); return; }
+      await loadWastageRecords(); renderWastageTable(); renderWastageStats();
+    }));
+  }
+
+  function renderWastageStats(){
+    const start = new Date(); start.setDate(1); start.setHours(0,0,0,0);
+    const thisMonth = wastageRecords.filter(w => new Date(w.wastage_date) >= start);
+    const totalEmp = thisMonth.filter(w => w.reason === 'employee_error').reduce((s,w) => s + Number(w.amount), 0);
+    $('wsStatTotal').textContent = thisMonth.length;
+    $('wsStatEmployee').textContent = fmtMoney0(totalEmp);
+  }
+
+  // ---- Month-end salary ----
+  $('salEmployee').addEventListener('change', loadSalarySummary);
+  $('salMonth').addEventListener('change', loadSalarySummary);
+
+  function monthRange(monthStr){
+    const [y,m] = (monthStr || todayISO().slice(0,7)).split('-').map(Number);
+    const from = new Date(y, m-1, 1);
+    const to = new Date(y, m, 0);
+    return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
+  }
+
+  async function loadSalarySummary(){
+    const empId = $('salEmployee').value;
+    if (!empId) return;
+    const emp = employees.find(e => e.id === empId);
+    const { from, to } = monthRange($('salMonth').value);
+    const [{ data: wRows }, { data: pRows }] = await Promise.all([
+      supabaseClient.from('wastage_records').select('*').eq('employee_id', empId).gte('wastage_date', from).lte('wastage_date', to),
+      supabaseClient.from('employee_payments').select('*').eq('employee_id', empId).gte('payment_date', from).lte('payment_date', to)
+    ]);
+    empPayments = pRows || [];
+    const wastageTotal = (wRows || []).reduce((s,w) => s + Number(w.amount), 0);
+    const paidTotal = empPayments.reduce((s,p) => s + Number(p.amount), 0);
+    const baseSalary = emp ? Number(emp.monthly_salary) : 0;
+    const netPayable = baseSalary - wastageTotal - paidTotal;
+
+    $('salarySummary').innerHTML =
+      '<div class="totals-box" style="margin-left:0; width:100%; max-width:100%;">' +
+      '<div class="t-row"><span>Monthly salary</span><span>' + fmtMoney(baseSalary) + '</span></div>' +
+      '<div class="t-row"><span>Wastage charged (' + (wRows || []).length + ' entries)</span><span class="amt-neg">− ' + fmtMoney(wastageTotal) + '</span></div>' +
+      '<div class="t-row"><span>Already paid this month</span><span class="amt-neg">− ' + fmtMoney(paidTotal) + '</span></div>' +
+      '<div class="t-row grand"><span>Balance still due</span><span>' + fmtMoney(netPayable) + '</span></div>' +
+      '</div>';
+
+    const tbody = $('empPaymentsTableBody');
+    tbody.innerHTML = empPayments.length ? empPayments.map(p => '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + p.type + '</td><td>' + fmtMoney(p.amount) + '</td><td>' + (p.note || '—') + '</td></tr>').join('')
+      : '<tr class="empty-row"><td colspan="4">No payments recorded this month.</td></tr>';
+  }
+
+  $('saveEmpPaymentBtn').addEventListener('click', async function(){
+    const statusEl = $('empPaymentStatus');
+    const empId = $('salEmployee').value;
+    const amount = parseFloat($('payAmountEmp').value);
+    if (!empId){ showStatus(statusEl, 'Choose an employee.', false); return; }
+    if (!amount || amount <= 0){ showStatus(statusEl, 'Enter an amount greater than 0.', false); return; }
+    this.disabled = true;
+    try {
+      const { error } = await supabaseClient.from('employee_payments').insert({
+        org_id: currentOrgId, employee_id: empId, amount, type: $('payTypeEmp').value,
+        payment_date: $('payDateEmp').value || todayISO(), created_by: currentUserId
+      });
+      if (error) throw error;
+      showStatus(statusEl, 'Payment recorded.', true);
+      $('payAmountEmp').value = ''; $('payDateEmp').value = todayISO();
+      await loadSalarySummary();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not record payment.', false); }
+    finally { this.disabled = false; }
+  });
 
   // ======================================================================
   // PARTIES PANEL
