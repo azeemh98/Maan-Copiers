@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --ink:#111826; --muted:#5B6B80; --faint:#8996A6;
@@ -488,6 +489,39 @@
           </table>
         </section>
 
+        <section class="card">
+          <h2>Record Wastage</h2>
+          <div class="row2">
+            <div class="field">
+              <label for="wsMaterial">Item</label>
+              <select id="wsMaterial"><option value="">Loading items…</option></select>
+            </div>
+            <div class="field">
+              <label for="wsQty">Quantity (<span id="wsUnit">—</span>)</label>
+              <input type="number" id="wsQty" min="0.01" step="0.01" value="1">
+            </div>
+          </div>
+          <div class="field">
+            <label>Reason</label>
+            <div class="pill-toggle" id="wsReasonToggle">
+              <button type="button" class="pill active" data-reason="machine_error">Printing Error by Machine</button>
+              <button type="button" class="pill" data-reason="process_error">Print, Cut, Lamination Error</button>
+              <button type="button" class="pill" data-reason="employee_error">By Employee</button>
+            </div>
+          </div>
+          <div class="row2" id="wsEmployeeWrap" style="display:none;">
+            <div class="field"><label for="wsEmployee">Employee responsible</label><select id="wsEmployee"></select></div>
+            <div class="field"><label for="wsAmount">Amount to charge (₹)</label><input type="number" id="wsAmount" min="0" step="0.01" value="0"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="wsDate">Date</label><input type="date" id="wsDate"></div>
+            <div class="field"><label for="wsNote">Note (optional)</label><input type="text" id="wsNote" placeholder="What happened..."></div>
+          </div>
+          <div class="hint" id="wsHint">Select an item to see current stock.</div>
+          <button class="add-btn save-btn" id="saveWastageBtn"><span>Record Wastage</span><span></span></button>
+          <div class="status-msg" id="wastageStatus"></div>
+        </section>
+
       </div>
 
       <aside class="side-col">
@@ -858,57 +892,39 @@
           <h2 class="collapsible" id="addEmployeeToggle"><span>+ Add Employee</span><span class="chev">▶</span></h2>
           <div id="addEmployeeBody" style="display:none; margin-top:18px;">
             <div class="row2">
+              <div class="field"><label for="empCode">Employee code</label><input type="text" id="empCode" placeholder="e.g. EMP-001"></div>
               <div class="field"><label for="empName">Name</label><input type="text" id="empName" placeholder="Employee name"></div>
-              <div class="field"><label for="empPhone">Phone</label><input type="tel" id="empPhone" placeholder="10-digit mobile"></div>
             </div>
             <div class="row2">
+              <div class="field"><label for="empPhone">Phone</label><input type="tel" id="empPhone" placeholder="10-digit mobile"></div>
               <div class="field"><label for="empSalary">Monthly salary (₹)</label><input type="number" id="empSalary" min="0" step="0.01" value="0"></div>
-              <div class="field"><label for="empJoining">Joining date</label><input type="date" id="empJoining"></div>
             </div>
+            <div class="field"><label for="empJoining">Joining date</label><input type="date" id="empJoining"></div>
             <button class="add-btn save-btn" id="saveEmployeeBtn"><span>Save Employee</span><span></span></button>
             <div class="status-msg" id="employeeStatus"></div>
           </div>
         </section>
 
         <section class="card">
-          <h2>Employees</h2>
-          <table class="data-table">
-            <thead><tr><th>Name</th><th>Phone</th><th>Monthly Salary</th><th>Joined</th><th></th></tr></thead>
-            <tbody id="employeesTableBody"><tr class="empty-row"><td colspan="5">Loading…</td></tr></tbody>
-          </table>
+          <h2 class="collapsible" id="importEmployeeToggle"><span>+ Import Employees from Excel</span><span class="chev">▶</span></h2>
+          <div id="importEmployeeBody" style="display:none; margin-top:18px;">
+            <div class="hint">Expected columns (any order, case-insensitive): <b>Employee Code</b>, <b>Name</b>, <b>Phone</b>, <b>Monthly Salary</b>, <b>Joining Date</b>. Rows whose Employee Code already exists will update that employee; new codes are added.</div>
+            <div class="field" style="margin-top:12px;">
+              <label for="empImportFile">Excel / CSV file</label>
+              <input type="file" id="empImportFile" accept=".xlsx,.xls,.csv">
+            </div>
+            <button class="add-btn save-btn" id="importEmployeesBtn"><span>Import File</span><span></span></button>
+            <div class="status-msg" id="empImportStatus"></div>
+            <div id="empImportPreview"></div>
+          </div>
         </section>
 
         <section class="card">
-          <h2>Record Wastage</h2>
-          <div class="row2">
-            <div class="field">
-              <label for="wsMaterial">Item</label>
-              <select id="wsMaterial"><option value="">Loading items…</option></select>
-            </div>
-            <div class="field">
-              <label for="wsQty">Quantity (<span id="wsUnit">—</span>)</label>
-              <input type="number" id="wsQty" min="0.01" step="0.01" value="1">
-            </div>
-          </div>
-          <div class="field">
-            <label>Reason</label>
-            <div class="pill-toggle">
-              <button type="button" class="pill active" data-reason="machine_error">Printing Error by Machine</button>
-              <button type="button" class="pill" data-reason="process_error">Print, Cut, Lamination Error</button>
-              <button type="button" class="pill" data-reason="employee_error">By Employee</button>
-            </div>
-          </div>
-          <div class="row2" id="wsEmployeeWrap" style="display:none;">
-            <div class="field"><label for="wsEmployee">Employee responsible</label><select id="wsEmployee"></select></div>
-            <div class="field"><label for="wsAmount">Amount to charge (₹)</label><input type="number" id="wsAmount" min="0" step="0.01" value="0"></div>
-          </div>
-          <div class="row2">
-            <div class="field"><label for="wsDate">Date</label><input type="date" id="wsDate"></div>
-            <div class="field"><label for="wsNote">Note (optional)</label><input type="text" id="wsNote" placeholder="What happened..."></div>
-          </div>
-          <div class="hint" id="wsHint">Select an item to see current stock.</div>
-          <button class="add-btn save-btn" id="saveWastageBtn"><span>Record Wastage</span><span></span></button>
-          <div class="status-msg" id="wastageStatus"></div>
+          <h2>Employees</h2>
+          <table class="data-table">
+            <thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Monthly Salary</th><th>Joined</th><th></th></tr></thead>
+            <tbody id="employeesTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
+          </table>
         </section>
 
         <section class="card">
@@ -934,7 +950,13 @@
             <div class="field"><label for="salEmployee">Employee</label><select id="salEmployee"></select></div>
             <div class="field"><label for="salMonth">Month</label><input type="month" id="salMonth"></div>
           </div>
-          <div id="salarySummary"></div>
+          <div class="row2">
+            <div class="field"><label for="salDaysWorked">Total days worked</label><input type="number" id="salDaysWorked" min="0" step="0.5" placeholder="e.g. 26"></div>
+            <div class="field"><label for="salStandardDays">Standard days in month</label><input type="number" id="salStandardDays" min="1" step="0.5" value="26"></div>
+          </div>
+          <button class="btn-sm" id="saveAttendanceBtn">Save Attendance</button>
+          <div class="status-msg" id="attendanceStatus"></div>
+          <div id="salarySummary" style="margin-top:16px;"></div>
           <div class="row3" style="margin-top:16px;">
             <div class="field"><label for="payAmountEmp">Amount (₹)</label><input type="number" id="payAmountEmp" min="0.01" step="0.01"></div>
             <div class="field"><label for="payTypeEmp">Type</label>
@@ -1078,6 +1100,8 @@
     $('appShell').style.display = 'block';
     $('userBar').style.display = 'flex';
     $('userEmail').textContent = session?.user?.email || '';
+    const employeesTab = document.querySelector('.nav-tab[data-nav="employees"]');
+    if (employeesTab) employeesTab.style.display = isAdmin ? 'inline-flex' : 'none';
     loadEverything();
   }
   function showAuthGate(message){
@@ -1343,6 +1367,8 @@
     renderActivity();
     renderCalMaterialFilter();
     renderCalendar();
+    renderWastageMaterialSelect();
+    await loadWastageEmployeeOptions();
   }
 
   function renderStats(todayCount){
@@ -1990,18 +2016,19 @@
   }
 
   // ======================================================================
-  // EMPLOYEES & WASTAGE PANEL
+  // EMPLOYEES & WASTAGE PANEL (Employees roster/salary = admin only; wastage recording = all members)
   // ======================================================================
   toggleCollapsible($('addEmployeeToggle'), $('addEmployeeBody'));
+  toggleCollapsible($('importEmployeeToggle'), $('importEmployeeBody'));
   $('wsDate').value = todayISO();
   $('payDateEmp').value = todayISO();
   $('salMonth').value = todayISO().slice(0,7);
 
   async function refreshEmployeesPanel(){
+    if (!isAdmin) return;
     await Promise.all([ loadEmployees(), loadWastageRecords() ]);
     renderEmployeesTable();
     renderEmployeeSelects();
-    renderWastageMaterialSelect();
     renderWastageTable();
     renderWastageStats();
   }
@@ -2011,6 +2038,16 @@
     employees = error ? [] : (data || []);
   }
 
+  // Name-only lookup any org member can use to attribute wastage to an employee,
+  // without exposing salaries/phone numbers/codes (those stay behind admin-only RLS).
+  async function loadWastageEmployeeOptions(){
+    const { data, error } = await supabaseClient.rpc('list_employee_names', { p_org_id: currentOrgId });
+    const prev = $('wsEmployee').value;
+    const opts = (data || []).map(e => '<option value="' + e.id + '">' + e.name + '</option>').join('');
+    $('wsEmployee').innerHTML = opts || '<option value="">No employees yet</option>';
+    if (!error && prev && (data || []).some(e => e.id === prev)) $('wsEmployee').value = prev;
+  }
+
   $('saveEmployeeBtn').addEventListener('click', async function(){
     const statusEl = $('employeeStatus');
     const name = $('empName').value.trim();
@@ -2018,14 +2055,15 @@
     this.disabled = true;
     try {
       const { error } = await supabaseClient.from('employees').insert({
-        org_id: currentOrgId, name, phone: $('empPhone').value.trim() || null,
+        org_id: currentOrgId, name, employee_code: $('empCode').value.trim() || null, phone: $('empPhone').value.trim() || null,
         monthly_salary: parseFloat($('empSalary').value) || 0,
         joining_date: $('empJoining').value || null, created_by: currentUserId
       });
-      if (error) throw error;
+      if (error){ if (error.code === '23505') throw new Error('That employee code is already in use.'); throw error; }
       showStatus(statusEl, '"' + name + '" added.', true);
-      $('empName').value = ''; $('empPhone').value = ''; $('empSalary').value = 0; $('empJoining').value = '';
+      $('empCode').value = ''; $('empName').value = ''; $('empPhone').value = ''; $('empSalary').value = 0; $('empJoining').value = '';
       await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects();
+      await loadWastageEmployeeOptions();
     } catch (err){ showStatus(statusEl, err.message || 'Could not save employee.', false); }
     finally { this.disabled = false; }
   });
@@ -2033,32 +2071,85 @@
   function renderEmployeesTable(){
     const tbody = $('employeesTableBody');
     const rows = employees.filter(e => e.is_active);
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No employees yet — add one above.</td></tr>'; return; }
-    tbody.innerHTML = rows.map(e => '<tr><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No employees yet — add one above.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(e => '<tr><td>' + (e.employee_code || '—') + '</td><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
       '<td><div class="row-actions"><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>').join('');
     tbody.querySelectorAll('.emp-del').forEach(btn => btn.addEventListener('click', async function(){
       const e = employees.find(x => x.id === this.dataset.id);
       if (!window.confirm('Deactivate "' + e.name + '"?')) return;
       const { error } = await supabaseClient.from('employees').update({ is_active:false }).eq('id', e.id);
       if (error){ alert(error.message); return; }
-      await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects();
+      await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects(); await loadWastageEmployeeOptions();
     }));
   }
 
   function renderEmployeeSelects(){
     const active = employees.filter(e => e.is_active);
-    const opts = active.map(e => '<option value="' + e.id + '">' + e.name + '</option>').join('') || '<option value="">Add an employee first</option>';
-    const wsPrev = $('wsEmployee').value, salPrev = $('salEmployee').value;
-    $('wsEmployee').innerHTML = opts;
+    const opts = active.map(e => '<option value="' + e.id + '">' + e.name + (e.employee_code ? ' (' + e.employee_code + ')' : '') + '</option>').join('') || '<option value="">Add an employee first</option>';
+    const salPrev = $('salEmployee').value;
     $('salEmployee').innerHTML = opts;
-    if (wsPrev) $('wsEmployee').value = wsPrev;
     if (salPrev) $('salEmployee').value = salPrev;
     else if (active.length) { $('salEmployee').value = active[0].id; loadSalarySummary(); }
   }
 
+  // ---- Excel/CSV import ----
+  $('importEmployeesBtn').addEventListener('click', async function(){
+    const statusEl = $('empImportStatus');
+    const fileInput = $('empImportFile');
+    const file = fileInput.files[0];
+    if (!file){ showStatus(statusEl, 'Choose a file first.', false); return; }
+    this.disabled = true;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:false, dateNF:'yyyy-mm-dd' });
+      if (rows.length === 0) throw new Error('No rows found in that file.');
+
+      const pick = (row, ...keys) => {
+        for (const k of Object.keys(row)){
+          const norm = k.trim().toLowerCase().replace(/[^a-z]/g,'');
+          if (keys.includes(norm)) return row[k];
+        }
+        return '';
+      };
+
+      let added = 0, updated = 0, skipped = 0;
+      for (const row of rows){
+        const code = String(pick(row, 'employeecode','code','empcode') || '').trim();
+        const name = String(pick(row, 'name','employeename') || '').trim();
+        const phone = String(pick(row, 'phone','mobile','phonenumber') || '').trim();
+        const salaryRaw = pick(row, 'monthlysalary','salary');
+        const salary = parseFloat(salaryRaw) || 0;
+        const joiningRaw = pick(row, 'joiningdate','joindate','dateofjoining');
+        let joining = null;
+        if (joiningRaw){
+          const d = new Date(joiningRaw);
+          if (!isNaN(d)) joining = d.toISOString().slice(0,10);
+        }
+        if (!name){ skipped++; continue; }
+
+        if (code){
+          const { data: existing } = await supabaseClient.from('employees').select('id').eq('org_id', currentOrgId).eq('employee_code', code).limit(1);
+          if (existing && existing.length){
+            await supabaseClient.from('employees').update({ name, phone: phone || null, monthly_salary: salary, joining_date: joining }).eq('id', existing[0].id);
+            updated++; continue;
+          }
+        }
+        const { error } = await supabaseClient.from('employees').insert({ org_id: currentOrgId, employee_code: code || null, name, phone: phone || null, monthly_salary: salary, joining_date: joining, created_by: currentUserId });
+        if (error) skipped++; else added++;
+      }
+
+      showStatus(statusEl, added + ' added, ' + updated + ' updated, ' + skipped + ' skipped.', true);
+      fileInput.value = '';
+      await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects(); await loadWastageEmployeeOptions();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not import file.', false); }
+    finally { this.disabled = false; }
+  });
+
   // ---- Wastage reason pills ----
   let wastageReason = 'machine_error';
-  document.querySelectorAll('#panel-employees .pill-toggle .pill').forEach(btn => btn.addEventListener('click', function(){
+  document.querySelectorAll('#wsReasonToggle .pill').forEach(btn => btn.addEventListener('click', function(){
     this.parentElement.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
     this.classList.add('active');
     wastageReason = this.dataset.reason;
@@ -2182,24 +2273,36 @@
     return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
   }
 
+  function monthFirstDay(monthStr){
+    const [y,m] = (monthStr || todayISO().slice(0,7)).split('-').map(Number);
+    return new Date(y, m-1, 1).toISOString().slice(0,10);
+  }
+
   async function loadSalarySummary(){
     const empId = $('salEmployee').value;
     if (!empId) return;
     const emp = employees.find(e => e.id === empId);
     const { from, to } = monthRange($('salMonth').value);
-    const [{ data: wRows }, { data: pRows }] = await Promise.all([
+    const [{ data: wRows }, { data: pRows }, { data: attRows }] = await Promise.all([
       supabaseClient.from('wastage_records').select('*').eq('employee_id', empId).gte('wastage_date', from).lte('wastage_date', to),
-      supabaseClient.from('employee_payments').select('*').eq('employee_id', empId).gte('payment_date', from).lte('payment_date', to)
+      supabaseClient.from('employee_payments').select('*').eq('employee_id', empId).gte('payment_date', from).lte('payment_date', to),
+      supabaseClient.from('employee_monthly_attendance').select('*').eq('employee_id', empId).eq('month', monthFirstDay($('salMonth').value)).limit(1)
     ]);
     empPayments = pRows || [];
     const wastageTotal = (wRows || []).reduce((s,w) => s + Number(w.amount), 0);
     const paidTotal = empPayments.reduce((s,p) => s + Number(p.amount), 0);
     const baseSalary = emp ? Number(emp.monthly_salary) : 0;
-    const netPayable = baseSalary - wastageTotal - paidTotal;
+
+    const attendance = (attRows && attRows[0]) || null;
+    $('salDaysWorked').value = attendance ? attendance.total_days : '';
+    $('salStandardDays').value = attendance ? attendance.standard_days : 26;
+    const proratedSalary = attendance ? (baseSalary * Number(attendance.total_days) / Number(attendance.standard_days)) : baseSalary;
+    const netPayable = proratedSalary - wastageTotal - paidTotal;
 
     $('salarySummary').innerHTML =
       '<div class="totals-box" style="margin-left:0; width:100%; max-width:100%;">' +
-      '<div class="t-row"><span>Monthly salary</span><span>' + fmtMoney(baseSalary) + '</span></div>' +
+      '<div class="t-row"><span>Monthly salary (full)</span><span>' + fmtMoney(baseSalary) + '</span></div>' +
+      (attendance ? '<div class="t-row"><span>Prorated for ' + fmtQty(attendance.total_days) + ' of ' + fmtQty(attendance.standard_days) + ' days</span><span>' + fmtMoney(proratedSalary) + '</span></div>' : '<div class="t-row"><span>Days worked</span><span>Not set — using full salary</span></div>') +
       '<div class="t-row"><span>Wastage charged (' + (wRows || []).length + ' entries)</span><span class="amt-neg">− ' + fmtMoney(wastageTotal) + '</span></div>' +
       '<div class="t-row"><span>Already paid this month</span><span class="amt-neg">− ' + fmtMoney(paidTotal) + '</span></div>' +
       '<div class="t-row grand"><span>Balance still due</span><span>' + fmtMoney(netPayable) + '</span></div>' +
@@ -2209,6 +2312,26 @@
     tbody.innerHTML = empPayments.length ? empPayments.map(p => '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + p.type + '</td><td>' + fmtMoney(p.amount) + '</td><td>' + (p.note || '—') + '</td></tr>').join('')
       : '<tr class="empty-row"><td colspan="4">No payments recorded this month.</td></tr>';
   }
+
+  $('saveAttendanceBtn').addEventListener('click', async function(){
+    const statusEl = $('attendanceStatus');
+    const empId = $('salEmployee').value;
+    const totalDays = parseFloat($('salDaysWorked').value);
+    const standardDays = parseFloat($('salStandardDays').value) || 26;
+    if (!empId){ showStatus(statusEl, 'Choose an employee.', false); return; }
+    if (isNaN(totalDays) || totalDays < 0){ showStatus(statusEl, 'Enter total days worked.', false); return; }
+    this.disabled = true;
+    try {
+      const { error } = await supabaseClient.from('employee_monthly_attendance').upsert({
+        org_id: currentOrgId, employee_id: empId, month: monthFirstDay($('salMonth').value),
+        total_days: totalDays, standard_days: standardDays, created_by: currentUserId, updated_at: new Date().toISOString()
+      }, { onConflict: 'org_id,employee_id,month' });
+      if (error) throw error;
+      showStatus(statusEl, 'Attendance saved.', true);
+      await loadSalarySummary();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not save attendance.', false); }
+    finally { this.disabled = false; }
+  });
 
   $('saveEmpPaymentBtn').addEventListener('click', async function(){
     const statusEl = $('empPaymentStatus');
