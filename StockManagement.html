@@ -480,10 +480,10 @@
           <label class="show-inactive-wrap"><input type="checkbox" id="showInactive"> Show discontinued items</label>
           <table class="data-table">
             <thead>
-              <tr><th>Item</th><th>Unit</th><th>In</th><th>Out</th><th>Remaining</th><th>Status</th><th>Last movement</th><th></th></tr>
+              <tr><th>Item</th><th>Unit</th><th>In</th><th>Out</th><th>Wastage</th><th>Remaining</th><th>Status</th><th>Last movement</th><th></th></tr>
             </thead>
             <tbody id="stockTableBody">
-              <tr class="empty-row"><td colspan="8">Loading stock…</td></tr>
+              <tr class="empty-row"><td colspan="9">Loading stock…</td></tr>
             </tbody>
           </table>
         </section>
@@ -1152,6 +1152,7 @@
 
   // ---------------- Shared state ----------------
   let materials = [], movements = [], profilesMap = {};
+  let wastageSummaryMap = {};
   let parties = [], partyBalances = {};
   let invoicesSale = [], invoicesPurchase = [], invoicesEstimate = [];
   let payments = [], expenses = [];
@@ -1325,8 +1326,14 @@
     return error ? 0 : (count || 0);
   }
 
+  async function loadWastageSummary(){
+    const { data, error } = await supabaseClient.from('stock_wastage_summary').select('*').eq('org_id', currentOrgId);
+    wastageSummaryMap = {};
+    if (!error) (data || []).forEach(w => { wastageSummaryMap[w.material_id] = Number(w.total_wastage); });
+  }
+
   async function refreshStockPanel(){
-    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements() ]);
+    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary() ]);
     const todayCount = await loadTodayCount();
     renderStats(todayCount);
     renderMaterialSelect();
@@ -1477,20 +1484,23 @@
     if (searchTerm) rows = rows.filter(m => m.name.toLowerCase().includes(searchTerm) || m.category.toLowerCase().includes(searchTerm));
 
     const tbody = $('stockTableBody');
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No items match — adjust filters or add a new item above.</td></tr>'; return; }
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No items match — adjust filters or add a new item above.</td></tr>'; return; }
     tbody.innerHTML = rows.map(m => {
       const status = m.is_active ? statusFor(m) : 'inactive';
       const statusLabel = { ok:'OK', low:'LOW', out:'OUT', inactive:'DISCONTINUED' }[status];
       const lastMv = m.last_movement_at ? timeAgo(m.last_movement_at) : 'never';
+      const wastageQty = wastageSummaryMap[m.material_id] || 0;
       return '<tr class="' + (m.is_active ? '' : 'inactive-row') + '">' +
         '<td><div class="item-name">' + m.name + '</div><div class="item-cat">' + m.category + '</div></td>' +
         '<td>' + m.unit + '</td><td>' + fmtQty(m.total_in) + '</td><td>' + fmtQty(m.total_out) + '</td>' +
+        '<td>' + (wastageQty > 0 ? '<span class="amt-neg">' + fmtQty(wastageQty) + '</span>' : '—') + '</td>' +
         '<td><span class="remaining-val">' + fmtQty(m.remaining) + '</span></td>' +
         '<td><span class="status-badge ' + status + '">' + statusLabel + '</span></td>' +
         '<td class="last-mv">' + lastMv + '</td>' +
         '<td><div class="row-actions">' +
           '<button class="quick-in" data-id="' + m.material_id + '" title="Quick entry">+</button>' +
           '<button class="quick-out" data-id="' + m.material_id + '" title="Quick exit">−</button>' +
+          '<button class="quick-wastage" data-id="' + m.material_id + '" title="Record wastage">🗑</button>' +
           '<button class="quick-reorder" data-id="' + m.material_id + '" title="Set low-stock alert">✎</button>' +
           '<button class="quick-toggle danger" data-id="' + m.material_id + '" title="' + (m.is_active ? 'Discontinue item' : 'Reactivate item') + '">' + (m.is_active ? '⦸' : '↺') + '</button>' +
         '</div></td></tr>';
@@ -1503,6 +1513,15 @@
       document.querySelector('#panel-stock .pill-toggle .pill[data-type="' + type + '"]').classList.add('active');
       movType = type; $('recordBtnLabel').textContent = type === 'entry' ? 'Record Entry' : 'Record Exit';
       updateMovHint(); window.scrollTo({ top:0, behavior:'smooth' }); $('movQty').focus();
+    }));
+    tbody.querySelectorAll('.quick-wastage').forEach(btn => btn.addEventListener('click', function(){
+      document.querySelector('.nav-tab[data-nav="employees"]').click();
+      setTimeout(() => {
+        $('wsMaterial').value = this.dataset.id;
+        updateWastageHint();
+        $('wsMaterial').scrollIntoView({ behavior:'smooth', block:'center' });
+        $('wsQty').focus();
+      }, 50);
     }));
     tbody.querySelectorAll('.quick-reorder').forEach(btn => btn.addEventListener('click', async function(){
       const m = materials.find(x => x.material_id === this.dataset.id);
@@ -1549,8 +1568,8 @@
 
   // ---- CSV export ----
   $('exportCsvBtn').addEventListener('click', function(){
-    const rows = [['Category','Item','Unit','In','Out','Remaining','Reorder Level','Status','Last Movement']];
-    materials.filter(m => m.is_active).forEach(m => rows.push([m.category, m.name, m.unit, m.total_in, m.total_out, m.remaining, m.reorder_level ?? '', statusFor(m).toUpperCase(), m.last_movement_at ? fmtDateTime(m.last_movement_at) : '']));
+    const rows = [['Category','Item','Unit','In','Out','Wastage','Remaining','Reorder Level','Status','Last Movement']];
+    materials.filter(m => m.is_active).forEach(m => rows.push([m.category, m.name, m.unit, m.total_in, m.total_out, wastageSummaryMap[m.material_id] || 0, m.remaining, m.reorder_level ?? '', statusFor(m).toUpperCase(), m.last_movement_at ? fmtDateTime(m.last_movement_at) : '']));
     downloadCsv(rows, 'soulful-events-stock-' + todayISO() + '.csv');
   });
   function downloadCsv(rows, filename){
