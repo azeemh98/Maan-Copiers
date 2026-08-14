@@ -2073,7 +2073,18 @@
     const rows = employees.filter(e => e.is_active);
     if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No employees yet — add one above.</td></tr>'; return; }
     tbody.innerHTML = rows.map(e => '<tr><td>' + (e.employee_code || '—') + '</td><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
-      '<td><div class="row-actions"><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>').join('');
+      '<td><div class="row-actions"><button class="emp-edit-salary" data-id="' + e.id + '" title="Edit salary">✎</button><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>').join('');
+    tbody.querySelectorAll('.emp-edit-salary').forEach(btn => btn.addEventListener('click', async function(){
+      const e = employees.find(x => x.id === this.dataset.id);
+      const val = window.prompt('New monthly salary for "' + e.name + '" (₹)', e.monthly_salary);
+      if (val === null) return;
+      const salary = parseFloat(val);
+      if (isNaN(salary) || salary < 0){ alert('Enter a valid amount.'); return; }
+      const { error } = await supabaseClient.from('employees').update({ monthly_salary: salary }).eq('id', e.id);
+      if (error){ alert(error.message); return; }
+      await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects();
+      if ($('salEmployee').value === e.id) await loadSalarySummary();
+    }));
     tbody.querySelectorAll('.emp-del').forEach(btn => btn.addEventListener('click', async function(){
       const e = employees.find(x => x.id === this.dataset.id);
       if (!window.confirm('Deactivate "' + e.name + '"?')) return;
