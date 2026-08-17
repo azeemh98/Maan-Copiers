@@ -2072,7 +2072,7 @@
         '<td class="last-mv">' + timeAgo(t.created_at) + '</td>' +
         '<td><div class="row-actions">' +
           '<button class="tk-view" data-id="' + t.id + '" title="View / Print">🖨</button>' +
-          (t.payment_status !== 'paid' ? '<button class="tk-pay" data-id="' + t.id + '" title="Mark paid">₹</button>' : '') +
+          (t.payment_status !== 'paid' && !isWalkinOnly ? '<button class="tk-pay" data-id="' + t.id + '" title="Mark paid">₹</button>' : '') +
         '</div></td></tr>';
     }).join('');
     tbody.querySelectorAll('.tk-status').forEach(sel => sel.addEventListener('change', async function(){
@@ -2154,6 +2154,7 @@
   }
 
   async function markTicketPaid(ticket){
+    if (isWalkinOnly){ alert('You are not authorized for this — payment recording is handled by regular staff or an admin.'); return; }
     const modeInput = window.prompt('Payment mode for ' + ticket.ticket_no + ' — cash, bank, upi, cheque, or other', 'cash');
     if (modeInput === null) return;
     const mode = ['cash','bank','upi','cheque','other'].includes(modeInput.trim().toLowerCase()) ? modeInput.trim().toLowerCase() : 'cash';
