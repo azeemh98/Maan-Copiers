@@ -1214,7 +1214,7 @@
         await supabaseClient.auth.signOut();
         throw new Error("Your account isn't linked to an organization yet — contact your admin.");
       }
-      currentOrgId = m.org_id; isAdmin = m.role === 'admin'; currentUserId = data.session.user.id;
+      currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; currentUserId = data.session.user.id;
       showApp(data.session);
     } catch (err){
       const errEl = $('authError');
