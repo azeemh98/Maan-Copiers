@@ -41,6 +41,7 @@
   .nav-tab svg{ width:16px; height:16px; flex-shrink:0; opacity:0.85; }
   .nav-tab.active svg{ opacity:1; }
   body:not(.is-admin) .nav-tab[data-nav="employees"]{ display:none !important; }
+  body.is-walkin-only .nav-tab:not([data-nav="tickets"]){ display:none !important; }
 
   /* Printing-shop graphics */
   .brand-mark svg{ width:20px; height:20px; }
@@ -252,8 +253,12 @@
   .thermal-slip table{ width:100%; border-collapse:collapse; margin:6px 0; }
   .thermal-slip td{ padding:2px 0; vertical-align:top; }
   .thermal-slip .t-foot{ margin-top:8px; font-size:11px; text-align:center; }
+  .thermal-copy{ padding-bottom:6px; }
+  .thermal-cut{ text-align:center; font-size:11px; color:#999; margin:10px 0; letter-spacing:0.05em; }
   @media print{
     .thermal-slip{ width:100%; }
+    .thermal-copy{ page-break-inside:avoid; }
+    .thermal-cut{ page-break-after:always; }
   }
 
   /* Auth gate */
@@ -595,6 +600,12 @@
 
         <section class="card">
           <h2>New Walk-in Job Ticket</h2>
+          <div class="field">
+            <label for="tkPartySearch">Search existing customer (optional)</label>
+            <input type="text" id="tkPartySearch" list="tkPartyDatalist" placeholder="Type a name or phone to find a saved customer…" autocomplete="off">
+            <datalist id="tkPartyDatalist"></datalist>
+            <div class="hint" id="tkPartyHint">Pick a saved customer to auto-fill their details, or just type a name below for a one-off walk-in.</div>
+          </div>
           <div class="row2">
             <div class="field"><label for="tkCustomerName">Customer name (optional)</label><input type="text" id="tkCustomerName" placeholder="Walk-in customer"></div>
             <div class="field"><label for="tkPhone">Phone (optional)</label><input type="tel" id="tkPhone" placeholder="10-digit mobile"></div>
@@ -1073,6 +1084,15 @@
       <div class="status-msg" id="settingsStatus"></div>
       <div class="hint" id="settingsAdminHint" style="margin-top:10px;"></div>
     </section>
+
+    <section class="card" id="teamAccessCard" style="display:none;">
+      <h2>Team Access</h2>
+      <div class="hint" style="margin-bottom:14px;">Control what each signed-in person can do. <b>Admin</b> = full access. <b>User</b> = everything except Employees/salary data. <b>Walk-in Jobs only</b> = can only use the Walk-in Jobs tab — nothing else.</div>
+      <table class="data-table">
+        <thead><tr><th>Email</th><th>Username</th><th>Access level</th></tr></thead>
+        <tbody id="teamAccessTableBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
+      </table>
+    </section>
   </section>
 
 </main>
@@ -1093,6 +1113,7 @@
   let currentOrgId = null;
   let currentUserId = null;
   let isAdmin = false;
+  let isWalkinOnly = false;
   let org = { name:'', gstin:'', biz_state:'', address:'' };
 
   // The one organization this deployment serves. If a signed-in user has no membership yet
@@ -1119,12 +1140,23 @@
     // content even if it's somehow reached directly (old cached tab, devtools, etc).
     // The actual data is protected server-side by RLS regardless of any of this.
     const employeesTab = document.querySelector('.nav-tab[data-nav="employees"]');
-    if (employeesTab) employeesTab.style.display = isAdmin ? 'inline-flex' : 'none';
+    if (employeesTab) employeesTab.style.display = (isAdmin && !isWalkinOnly) ? 'inline-flex' : 'none';
     document.body.classList.toggle('is-admin', isAdmin);
     $('employeesAccessDenied').style.display = isAdmin ? 'none' : 'block';
     $('employeesPanelBody').style.display = isAdmin ? 'grid' : 'none';
-    if (!isAdmin && document.getElementById('panel-employees').classList.contains('active')){
-      // If a non-admin somehow lands directly on this panel, bounce them back to Stock.
+
+    // Walk-in-only staff: every tab except Walk-in Jobs is hidden, and they get bounced
+    // back to it if they somehow land elsewhere. RLS blocks the underlying data too,
+    // so this is a UX convenience on top of a real server-side restriction, not the only wall.
+    document.body.classList.toggle('is-walkin-only', isWalkinOnly);
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+      if (isWalkinOnly && tab.dataset.nav !== 'tickets') tab.style.display = 'none';
+    });
+
+    const activePanel = document.querySelector('.section-panel.active');
+    if (isWalkinOnly && activePanel && activePanel.id !== 'panel-tickets'){
+      document.querySelector('.nav-tab[data-nav="tickets"]').click();
+    } else if (!isAdmin && !isWalkinOnly && activePanel && activePanel.id === 'panel-employees'){
       document.querySelector('.nav-tab[data-nav="stock"]').click();
     }
   }
@@ -1161,7 +1193,7 @@
       showAuthGate('Your account isn\'t linked to an organization yet — contact your admin.');
       return;
     }
-    currentOrgId = m.org_id; isAdmin = m.role === 'admin'; currentUserId = session.user.id;
+    currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; currentUserId = session.user.id;
     showApp(session);
   }
 
@@ -1195,16 +1227,24 @@
   // ====================================================================
 
   const DEFAULT_CATALOG = [
-    { category: 'Gumming Sheets', unit: 'sheet', items: ['Relcro', 'Fasson', 'Transparent', 'Relcro Vinyl', 'Fasson Vinyl', 'Velvet', 'Silver'] },
-    { category: 'Vinyl & Flex', unit: 'sheet', items: ['Vinyl', 'Flex', 'Blackback', 'Grey Back'] },
-    { category: '300–350 GSM Board', unit: 'sheet', items: ['FRC', 'Gold Coin', 'Pindo', 'Textured', 'Egg Shell'] }
+    { category: 'Gumming Sheets', unit: 'sheet', items: ['Relcro', 'Fasson 13X19','Fasson 20X30', 'Fasson TP', 'Relcro Vinyl', 'Fasson Vinyl', 'Silver', 'Rainbow', 'Golden', 'Gumming', 'Chromo', 'Half Cut', 'Technova', 'Super'] },
+    { category: 'Vinyl & Flex', unit: 'Rolls/SqFt', items: ['Vinyl 3 Ft', 'Vinyl 4 Ft','Vinyl 5 Ft',  'FL 3 Ft', 'FL 4 Ft', 'FL 5 Ft','FL 6 Ft', 'FL 8 Ft', 'FL 10 Ft', 'BB 3 Ft', 'BB 4 Ft', 'BB 5 Ft', 'BB 6 Ft', 'BB 8 Ft', 'BB 10 Ft', 'BB Matte 10 Ft', 'Vinyl Grey Back 3 Ft', 'Retro FL 3 Ft', 'Retro FL 4 Ft', 'Retro FL 5 Ft', 'Retro FL 6 Ft', 'Translight 3 Ft', 'Glossy Lam 3 Ft', 'Glossy Lam 4 Ft', 'Glossy Lam 5 Ft', 'Matte Lam 4 Ft', 'Matte Lam 3 Ft'] },
+    { category: 'Sun Boards', unit: 'SqFt', items: ['Sun Board 3mm 6X3', 'Sun Board 3mm 8X3', 'Sun Board 3mm 8X4', 'Sun Board 5mm 6X3', 'Sun Board 5mm 8X3', 'Sun Board 5mm 8X4'] },
+    { category: 'Sheets', unit: 'sheet', items: ['FRC', 'Gold Coin 130', 'Gold Coin 170', 'Gold Coin 250', '250 GSM 11X36', '250 GSM 13X36', 'Gold Coin 300', '300 GSM 13X25', 'Gold Coin 350', '450 GSM 10X23', '450 GSM 13X30 ', '450 GSM 9X30', '450 GSM 13X19', 'ITC 13X19', 'NTR 130', 'NTR 160', 'NTR 200', 'Butter Paper A3', 'Wrapping Paper 11.5X23', 'Translight 13X19', 'Seed Paper 13X19', 'Brown Sheet 13X19', 'High Gloss 13X19', 'Marksheet', 'PVC Sheet'] },
+    { category: 'Papers', unit: 'sheet', items: ['A3 100', '70 GSM 11.5X18', '70 GSM 12X17', '80 GSM 12X17', 'Bond 85GSM 12X17', 'Bond 100GSM 12X17', 'Cedar 130 GSM 12X18', 'A4 75 GSM', 'A4 65 GSM', 'Legal', 'Photo Paper A4'] },
+    { category: 'Misc', unit: 'Mix', items: ['Brown Tape', 'Clear Tape', 'Double Sided Tape', 'Foam Tape', 'Masking Tape', 'Bond', 'Visiting Card Box', 'Photo Frame', 'Iron Frame', 'Order Book', 'Ribbon', 'Cases (ID)'] },
+    { category: 'Inks & Toners', unit: 'piece', items: ['White Toner', 'Super Toner', 'Black Toner'] },
+    { category: 'Textured Sheets', unit: 'Sheet', items: ['Canvas', 'Craft Cream', 'Craft White', 'Cream Cross', 'Dark Golden', 'Diamond 12X18', 'Diamond 13X19', 'Dotted', 'Egg Shell', 'Line', 'Metalic Line', 'Mix 11X23', 'Mix 13X19', 'Paani Laher', 'Small Dotted', 'Square', 'Velvet', 'White'] },
+    { category: 'Other', unit: 'piece', items: ['Spiral Binding', 'Wiro Binding', 'Lamination A4', 'Lamination A3', 'Glossy Lamination', 'Matte Lamination', 'Velvet Lamination', 'Roll-Up Standee', 'Envelopes'] }
   ];
   const TAX_RATES = [0, 5, 12, 18, 28];
   const DEFAULT_SERVICES = [
     { category: 'Printout', unit: 'page', items: ['Printout B&W', 'Printout Color'] },
     { category: 'Photocopy', unit: 'page', items: ['Photocopy B&W', 'Photocopy Color'] },
     { category: 'Lamination', unit: 'sheet', items: ['Lamination A4', 'Lamination A3'] },
-    { category: 'Binding', unit: 'piece', items: ['Spiral Binding', 'Wiro Binding'] }
+    { category: 'Binding', unit: 'piece', items: ['Spiral Binding', 'Wiro Binding'] },
+    { category: 'Designing', unit: 'hour', items: ['Graphic Designing', 'Photo Editing', 'Typing'] },
+    { category: 'Others', unit: 'piece', items: ['Roll-Up Standee', 'Envelopes', 'Photo Frame', 'Passport Photo'] }
   ];
 
   // ---------------- Shared state ----------------
@@ -1274,10 +1314,11 @@
   };
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', function(){
+      const nav = this.dataset.nav;
+      if (isWalkinOnly && nav !== 'tickets') return; // walk-in-only staff cannot navigate anywhere else
       document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
       this.classList.add('active');
-      const nav = this.dataset.nav;
       $('panel-' + nav).classList.add('active');
       $('pageTitle').textContent = PAGE_META[nav][0];
       $('pageSub').textContent = PAGE_META[nav][1];
@@ -1308,6 +1349,7 @@
     renderInvoicesTable();
     renderPaymentsTable();
     renderExpenseList();
+    renderTicketPartyDatalist();
   }
 
   // ======================================================================
@@ -1328,6 +1370,33 @@
     $('setMyEmail').value = user?.email || '';
     const { data: prof } = await supabaseClient.from('profiles').select('username').eq('id', currentUserId).single();
     $('setMyUsername').value = prof?.username || '';
+
+    $('teamAccessCard').style.display = isAdmin ? 'block' : 'none';
+    if (isAdmin) await loadTeamAccess();
+  }
+
+  const ROLE_LABEL = { admin:'Admin', user:'User', walkin_only:'Walk-in Jobs only' };
+  async function loadTeamAccess(){
+    const { data, error } = await supabaseClient.rpc('list_org_members', { p_org_id: currentOrgId });
+    const tbody = $('teamAccessTableBody');
+    if (error || !data || data.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="3">Could not load team members.</td></tr>'; return; }
+    tbody.innerHTML = data.map(m => {
+      const opts = Object.keys(ROLE_LABEL).map(r => '<option value="' + r + '"' + (r === m.role ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>').join('');
+      return '<tr><td>' + m.email + '</td><td>' + (m.username || '—') + '</td><td><select class="team-role-select" data-uid="' + m.user_id + '">' + opts + '</select></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('.team-role-select').forEach(sel => sel.addEventListener('change', async function(){
+      const uid = this.dataset.uid;
+      const newRole = this.value;
+      if (uid === currentUserId && newRole !== 'admin' && !window.confirm('This changes your own access level — you may lose admin access immediately. Continue?')) { await loadTeamAccess(); return; }
+      this.disabled = true;
+      const { error } = await supabaseClient.rpc('set_member_role', { p_org_id: currentOrgId, p_user_id: uid, p_role: newRole });
+      this.disabled = false;
+      if (error){ alert(error.message); await loadTeamAccess(); return; }
+      if (uid === currentUserId){
+        isAdmin = newRole === 'admin'; isWalkinOnly = newRole === 'walkin_only';
+        applyAdminGating();
+      }
+    }));
   }
   $('saveSettingsBtn').addEventListener('click', async function(){
     const statusEl = $('settingsStatus');
@@ -1376,7 +1445,7 @@
     materials = error ? [] : (data || []);
   }
   async function loadProfiles(){
-    const { data, error } = await supabaseClient.from('profiles').select('id, full_name, email');
+    const { data, error } = await supabaseClient.from('profiles').select('id, full_name, email, username');
     if (error) return;
     profilesMap = {};
     (data || []).forEach(p => { profilesMap[p.id] = p; });
@@ -1847,12 +1916,34 @@
 
   // ---- Ticket line items ----
   function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0 }; }
+  let selectedTicketPartyId = null;
   function resetTicketForm(){
     ticketLineItems = [newTicketLineRow()];
     renderTicketLineItems();
     $('tkCustomerName').value = ''; $('tkPhone').value = ''; $('tkNotes').value = ''; $('tkExpected').value = '';
+    $('tkPartySearch').value = ''; selectedTicketPartyId = null;
   }
   $('tkAddLineBtn').addEventListener('click', () => { ticketLineItems.push(newTicketLineRow()); renderTicketLineItems(); });
+
+  // ---- Party search for tickets (works for full members and walk-in-only staff alike) ----
+  function renderTicketPartyDatalist(){
+    const dl = $('tkPartyDatalist');
+    dl.innerHTML = parties.filter(p => p.is_active).map(p =>
+      '<option data-id="' + p.id + '" value="' + (p.name + (p.phone ? ' — ' + p.phone : '')).replace(/"/g,'&quot;') + '"></option>'
+    ).join('');
+  }
+  $('tkPartySearch').addEventListener('input', function(){
+    const match = parties.find(p => p.is_active && (p.name + (p.phone ? ' — ' + p.phone : '')) === this.value);
+    if (match){
+      selectedTicketPartyId = match.id;
+      $('tkCustomerName').value = match.name;
+      $('tkPhone').value = match.phone || '';
+      $('tkPartyHint').textContent = 'Linked to saved customer "' + match.name + '".';
+    } else {
+      selectedTicketPartyId = null;
+      $('tkPartyHint').textContent = 'Pick a saved customer to auto-fill their details, or just type a name below for a one-off walk-in.';
+    }
+  });
 
   function renderTicketServiceOptions(){
     // re-render whatever line item selects currently exist, in case the catalog changed
@@ -1916,7 +2007,7 @@
       const subtotal = computeTicketTotal();
 
       const { data: tkRow, error: tkErr } = await supabaseClient.from('job_tickets').insert({
-        org_id: currentOrgId, ticket_no: ticketNo,
+        org_id: currentOrgId, ticket_no: ticketNo, party_id: selectedTicketPartyId,
         customer_name: $('tkCustomerName').value.trim() || null, phone: $('tkPhone').value.trim() || null,
         subtotal, notes: $('tkNotes').value.trim() || null,
         expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
@@ -2009,9 +2100,14 @@
   }
 
   // ---- Thermal print preview ----
-  function openTicketPrintPreview(ticket, items){
+  const SLIP_COPY_LABELS = ['SHOP COPY', 'CUSTOMER COPY', 'RECORD COPY'];
+
+  function buildSlipHtml(ticket, items, copyLabel){
     const lines = items.map(li => '<tr><td>' + li.description + (li.unit ? ' (' + li.unit + ')' : '') + '<br>' + fmtQty(li.quantity) + ' × ' + fmtMoney(li.rate) + '</td><td style="text-align:right;">' + fmtMoney(li.amount) + '</td></tr>').join('');
-    const html =
+    const handler = profilesMap[ticket.created_by];
+    const handlerName = handler ? (handler.username || handler.full_name || handler.email) : 'Unknown';
+    return (
+      '<div class="t-center" style="font-size:10px; letter-spacing:0.08em; color:#555;">' + copyLabel + '</div>' +
       '<div class="t-center"><b>JOB WORK</b></div>' +
       (org.address ? '<div class="t-center">' + org.address + '</div>' : '') +
       (org.gstin ? '<div class="t-center">GSTIN: ' + org.gstin + '</div>' : '') +
@@ -2029,8 +2125,17 @@
       '<div class="t-row"><span>Payment</span><span>' + ticket.payment_status.toUpperCase() + '</span></div>' +
       (ticket.notes ? '<div class="t-rule"></div><div>' + ticket.notes + '</div>' : '') +
       '<div class="t-rule"></div>' +
-      '<div class="t-foot">Please keep this slip for collection.<br>Thank you for your business!</div>';
-    $('thermalSlipBody').innerHTML = html;
+      '<div class="t-row"><span>Job taken by</span><span>' + handlerName + '</span></div>' +
+      '<div class="t-foot">Please keep this slip for collection.<br>Thank you for your business!</div>'
+    );
+  }
+
+  function openTicketPrintPreview(ticket, items){
+    const copies = SLIP_COPY_LABELS.map((label, i) =>
+      '<div class="thermal-copy">' + buildSlipHtml(ticket, items, label) + '</div>' +
+      (i < SLIP_COPY_LABELS.length - 1 ? '<div class="thermal-cut">✂- - - - - - - - - - - - - - - - - - -</div>' : '')
+    ).join('');
+    $('thermalSlipBody').innerHTML = copies;
     $('ticketPreview').classList.add('show');
     $('ticketPreview').scrollIntoView({ behavior:'smooth' });
   }
