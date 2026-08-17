@@ -282,6 +282,20 @@
     background:none; border:1px solid rgba(255,255,255,0.3); color:#fff; border-radius:5px;
     padding:5px 10px; font-family:'Inter'; font-size:11.5px; cursor:pointer;
   }
+  #modeToggleBtn{ font-weight:700; letter-spacing:0.01em; display:inline-flex; align-items:center; gap:6px; }
+  #modeToggleBtn .dot{ width:7px; height:7px; border-radius:50%; background:#3DDC84; flex-shrink:0; }
+  body.demo-mode #modeToggleBtn{ background:rgba(240,164,20,0.18); border-color:#F0A414; color:#FFD9A0; }
+  body.demo-mode #modeToggleBtn .dot{ background:#F0A414; }
+  #demoBanner{
+    display:none; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;
+    background:#F0A414; color:#3A2600; font-weight:700; font-size:12.5px; text-align:center;
+    padding:9px 20px;
+  }
+  body.demo-mode #demoBanner{ display:flex; }
+  #demoBanner button{
+    background:#3A2600; color:#fff; border:none; border-radius:5px; padding:5px 12px;
+    font-family:'Inter'; font-weight:700; font-size:11.5px; cursor:pointer;
+  }
   footer{ text-align:center; padding:22px 20px 40px; font-size:12px; color:var(--faint); }
 
   @media print{
@@ -335,11 +349,13 @@
       </div>
     </div>
     <div id="userBar">
+      <button id="modeToggleBtn" title="Switch between Live and Demo data"></button>
       <span id="userEmail"></span>
       <button id="signOutBtn">Sign out</button>
     </div>
   </div>
 </div>
+<div id="demoBanner">🧪 DEMO MODE — this is practice data. Nothing here affects real stock, sales, or customer records. <button id="demoBannerExit">Switch to Live</button></div>
 
 <header class="page-head">
   <div>
@@ -1116,24 +1132,41 @@
   let isWalkinOnly = false;
   let org = { name:'', gstin:'', biz_state:'', address:'' };
 
-  // The one organization this deployment serves. If a signed-in user has no membership yet
-  // and this org genuinely has zero members (fresh setup), they're auto-linked as its first
-  // admin — see bootstrap_first_admin(): it refuses once the org already has any member.
-  const MAAN_COPIERS_ORG_ID = 'd7334fe5-1e03-4092-8f43-555113fcda96';
+  // Two parallel organizations behind one login: real business data, and an isolated
+  // practice copy (auto-seeded with the same catalog) for training/demos without ever
+  // touching real stock, sales, or customer records. The Live/Demo toggle just swaps
+  // which org id everything below queries — same tables, same RLS, different rows.
+  const ORG_IDS = {
+    live: 'd7334fe5-1e03-4092-8f43-555113fcda96',
+    demo: 'd7334fe5-1e03-4092-8f43-555113fcda97'
+  };
+  let appMode = localStorage.getItem('mc_mode') === 'demo' ? 'demo' : 'live';
 
-  async function fetchMembership(){
-    const { data, error } = await supabaseClient.from('memberships').select('org_id, role').limit(1).single();
+  async function fetchMembership(orgId){
+    const { data, error } = await supabaseClient.from('memberships').select('org_id, role').eq('org_id', orgId).limit(1).single();
     if (error || !data) return null;
     return data;
   }
 
-  async function fetchOrBootstrapMembership(){
-    let m = await fetchMembership();
+  async function fetchOrBootstrapMembership(orgId){
+    let m = await fetchMembership(orgId);
     if (m) return m;
-    const { error } = await supabaseClient.rpc('bootstrap_first_admin', { target_org_id: MAAN_COPIERS_ORG_ID });
+    const { error } = await supabaseClient.rpc('bootstrap_first_admin', { target_org_id: orgId });
     if (error) return null;
-    return await fetchMembership();
+    return await fetchMembership(orgId);
   }
+
+  function applyModeUI(){
+    document.body.classList.toggle('demo-mode', appMode === 'demo');
+    $('modeToggleBtn').innerHTML = '<span class="dot"></span>' + (appMode === 'demo' ? 'Demo Mode' : 'Live');
+  }
+  function switchMode(newMode){
+    if (newMode === appMode) return;
+    localStorage.setItem('mc_mode', newMode);
+    location.reload();
+  }
+  $('modeToggleBtn').addEventListener('click', () => switchMode(appMode === 'live' ? 'demo' : 'live'));
+  $('demoBannerExit').addEventListener('click', () => switchMode('live'));
 
   function applyAdminGating(){
     // Belt-and-braces: hide the nav entry point AND refuse to render the panel's real
@@ -1166,6 +1199,7 @@
     $('appShell').style.display = 'block';
     $('userBar').style.display = 'flex';
     $('userEmail').textContent = session?.user?.email || '';
+    applyModeUI();
     applyAdminGating();
     loadEverything();
   }
@@ -1187,7 +1221,7 @@
   async function initAuth(){
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session){ showAuthGate(); return; }
-    const m = await fetchOrBootstrapMembership();
+    const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
     if (!m){
       await supabaseClient.auth.signOut();
       showAuthGate('Your account isn\'t linked to an organization yet — contact your admin.');
@@ -1209,7 +1243,7 @@
       if (lookupErr || !email) throw new Error('Invalid username or password');
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) throw new Error('Invalid username or password');
-      const m = await fetchOrBootstrapMembership();
+      const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
       if (!m){
         await supabaseClient.auth.signOut();
         throw new Error("Your account isn't linked to an organization yet — contact your admin.");
