@@ -1258,7 +1258,7 @@
   let invType = 'sale';
   let lineItems = [];
   let openLedgerPartyId = null;
-  let services = [], tickets = [];
+  let services = [], tickets = [], ticketMaterials = [];
   let ticketLineItems = [], ticketStatusFilter = 'all', walkInPartyId = null;
   let employees = [], wastageRecords = [], wastageReasonFilter = 'all';
   let empPayments = [];
@@ -1856,6 +1856,15 @@
     services = error ? [] : (data || []);
   }
 
+  // Stock catalog (sheets, vinyl/stickers, etc.) offered alongside Services when building a
+  // ticket line, so staff can pick the exact material a job needs instead of typing it out.
+  // Uses a security-definer RPC (not the stock_materials table directly) so walk-in-only staff
+  // can see the catalog names without gaining access to stock levels/wastage data.
+  async function loadTicketMaterials(){
+    const { data, error } = await supabaseClient.rpc('list_active_materials', { p_org_id: currentOrgId });
+    ticketMaterials = error ? [] : (data || []);
+  }
+
   toggleCollapsible($('addTicketToggle'), $('addTicketBody'));
 
   function renderServiceCategorySelect(){
@@ -1949,9 +1958,22 @@
     // re-render whatever line item selects currently exist, in case the catalog changed
     renderTicketLineItems();
   }
-  function serviceOptionsHtml(selectedId){
+  function serviceOptionsHtml(selectedValue){
     let html = '<option value="">— custom —</option>';
-    services.filter(s => s.is_active).forEach(s => html += '<option value="' + s.id + '"' + (s.id === selectedId ? ' selected' : '') + '>' + s.name + ' (' + s.category + ')</option>');
+    const svcByCat = {};
+    services.filter(s => s.is_active).forEach(s => (svcByCat[s.category] = svcByCat[s.category] || []).push(s));
+    Object.keys(svcByCat).sort().forEach(cat => {
+      html += '<optgroup label="' + cat + '">';
+      svcByCat[cat].forEach(s => html += '<option value="svc:' + s.id + '"' + ('svc:' + s.id === selectedValue ? ' selected' : '') + '>' + s.name + '</option>');
+      html += '</optgroup>';
+    });
+    const matByCat = {};
+    ticketMaterials.forEach(m => (matByCat[m.category] = matByCat[m.category] || []).push(m));
+    Object.keys(matByCat).sort().forEach(cat => {
+      html += '<optgroup label="Stock: ' + cat + '">';
+      matByCat[cat].forEach(m => html += '<option value="mat:' + m.id + '"' + ('mat:' + m.id === selectedValue ? ' selected' : '') + '>' + m.name + '</option>');
+      html += '</optgroup>';
+    });
     return html;
   }
 
@@ -1970,9 +1992,17 @@
     tbody.querySelectorAll('tr').forEach(tr => {
       const idx = parseInt(tr.dataset.idx);
       tr.querySelector('.tk-service').addEventListener('change', function(){
-        const s = services.find(x => x.id === this.value);
-        ticketLineItems[idx].service_id = this.value;
-        if (s){ ticketLineItems[idx].description = s.name; ticketLineItems[idx].unit = s.unit; ticketLineItems[idx].rate = Number(s.rate); }
+        const val = this.value;
+        ticketLineItems[idx].service_id = val;
+        if (val.indexOf('svc:') === 0){
+          const s = services.find(x => x.id === val.slice(4));
+          if (s){ ticketLineItems[idx].description = s.name; ticketLineItems[idx].unit = s.unit; ticketLineItems[idx].rate = Number(s.rate); }
+        } else if (val.indexOf('mat:') === 0){
+          // Stock items don't have a fixed sale rate (they're tracked inventory, not a priced
+          // service) — autofill the name/unit and leave the rate for staff to key in per job.
+          const m = ticketMaterials.find(x => x.id === val.slice(4));
+          if (m){ ticketLineItems[idx].description = m.name; ticketLineItems[idx].unit = m.unit; }
+        }
         renderTicketLineItems(); updateTicketTotal();
       });
       tr.querySelector('.tk-desc').addEventListener('input', function(){ ticketLineItems[idx].description = this.value; });
@@ -2015,9 +2045,14 @@
       }).select().single();
       if (tkErr) throw tkErr;
 
-      const itemRows = validLines.map(li => ({ org_id: currentOrgId, ticket_id: tkRow.id, service_id: li.service_id || null,
-        description: li.description.trim() || (services.find(s => s.id === li.service_id)?.name) || 'Job', quantity: li.qty, unit: li.unit || null,
-        rate: li.rate, amount: li.qty * li.rate }));
+      const itemRows = validLines.map(li => {
+        // job_ticket_items.service_id only references the services table — a picked stock
+        // item (mat:...) autofills description/unit like a service does, but isn't a real FK.
+        const realServiceId = li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : null;
+        return { org_id: currentOrgId, ticket_id: tkRow.id, service_id: realServiceId,
+          description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || null,
+          rate: li.rate, amount: li.qty * li.rate };
+      });
       const { error: itemsErr } = await supabaseClient.from('job_ticket_items').insert(itemRows);
       if (itemsErr) throw itemsErr;
 
@@ -2032,6 +2067,7 @@
 
   async function refreshTicketsPanel(){
     await loadServices();
+    await loadTicketMaterials();
     await loadTickets();
     renderServiceCategorySelect();
     renderServicesTable();
