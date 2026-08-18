@@ -666,10 +666,14 @@
           <div class="row2">
             <div class="field">
               <label for="tkMachine">Machine (optional)</label>
-              <input type="text" id="tkMachine" list="tkMachineDatalist" placeholder="e.g. Flex Printer 1" autocomplete="off">
+              <input type="text" id="tkMachine" list="tkMachineDatalist" placeholder="e.g. KONIKA MINOLTA, FLEX PRINTING" autocomplete="off">
               <datalist id="tkMachineDatalist"></datalist>
             </div>
-            <div class="field"><label for="tkOperator">Operator (optional)</label><select id="tkOperator"><option value="">— unassigned —</option></select></div>
+            <div class="field">
+              <label for="tkOperator">Operator (optional)</label>
+              <input type="text" id="tkOperator" list="tkOperatorDatalist" placeholder="Pick a registered operator, or type who signed off" autocomplete="off">
+              <datalist id="tkOperatorDatalist"></datalist>
+            </div>
           </div>
           <div style="display:flex; gap:10px;">
             <button class="add-btn save-btn" id="saveTicketBtn" style="margin-top:16px;"><span id="saveTicketLabel">Save &amp; Print Slip</span><span id="tkTotalPreview">₹0</span></button>
@@ -2014,15 +2018,20 @@
     const { data, error } = await supabaseClient.rpc('list_operators', { p_org_id: currentOrgId });
     operators = error ? [] : (data || []);
   }
+  // Registered operators show as suggestions, but the field itself is free text — a job
+  // might be signed off by whoever's on the counter, not necessarily one of the four
+  // machine-operator accounts, so typing any name is just as valid as picking one.
   function renderOperatorSelect(){
-    const sel = $('tkOperator');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">— unassigned —</option>' + operators.map(o => '<option value="' + o.id + '">' + (o.username || '—') + '</option>').join('');
-    if (prev && operators.some(o => o.id === prev)) sel.value = prev;
+    const dl = $('tkOperatorDatalist');
+    dl.innerHTML = operators.map(o => '<option value="' + (o.username || '').replace(/"/g,'&quot;') + '"></option>').join('');
   }
+  function resolveOperatorByName(name){
+    return operators.find(o => (o.username || '').toLowerCase() === name.trim().toLowerCase()) || null;
+  }
+  const COMMON_MACHINES = ['KONIKA MINOLTA', 'FLEX PRINTING'];
   function renderMachineDatalist(){
     const dl = $('tkMachineDatalist');
-    const uniq = Array.from(new Set(tickets.map(t => t.machine).filter(Boolean)));
+    const uniq = Array.from(new Set([...COMMON_MACHINES, ...tickets.map(t => t.machine).filter(Boolean)]));
     dl.innerHTML = uniq.map(m => '<option value="' + m.replace(/"/g,'&quot;') + '"></option>').join('');
   }
 
@@ -2121,7 +2130,7 @@
     const party = ticket.party_id ? parties.find(p => p.id === ticket.party_id) : null;
     $('tkPartySearch').value = party ? (party.name + (party.phone ? ' — ' + party.phone : '')) : '';
     $('tkMachine').value = ticket.machine || '';
-    $('tkOperator').value = ticket.assigned_operator_id || '';
+    $('tkOperator').value = ticket.operator_name || '';
     $('tkFormTitle').textContent = '✎ Editing ' + ticket.ticket_no;
     $('saveTicketLabel').textContent = 'Update Ticket';
     $('cancelTicketEditBtn').style.display = 'inline-flex';
@@ -2262,6 +2271,8 @@
           service_id: li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : '',
           description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || '', rate: li.rate
         }));
+        const operatorTyped = $('tkOperator').value.trim();
+        const matchedOperator = operatorTyped ? resolveOperatorByName(operatorTyped) : null;
         const { error } = await supabaseClient.rpc('admin_update_ticket', {
           p_ticket_id: editingTicketId, p_party_id: selectedTicketPartyId,
           p_customer_name: $('tkCustomerName').value.trim() || null, p_phone: $('tkPhone').value.trim() || null,
@@ -2269,7 +2280,8 @@
           p_expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
           p_items: itemsPayload,
           p_machine: $('tkMachine').value.trim() || null,
-          p_assigned_operator_id: $('tkOperator').value || null
+          p_assigned_operator_id: matchedOperator ? matchedOperator.id : null,
+          p_operator_name: operatorTyped || null
         });
         if (error) throw error;
         showStatus(statusEl, 'Ticket updated.', true);
@@ -2283,13 +2295,16 @@
       const ticketNo = 'JT-' + String(nextNum).padStart(4, '0');
       const subtotal = computeTicketTotal();
 
+      const operatorTyped = $('tkOperator').value.trim();
+      const matchedOperator = operatorTyped ? resolveOperatorByName(operatorTyped) : null;
       const { data: tkRow, error: tkErr } = await supabaseClient.from('job_tickets').insert({
         org_id: currentOrgId, ticket_no: ticketNo, party_id: selectedTicketPartyId,
         customer_name: $('tkCustomerName').value.trim() || null, phone: $('tkPhone').value.trim() || null,
         subtotal, notes: $('tkNotes').value.trim() || null,
         expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
         machine: $('tkMachine').value.trim() || null,
-        assigned_operator_id: $('tkOperator').value || null,
+        assigned_operator_id: matchedOperator ? matchedOperator.id : null,
+        operator_name: operatorTyped || null,
         created_by: currentUserId
       }).select().single();
       if (tkErr) throw tkErr;
@@ -2447,14 +2462,11 @@
     let rows = tickets.filter(t => t.status !== 'cancelled' && (t.status !== 'delivered' || new Date(t.created_at).getTime() >= dayAgo));
     if (term) rows = rows.filter(t => t.ticket_no.toLowerCase().includes(term) || (t.customer_name || '').toLowerCase().includes(term));
 
-    const operatorNameById = {};
-    operators.forEach(o => { operatorNameById[o.id] = o.username || '—'; });
-
     const wrap = $('machineBoard');
     wrap.innerHTML = BOARD_COLUMNS.map(col => {
       const colRows = rows.filter(t => t.status === col.status).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
       const cards = colRows.map(t => {
-        const tags = [t.machine, t.assigned_operator_id ? operatorNameById[t.assigned_operator_id] : null].filter(Boolean).join(' · ');
+        const tags = [t.machine, t.operator_name].filter(Boolean).join(' · ');
         return '<div class="board-card" data-id="' + t.id + '">' +
           '<div class="bc-no">' + t.ticket_no + '</div>' +
           '<div class="bc-cust">' + (t.customer_name || 'Walk-in') + '</div>' +
