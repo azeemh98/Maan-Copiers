@@ -2435,7 +2435,10 @@
     if (modeInput === null) return;
     const mode = ['cash','bank','upi','cheque','other'].includes(modeInput.trim().toLowerCase()) ? modeInput.trim().toLowerCase() : 'cash';
     try {
-      const partyId = await ensureWalkInParty();
+      // If the ticket was linked to a real saved customer (via the party search when it was
+      // created), bill that party directly — only fall back to the shared "Walk-in / Cash
+      // Customers" bucket for genuine anonymous walk-ins with no party attached.
+      const partyId = ticket.party_id || await ensureWalkInParty();
       const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticket.id);
       const { data: nextNum, error: numErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'sale' });
       if (numErr) throw numErr;
@@ -2450,11 +2453,16 @@
       const itemRows = (items || []).map(li => ({ org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
         description: li.description, quantity: li.quantity, unit: li.unit, rate: li.rate, discount_pct:0, tax_pct:0,
         taxable_amount: li.amount, tax_amount:0, line_total: li.amount }));
-      if (itemRows.length) await supabaseClient.from('invoice_items').insert(itemRows);
+      if (itemRows.length){
+        const { error: itemsErr } = await supabaseClient.from('invoice_items').insert(itemRows);
+        if (itemsErr) throw itemsErr;
+      }
 
-      await supabaseClient.from('payments').insert({ org_id: currentOrgId, party_id: partyId, invoice_id: invRow.id, direction:'in', amount: ticket.subtotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId });
+      const { error: payErr } = await supabaseClient.from('payments').insert({ org_id: currentOrgId, party_id: partyId, invoice_id: invRow.id, direction:'in', amount: ticket.subtotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId });
+      if (payErr) throw payErr;
 
-      await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode, invoice_id: invRow.id }).eq('id', ticket.id);
+      const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode, invoice_id: invRow.id }).eq('id', ticket.id);
+      if (tkErr) throw tkErr;
       await Promise.all([ refreshTicketsPanel(), loadPartiesAndBalances() ]);
       renderPartiesTable(); renderOutstandingSummary();
     } catch (err){ alert(err.message || 'Could not mark paid.'); }
