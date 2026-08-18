@@ -2326,6 +2326,7 @@
         // A ticket Azad or an admin creates themselves doesn't need to go back to them for
         // approval — everyone else's tickets need that verification before production.
         approval_status: isTicketApprover ? 'approved' : 'pending',
+        approved_by: isTicketApprover ? currentUserId : null,
         created_by: currentUserId
       }).select().single();
       if (tkErr) throw tkErr;
@@ -2531,6 +2532,8 @@
     const lines = items.map(li => '<tr><td>' + li.description + (li.unit ? ' (' + li.unit + ')' : '') + '<br>' + fmtQty(li.quantity) + ' × ' + fmtMoney(li.rate) + '</td><td style="text-align:right;">' + fmtMoney(li.amount) + '</td></tr>').join('');
     const handler = profilesMap[ticket.created_by];
     const handlerName = handler ? (handler.username || handler.full_name || handler.email) : 'Unknown';
+    const approver = ticket.approved_by ? profilesMap[ticket.approved_by] : null;
+    const approverName = approver ? (approver.username || approver.full_name || approver.email) : 'PENDING';
     return (
       '<div class="t-center" style="font-size:10px; letter-spacing:0.08em; color:#555;">' + copyLabel + '</div>' +
       '<div class="t-center"><b>JOB WORK</b></div>' +
@@ -2551,6 +2554,7 @@
       (ticket.notes ? '<div class="t-rule"></div><div>' + ticket.notes + '</div>' : '') +
       '<div class="t-rule"></div>' +
       '<div class="t-row"><span>Job taken by</span><span>' + handlerName + '</span></div>' +
+      '<div class="t-row"><span>Approved by</span><span>' + approverName + '</span></div>' +
       '<div class="t-foot">Please keep this slip for collection.<br>Thank you for your business!</div>'
     );
   }
