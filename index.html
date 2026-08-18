@@ -42,6 +42,7 @@
   .nav-tab.active svg{ opacity:1; }
   body:not(.is-admin) .nav-tab[data-nav="employees"]{ display:none !important; }
   body.is-walkin-only .nav-tab:not([data-nav="tickets"]):not([data-nav="machine"]){ display:none !important; }
+  body.is-operator .nav-tab:not([data-nav="machine"]){ display:none !important; }
 
   /* Printing-shop graphics */
   .brand-mark svg{ width:20px; height:20px; }
@@ -659,6 +660,14 @@
             <div class="field"><label for="tkExpected">Expected ready (optional)</label><input type="datetime-local" id="tkExpected"></div>
             <div class="field"><label for="tkNotes">Notes (optional)</label><input type="text" id="tkNotes" placeholder="Job details, special instructions..."></div>
           </div>
+          <div class="row2">
+            <div class="field">
+              <label for="tkMachine">Machine (optional)</label>
+              <input type="text" id="tkMachine" list="tkMachineDatalist" placeholder="e.g. Flex Printer 1" autocomplete="off">
+              <datalist id="tkMachineDatalist"></datalist>
+            </div>
+            <div class="field"><label for="tkOperator">Operator (optional)</label><select id="tkOperator"><option value="">— unassigned —</option></select></div>
+          </div>
           <div style="display:flex; gap:10px;">
             <button class="add-btn save-btn" id="saveTicketBtn" style="margin-top:16px;"><span id="saveTicketLabel">Save &amp; Print Slip</span><span id="tkTotalPreview">₹0</span></button>
             <button class="btn-sm" id="cancelTicketEditBtn" style="display:none; margin-top:16px;">Cancel Edit</button>
@@ -1142,7 +1151,7 @@
 
     <section class="card" id="teamAccessCard" style="display:none;">
       <h2>Team Access</h2>
-      <div class="hint" style="margin-bottom:14px;">Control what each signed-in person can do. <b>Admin</b> = full access. <b>User</b> = everything except Employees/salary data. <b>Walk-in Jobs only</b> = can only use the Walk-in Jobs tab — nothing else.</div>
+      <div class="hint" style="margin-bottom:14px;">Control what each signed-in person can do. <b>Admin</b> = full access. <b>User</b> = everything except Employees/salary data. <b>Walk-in Jobs only</b> = can only use the Walk-in Jobs tab — nothing else. <b>Machine Operator</b> = only the Machine status board, to move jobs through stages.</div>
       <table class="data-table">
         <thead><tr><th>Email</th><th>Username</th><th>Access level</th></tr></thead>
         <tbody id="teamAccessTableBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
@@ -1169,6 +1178,7 @@
   let currentUserId = null;
   let isAdmin = false;
   let isWalkinOnly = false;
+  let isOperator = false;
   let org = { name:'', gstin:'', biz_state:'', address:'' };
 
   // Two parallel organizations behind one login: real business data, and an isolated
@@ -1225,10 +1235,19 @@
       if (isWalkinOnly && tab.dataset.nav !== 'tickets' && tab.dataset.nav !== 'machine') tab.style.display = 'none';
     });
 
+    // Machine operators: only the Machine status board — they update job stages, they
+    // don't create tickets or see business data.
+    document.body.classList.toggle('is-operator', isOperator);
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+      if (isOperator && tab.dataset.nav !== 'machine') tab.style.display = 'none';
+    });
+
     const activePanel = document.querySelector('.section-panel.active');
-    if (isWalkinOnly && activePanel && activePanel.id !== 'panel-tickets' && activePanel.id !== 'panel-machine'){
+    if (isOperator && activePanel && activePanel.id !== 'panel-machine'){
+      document.querySelector('.nav-tab[data-nav="machine"]').click();
+    } else if (isWalkinOnly && activePanel && activePanel.id !== 'panel-tickets' && activePanel.id !== 'panel-machine'){
       document.querySelector('.nav-tab[data-nav="tickets"]').click();
-    } else if (!isAdmin && !isWalkinOnly && activePanel && activePanel.id === 'panel-employees'){
+    } else if (!isAdmin && !isWalkinOnly && !isOperator && activePanel && activePanel.id === 'panel-employees'){
       document.querySelector('.nav-tab[data-nav="stock"]').click();
     }
   }
@@ -1266,7 +1285,7 @@
       showAuthGate('Your account isn\'t linked to an organization yet — contact your admin.');
       return;
     }
-    currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; currentUserId = session.user.id;
+    currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; currentUserId = session.user.id;
     showApp(session);
   }
 
@@ -1287,7 +1306,7 @@
         await supabaseClient.auth.signOut();
         throw new Error("Your account isn't linked to an organization yet — contact your admin.");
       }
-      currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; currentUserId = data.session.user.id;
+      currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; currentUserId = data.session.user.id;
       showApp(data.session);
     } catch (err){
       const errEl = $('authError');
@@ -1331,7 +1350,7 @@
   let invType = 'sale';
   let lineItems = [];
   let openLedgerPartyId = null;
-  let services = [], tickets = [], ticketMaterials = [];
+  let services = [], tickets = [], ticketMaterials = [], operators = [];
   let ticketLineItems = [], ticketStatusFilter = 'all', walkInPartyId = null;
   let employees = [], wastageRecords = [], wastageReasonFilter = 'all';
   let empPayments = [];
@@ -1390,6 +1409,7 @@
     tab.addEventListener('click', function(){
       const nav = this.dataset.nav;
       if (isWalkinOnly && nav !== 'tickets' && nav !== 'machine') return; // walk-in-only staff cannot navigate anywhere else
+      if (isOperator && nav !== 'machine') return; // operators only work the Machine board
       document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
       this.classList.add('active');
@@ -1449,7 +1469,7 @@
     if (isAdmin) await loadTeamAccess();
   }
 
-  const ROLE_LABEL = { admin:'Admin', user:'User', walkin_only:'Walk-in Jobs only' };
+  const ROLE_LABEL = { admin:'Admin', user:'User', walkin_only:'Walk-in Jobs only', operator:'Machine Operator' };
   async function loadTeamAccess(){
     const { data, error } = await supabaseClient.rpc('list_org_members', { p_org_id: currentOrgId });
     const tbody = $('teamAccessTableBody');
@@ -1939,6 +1959,24 @@
     ticketMaterials = error ? [] : (data || []);
   }
 
+  // Machine operators (rohit, jai, araaz, ankur, …) — a name-only list any ticket creator
+  // can assign a job to, same minimal-exposure pattern as list_employee_names.
+  async function loadOperators(){
+    const { data, error } = await supabaseClient.rpc('list_operators', { p_org_id: currentOrgId });
+    operators = error ? [] : (data || []);
+  }
+  function renderOperatorSelect(){
+    const sel = $('tkOperator');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— unassigned —</option>' + operators.map(o => '<option value="' + o.id + '">' + (o.username || '—') + '</option>').join('');
+    if (prev && operators.some(o => o.id === prev)) sel.value = prev;
+  }
+  function renderMachineDatalist(){
+    const dl = $('tkMachineDatalist');
+    const uniq = Array.from(new Set(tickets.map(t => t.machine).filter(Boolean)));
+    dl.innerHTML = uniq.map(m => '<option value="' + m.replace(/"/g,'&quot;') + '"></option>').join('');
+  }
+
   toggleCollapsible($('addTicketToggle'), $('addTicketBody'));
 
   function renderServiceCategorySelect(){
@@ -2006,6 +2044,7 @@
     renderTicketLineItems();
     $('tkCustomerName').value = ''; $('tkPhone').value = ''; $('tkNotes').value = ''; $('tkExpected').value = '';
     $('tkPartySearch').value = ''; selectedTicketPartyId = null;
+    $('tkMachine').value = ''; $('tkOperator').value = '';
     editingTicketId = null;
     $('tkFormTitle').textContent = 'New Walk-in Job Ticket';
     $('saveTicketLabel').textContent = 'Save & Print Slip';
@@ -2032,6 +2071,8 @@
     selectedTicketPartyId = ticket.party_id || null;
     const party = ticket.party_id ? parties.find(p => p.id === ticket.party_id) : null;
     $('tkPartySearch').value = party ? (party.name + (party.phone ? ' — ' + party.phone : '')) : '';
+    $('tkMachine').value = ticket.machine || '';
+    $('tkOperator').value = ticket.assigned_operator_id || '';
     $('tkFormTitle').textContent = '✎ Editing ' + ticket.ticket_no;
     $('saveTicketLabel').textContent = 'Update Ticket';
     $('cancelTicketEditBtn').style.display = 'inline-flex';
@@ -2153,7 +2194,9 @@
           p_customer_name: $('tkCustomerName').value.trim() || null, p_phone: $('tkPhone').value.trim() || null,
           p_notes: $('tkNotes').value.trim() || null,
           p_expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
-          p_items: itemsPayload
+          p_items: itemsPayload,
+          p_machine: $('tkMachine').value.trim() || null,
+          p_assigned_operator_id: $('tkOperator').value || null
         });
         if (error) throw error;
         showStatus(statusEl, 'Ticket updated.', true);
@@ -2172,6 +2215,8 @@
         customer_name: $('tkCustomerName').value.trim() || null, phone: $('tkPhone').value.trim() || null,
         subtotal, notes: $('tkNotes').value.trim() || null,
         expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
+        machine: $('tkMachine').value.trim() || null,
+        assigned_operator_id: $('tkOperator').value || null,
         created_by: currentUserId
       }).select().single();
       if (tkErr) throw tkErr;
@@ -2197,10 +2242,13 @@
   async function refreshTicketsPanel(){
     await loadServices();
     await loadTicketMaterials();
+    await loadOperators();
     await loadTickets();
     renderServiceCategorySelect();
     renderServicesTable();
     renderTicketServiceOptions();
+    renderOperatorSelect();
+    renderMachineDatalist();
     renderTicketsTable();
     renderTicketStats();
     renderMachineBoard();
@@ -2298,17 +2346,22 @@
     let rows = tickets.filter(t => t.status !== 'cancelled' && (t.status !== 'delivered' || new Date(t.created_at).getTime() >= dayAgo));
     if (term) rows = rows.filter(t => t.ticket_no.toLowerCase().includes(term) || (t.customer_name || '').toLowerCase().includes(term));
 
+    const operatorNameById = {};
+    operators.forEach(o => { operatorNameById[o.id] = o.username || '—'; });
+
     const wrap = $('machineBoard');
     wrap.innerHTML = BOARD_COLUMNS.map(col => {
       const colRows = rows.filter(t => t.status === col.status).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-      const cards = colRows.map(t =>
-        '<div class="board-card" data-id="' + t.id + '">' +
+      const cards = colRows.map(t => {
+        const tags = [t.machine, t.assigned_operator_id ? operatorNameById[t.assigned_operator_id] : null].filter(Boolean).join(' · ');
+        return '<div class="board-card" data-id="' + t.id + '">' +
           '<div class="bc-no">' + t.ticket_no + '</div>' +
           '<div class="bc-cust">' + (t.customer_name || 'Walk-in') + '</div>' +
           '<div class="bc-amt">' + fmtMoney(t.subtotal) + ' · ' + timeAgo(t.created_at) + '</div>' +
+          (tags ? '<div class="bc-amt">🖨 ' + tags + '</div>' : '') +
           (col.next ? '<button class="bc-advance" data-id="' + t.id + '" data-next="' + col.next + '">' + col.action + '</button>' : '') +
-        '</div>'
-      ).join('') || '<div class="board-empty">Nothing here.</div>';
+        '</div>';
+      }).join('') || '<div class="board-empty">Nothing here.</div>';
       return '<div class="board-col col-' + col.status + '">' +
         '<div class="board-col-head"><span>' + col.label + '</span><span class="cnt">' + colRows.length + '</span></div>' +
         cards + '</div>';
