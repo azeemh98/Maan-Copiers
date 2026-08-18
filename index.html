@@ -457,7 +457,7 @@
         </section>
 
         <section class="card">
-          <h2 class="collapsible" id="addItemToggle"><span>+ Add New Item Type</span><span class="chev">▶</span></h2>
+          <h2 class="collapsible" id="addItemToggle"><span id="addItemToggleLabel">+ Add New Item Type</span><span class="chev">▶</span></h2>
           <div id="addItemBody" style="display:none; margin-top:18px;">
             <div class="field">
               <label for="newItemCategory">Category</label>
@@ -495,7 +495,10 @@
               <input type="number" id="newItemReorder" min="0" step="0.01" placeholder="e.g. 20">
               <div class="hint">You'll get a "Low" warning on the stock table once remaining quantity drops to this level or below.</div>
             </div>
-            <button class="add-btn save-btn" id="saveItemBtn"><span>Save Item</span><span></span></button>
+            <div style="display:flex; gap:10px;">
+              <button class="add-btn save-btn" id="saveItemBtn" style="margin-top:16px;"><span id="saveItemLabel">Save Item</span><span></span></button>
+              <button class="btn-sm" id="cancelItemEditBtn" style="display:none; margin-top:16px;">Cancel Edit</button>
+            </div>
             <div class="status-msg" id="itemStatus"></div>
           </div>
         </section>
@@ -1695,6 +1698,39 @@
   $('newItemCategory').addEventListener('change', function(){ $('newCategoryNameWrap').style.display = this.value === '__new__' ? 'block' : 'none'; });
   $('newItemUnit').addEventListener('change', function(){ $('newItemUnitOtherWrap').style.display = this.value === 'other' ? 'block' : 'none'; });
 
+  // ---- Edit an existing item's name/category/unit (admin only, enforced server-side by ----
+  // ---- admin_update_material — e.g. fixing a typo like "Relcro" to what it should be) ----
+  let editingItemId = null;
+  function resetItemForm(){
+    editingItemId = null;
+    $('newItemName').value = ''; $('newCategoryName').value = ''; $('newItemReorder').value = ''; $('newItemUnitOther').value = '';
+    renderCategorySelect();
+    $('newItemUnit').value = 'sheet';
+    $('newItemUnitOtherWrap').style.display = 'none';
+    $('addItemToggleLabel').textContent = '+ Add New Item Type';
+    $('saveItemLabel').textContent = 'Save Item';
+    $('cancelItemEditBtn').style.display = 'none';
+  }
+  function startEditItem(m){
+    if (!requireAdmin()) return;
+    editingItemId = m.material_id;
+    renderCategorySelect();
+    $('newItemCategory').value = m.category;
+    $('newCategoryNameWrap').style.display = 'none';
+    $('newItemName').value = m.name;
+    const knownUnits = ['sheet','piece','roll','box','kg','meter','litre'];
+    if (knownUnits.includes(m.unit)){ $('newItemUnit').value = m.unit; $('newItemUnitOtherWrap').style.display = 'none'; }
+    else { $('newItemUnit').value = 'other'; $('newItemUnitOther').value = m.unit; $('newItemUnitOtherWrap').style.display = 'block'; }
+    $('newItemReorder').value = m.reorder_level ?? '';
+    $('addItemToggleLabel').textContent = '✎ Edit Item';
+    $('saveItemLabel').textContent = 'Update Item';
+    $('cancelItemEditBtn').style.display = 'inline-flex';
+    $('addItemBody').style.display = 'block';
+    $('addItemToggle').classList.add('open');
+    $('addItemToggle').scrollIntoView({ behavior:'smooth', block:'center' });
+  }
+  $('cancelItemEditBtn').addEventListener('click', resetItemForm);
+
   $('saveItemBtn').addEventListener('click', async function(){
     const statusEl = $('itemStatus');
     const catSel = $('newItemCategory');
@@ -1708,10 +1744,18 @@
     if (!name){ showStatus(statusEl, 'Enter an item name.', false); return; }
     this.disabled = true;
     try {
-      const { error } = await supabaseClient.from('stock_materials').insert({ org_id: currentOrgId, category, name, unit, reorder_level: reorder, created_by: currentUserId });
-      if (error){ if (error.code === '23505') throw new Error('That item already exists in this category.'); throw error; }
-      showStatus(statusEl, '"' + name + '" added to ' + category + '.', true);
-      $('newItemName').value = ''; $('newCategoryName').value = ''; $('newItemReorder').value = '';
+      if (editingItemId){
+        const { error } = await supabaseClient.rpc('admin_update_material', { p_material_id: editingItemId, p_category: category, p_name: name, p_unit: unit });
+        if (error) throw error;
+        await supabaseClient.from('stock_materials').update({ reorder_level: reorder }).eq('id', editingItemId);
+        showStatus(statusEl, '"' + name + '" updated.', true);
+        resetItemForm();
+      } else {
+        const { error } = await supabaseClient.from('stock_materials').insert({ org_id: currentOrgId, category, name, unit, reorder_level: reorder, created_by: currentUserId });
+        if (error){ if (error.code === '23505') throw new Error('That item already exists in this category.'); throw error; }
+        showStatus(statusEl, '"' + name + '" added to ' + category + '.', true);
+        $('newItemName').value = ''; $('newCategoryName').value = ''; $('newItemReorder').value = '';
+      }
       await refreshStockPanel();
     } catch (err){ showStatus(statusEl, err.message || 'Could not save item.', false); }
     finally { this.disabled = false; }
@@ -1756,7 +1800,8 @@
           '<button class="quick-in" data-id="' + m.material_id + '" title="Quick entry">+</button>' +
           '<button class="quick-out" data-id="' + m.material_id + '" title="Quick exit">−</button>' +
           '<button class="quick-wastage" data-id="' + m.material_id + '" title="Record wastage">🗑</button>' +
-          '<button class="quick-reorder" data-id="' + m.material_id + '" title="Set low-stock alert">✎</button>' +
+          '<button class="quick-reorder" data-id="' + m.material_id + '" title="Set low-stock alert">⚠</button>' +
+          (isAdmin ? '<button class="quick-edit-item" data-id="' + m.material_id + '" title="Edit name / category / unit">✎</button>' : '') +
           '<button class="quick-toggle danger" data-id="' + m.material_id + '" title="' + (m.is_active ? 'Discontinue item' : 'Reactivate item') + '">' + (m.is_active ? '⦸' : '↺') + '</button>' +
         '</div></td></tr>';
     }).join('');
@@ -1783,6 +1828,10 @@
       const { error } = await supabaseClient.from('stock_materials').update({ reorder_level: reorder }).eq('id', m.material_id);
       if (error){ alert(error.message); return; }
       await refreshStockPanel();
+    }));
+    tbody.querySelectorAll('.quick-edit-item').forEach(btn => btn.addEventListener('click', function(){
+      const m = materials.find(x => x.material_id === this.dataset.id);
+      if (m) startEditItem(m);
     }));
     tbody.querySelectorAll('.quick-toggle').forEach(btn => btn.addEventListener('click', async function(){
       const m = materials.find(x => x.material_id === this.dataset.id);
@@ -2230,6 +2279,34 @@
       const { error: itemsErr } = await supabaseClient.from('job_ticket_items').insert(itemRows);
       if (itemsErr) throw itemsErr;
 
+      // A job tied to a saved customer is billed to their account right away — as an
+      // outstanding receivable — rather than waiting for Mark Paid, so the amount shows up
+      // in Parties immediately. Anonymous walk-ins (no party picked) stay untouched until
+      // Mark Paid, same as before.
+      if (selectedTicketPartyId){
+        const { data: nextInvNum, error: invNumErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'sale' });
+        if (invNumErr) throw invNumErr;
+        const saleInvoiceNo = 'INV-' + String(nextInvNum).padStart(4, '0');
+        const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
+          org_id: currentOrgId, type:'sale', invoice_no: saleInvoiceNo, party_id: selectedTicketPartyId, invoice_date: todayISO(),
+          subtotal, discount_total: 0, tax_total: 0, round_off: 0, grand_total: subtotal,
+          status:'unpaid', amount_paid: 0, notes:'Walk-in job ' + ticketNo, created_by: currentUserId
+        }).select().single();
+        if (invErr) throw invErr;
+        const invItemRows = itemRows.map(r => ({ org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
+          description: r.description, quantity: r.quantity, unit: r.unit, rate: r.rate, discount_pct:0, tax_pct:0,
+          taxable_amount: r.amount, tax_amount:0, line_total: r.amount }));
+        if (invItemRows.length){
+          const { error: invItemsErr } = await supabaseClient.from('invoice_items').insert(invItemRows);
+          if (invItemsErr) throw invItemsErr;
+        }
+        const { error: linkErr } = await supabaseClient.from('job_tickets').update({ invoice_id: invRow.id }).eq('id', tkRow.id);
+        if (linkErr) throw linkErr;
+        tkRow.invoice_id = invRow.id;
+        await loadPartiesAndBalances();
+        renderPartiesTable(); renderOutstandingSummary();
+      }
+
       showStatus(statusEl, ticketNo + ' created.', true);
       const savedTicket = { ...tkRow, subtotal };
       resetTicketForm();
@@ -2435,34 +2512,47 @@
     if (modeInput === null) return;
     const mode = ['cash','bank','upi','cheque','other'].includes(modeInput.trim().toLowerCase()) ? modeInput.trim().toLowerCase() : 'cash';
     try {
-      // If the ticket was linked to a real saved customer (via the party search when it was
-      // created), bill that party directly — only fall back to the shared "Walk-in / Cash
-      // Customers" bucket for genuine anonymous walk-ins with no party attached.
-      const partyId = ticket.party_id || await ensureWalkInParty();
-      const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticket.id);
-      const { data: nextNum, error: numErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'sale' });
-      if (numErr) throw numErr;
-      const invoiceNo = 'INV-' + String(nextNum).padStart(4, '0');
-      const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
-        org_id: currentOrgId, type:'sale', invoice_no: invoiceNo, party_id: partyId, invoice_date: todayISO(),
-        subtotal: ticket.subtotal, discount_total: 0, tax_total: 0, round_off: 0, grand_total: ticket.subtotal,
-        status:'paid', amount_paid: ticket.subtotal, notes:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
-      }).select().single();
-      if (invErr) throw invErr;
+      if (ticket.invoice_id){
+        // This ticket already has a linked receivable (created for its saved party when the
+        // ticket itself was made) — just record the payment against that existing invoice
+        // instead of creating a duplicate one.
+        const { error: payErr } = await supabaseClient.from('payments').insert({
+          org_id: currentOrgId, party_id: ticket.party_id, invoice_id: ticket.invoice_id, direction:'in',
+          amount: ticket.subtotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
+        });
+        if (payErr) throw payErr;
+        await recomputeInvoiceStatus(ticket.invoice_id);
+        const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode }).eq('id', ticket.id);
+        if (tkErr) throw tkErr;
+      } else {
+        // Genuine anonymous walk-in with no saved party attached — create the invoice and
+        // payment together now, booked to the shared "Walk-in / Cash Customers" bucket.
+        const partyId = await ensureWalkInParty();
+        const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticket.id);
+        const { data: nextNum, error: numErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'sale' });
+        if (numErr) throw numErr;
+        const invoiceNo = 'INV-' + String(nextNum).padStart(4, '0');
+        const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
+          org_id: currentOrgId, type:'sale', invoice_no: invoiceNo, party_id: partyId, invoice_date: todayISO(),
+          subtotal: ticket.subtotal, discount_total: 0, tax_total: 0, round_off: 0, grand_total: ticket.subtotal,
+          status:'paid', amount_paid: ticket.subtotal, notes:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
+        }).select().single();
+        if (invErr) throw invErr;
 
-      const itemRows = (items || []).map(li => ({ org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
-        description: li.description, quantity: li.quantity, unit: li.unit, rate: li.rate, discount_pct:0, tax_pct:0,
-        taxable_amount: li.amount, tax_amount:0, line_total: li.amount }));
-      if (itemRows.length){
-        const { error: itemsErr } = await supabaseClient.from('invoice_items').insert(itemRows);
-        if (itemsErr) throw itemsErr;
+        const itemRows = (items || []).map(li => ({ org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
+          description: li.description, quantity: li.quantity, unit: li.unit, rate: li.rate, discount_pct:0, tax_pct:0,
+          taxable_amount: li.amount, tax_amount:0, line_total: li.amount }));
+        if (itemRows.length){
+          const { error: itemsErr } = await supabaseClient.from('invoice_items').insert(itemRows);
+          if (itemsErr) throw itemsErr;
+        }
+
+        const { error: payErr } = await supabaseClient.from('payments').insert({ org_id: currentOrgId, party_id: partyId, invoice_id: invRow.id, direction:'in', amount: ticket.subtotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId });
+        if (payErr) throw payErr;
+
+        const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode, invoice_id: invRow.id }).eq('id', ticket.id);
+        if (tkErr) throw tkErr;
       }
-
-      const { error: payErr } = await supabaseClient.from('payments').insert({ org_id: currentOrgId, party_id: partyId, invoice_id: invRow.id, direction:'in', amount: ticket.subtotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId });
-      if (payErr) throw payErr;
-
-      const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode, invoice_id: invRow.id }).eq('id', ticket.id);
-      if (tkErr) throw tkErr;
       await Promise.all([ refreshTicketsPanel(), loadPartiesAndBalances() ]);
       renderPartiesTable(); renderOutstandingSummary();
     } catch (err){ alert(err.message || 'Could not mark paid.'); }
