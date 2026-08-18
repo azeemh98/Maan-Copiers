@@ -279,8 +279,14 @@
   .thermal-slip .t-foot{ margin-top:8px; font-size:11px; text-align:center; }
   .thermal-copy{ padding-bottom:6px; }
   .thermal-cut{ text-align:center; font-size:11px; color:#999; margin:10px 0; letter-spacing:0.05em; }
+  /* No @page rule = browser defaults to ~1in margins plus its own header/footer (page title,
+     URL, date) in that margin — wastes paper and prints the site link on every thermal slip.
+     Zero margin removes both; the named page keeps A4 documents (invoices, balance slips)
+     on their own sane margin instead of printing edge-to-edge. */
+  @page{ margin:10mm; }
+  @page thermal{ size:80mm auto; margin:0; }
   @media print{
-    .thermal-slip{ width:100%; }
+    .thermal-slip{ width:100%; page:thermal; }
     .thermal-copy{ page-break-inside:avoid; }
     .thermal-cut{ page-break-after:always; }
   }
