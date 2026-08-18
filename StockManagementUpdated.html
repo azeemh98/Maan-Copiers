@@ -652,7 +652,7 @@
           </div>
           <datalist id="tkServiceDatalist"></datalist>
           <table class="li-table">
-            <thead><tr><th style="width:26%">Service / Stock Item</th><th>Description</th><th>Qty</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+            <thead><tr><th style="width:24%">Service / Stock Item</th><th style="width:9%">Size</th><th>Description</th><th>Qty</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
             <tbody id="tkLineItems"></tbody>
           </table>
           <button class="btn-sm" id="tkAddLineBtn">+ Add line</button>
@@ -2085,7 +2085,7 @@
   }
 
   // ---- Ticket line items ----
-  function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0 }; }
+  function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0, size:'' }; }
   let selectedTicketPartyId = null;
   let editingTicketId = null;
   function resetTicketForm(){
@@ -2180,12 +2180,18 @@
     renderTicketLineItems();
   }
 
+  // Matches "4X5", "4x5", "4 X 5", "4.5x3" etc — width x height in feet, the way vinyl/flex
+  // and sun board jobs are normally sized. Typing a size auto-fills Qty with the sq.ft area
+  // (width × height) so nobody has to do that math by hand, and tags it onto the description.
+  const SIZE_PATTERN = /^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)$/;
+
   function renderTicketLineItems(){
     const tbody = $('tkLineItems');
     tbody.innerHTML = ticketLineItems.map((li, idx) => {
       const amount = li.qty * li.rate;
       return '<tr data-idx="' + idx + '">' +
         '<td><input type="text" class="tk-service" list="tkServiceDatalist" value="' + serviceLabelFor(li.service_id).replace(/"/g,'&quot;') + '" placeholder="Search or leave blank for custom…" autocomplete="off"></td>' +
+        '<td><input type="text" class="tk-size" value="' + (li.size || '').replace(/"/g,'&quot;') + '" placeholder="4X5" style="width:64px;"></td>' +
         '<td><input type="text" class="tk-desc" value="' + (li.description || '').replace(/"/g,'&quot;') + '" placeholder="Description"></td>' +
         '<td><input type="number" class="tk-qty" value="' + li.qty + '" min="0.01" step="0.01" style="width:70px;"></td>' +
         '<td><input type="number" class="tk-rate" value="' + li.rate + '" min="0" step="0.01" style="width:85px;"></td>' +
@@ -2200,10 +2206,28 @@
         ticketLineItems[idx].service_id = match.value;
         ticketLineItems[idx].description = match.name;
         ticketLineItems[idx].unit = match.unit;
+        ticketLineItems[idx].size = '';
         // Stock items don't have a fixed sale rate (they're tracked inventory, not a priced
         // service) — autofill the name/unit and leave the rate for staff to key in per job.
         if (match.rate !== null) ticketLineItems[idx].rate = match.rate;
         renderTicketLineItems(); updateTicketTotal();
+      });
+      tr.querySelector('.tk-size').addEventListener('input', function(){
+        const raw = this.value.trim();
+        const li = ticketLineItems[idx];
+        const prevTag = li.size ? ' (' + li.size + ')' : '';
+        let desc = li.description || '';
+        if (prevTag && desc.endsWith(prevTag)) desc = desc.slice(0, desc.length - prevTag.length);
+        li.size = raw;
+        if (raw) desc = (desc + ' (' + raw + ')').trim();
+        li.description = desc;
+        tr.querySelector('.tk-desc').value = desc;
+        const m = raw.match(SIZE_PATTERN);
+        if (m){
+          li.qty = Math.round(parseFloat(m[1]) * parseFloat(m[2]) * 100) / 100;
+          tr.querySelector('.tk-qty').value = li.qty;
+        }
+        updateTicketLineAmount(tr, idx);
       });
       tr.querySelector('.tk-desc').addEventListener('input', function(){ ticketLineItems[idx].description = this.value; });
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
