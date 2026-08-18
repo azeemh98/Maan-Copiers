@@ -254,6 +254,10 @@
     width:100%; margin-top:9px; padding:8px; background:var(--accent); border:none; border-radius:6px; color:#fff;
     font-family:'Inter'; font-weight:700; font-size:12px; cursor:pointer;
   }
+  .board-card .bc-pending{
+    margin-top:9px; padding:8px; background:var(--warn-soft); border:1px solid var(--warn-border); border-radius:6px;
+    color:var(--warn); font-weight:700; font-size:11.5px; text-align:center;
+  }
   .board-card .bc-advance:hover{ background:var(--accent-dark); }
   .board-col.col-delivered .board-card{ opacity:0.72; }
   .board-empty{ text-align:center; color:var(--faint); font-size:12px; padding:16px 4px; }
@@ -1186,6 +1190,7 @@
   let isAdmin = false;
   let isWalkinOnly = false;
   let isOperator = false;
+  let isTicketApprover = false;
   let org = { name:'', gstin:'', biz_state:'', address:'' };
 
   // Two parallel organizations behind one login: real business data, and an isolated
@@ -1199,7 +1204,7 @@
   let appMode = localStorage.getItem('mc_mode') === 'demo' ? 'demo' : 'live';
 
   async function fetchMembership(orgId){
-    const { data, error } = await supabaseClient.from('memberships').select('org_id, role').eq('org_id', orgId).limit(1).single();
+    const { data, error } = await supabaseClient.from('memberships').select('org_id, role, can_approve_tickets').eq('org_id', orgId).limit(1).single();
     if (error || !data) return null;
     return data;
   }
@@ -1292,7 +1297,7 @@
       showAuthGate('Your account isn\'t linked to an organization yet — contact your admin.');
       return;
     }
-    currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; currentUserId = session.user.id;
+    currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; isTicketApprover = isAdmin || !!m.can_approve_tickets; currentUserId = session.user.id;
     showApp(session);
   }
 
@@ -1313,7 +1318,7 @@
         await supabaseClient.auth.signOut();
         throw new Error("Your account isn't linked to an organization yet — contact your admin.");
       }
-      currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; currentUserId = data.session.user.id;
+      currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; isTicketApprover = isAdmin || !!m.can_approve_tickets; currentUserId = data.session.user.id;
       showApp(data.session);
     } catch (err){
       const errEl = $('authError');
@@ -1388,6 +1393,13 @@
     if (isAdmin) return true;
     if (statusEl) showStatus(statusEl, 'You are not authorized for this — admin access required.', false);
     else alert('You are not authorized for this — admin access required.');
+    return false;
+  }
+  function requireTicketApprover(statusEl){
+    if (isTicketApprover) return true;
+    const msg = 'You are not authorized for this — only Azad or an admin can verify/approve a ticket.';
+    if (statusEl) showStatus(statusEl, msg, false);
+    else alert(msg);
     return false;
   }
   function toggleCollapsible(headerEl, bodyEl){
@@ -1494,7 +1506,7 @@
       this.disabled = false;
       if (error){ alert(error.message); await loadTeamAccess(); return; }
       if (uid === currentUserId){
-        isAdmin = newRole === 'admin'; isWalkinOnly = newRole === 'walkin_only';
+        isAdmin = newRole === 'admin'; isWalkinOnly = newRole === 'walkin_only'; isTicketApprover = isAdmin || isTicketApprover;
         applyAdminGating();
       }
     }));
@@ -2113,7 +2125,7 @@
 
   // ---- Edit a generated ticket (admin only — enforced server-side by admin_update_ticket) ----
   async function startEditTicket(ticket){
-    if (!requireAdmin()) return;
+    if (!requireTicketApprover()) return;
     const { data: items, error } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticket.id).order('id');
     if (error){ alert(error.message); return; }
     editingTicketId = ticket.id;
@@ -2305,6 +2317,9 @@
         machine: $('tkMachine').value.trim() || null,
         assigned_operator_id: matchedOperator ? matchedOperator.id : null,
         operator_name: operatorTyped || null,
+        // A ticket Azad or an admin creates themselves doesn't need to go back to them for
+        // approval — everyone else's tickets need that verification before production.
+        approval_status: isTicketApprover ? 'approved' : 'pending',
         created_by: currentUserId
       }).select().single();
       if (tkErr) throw tkErr;
@@ -2395,27 +2410,38 @@
     tbody.innerHTML = rows.map(t => {
       const nextStatuses = Object.keys(TICKET_STATUS_LABEL).filter(s => s !== 'cancelled');
       const statusOptions = nextStatuses.map(s => '<option value="' + s + '"' + (s === t.status ? ' selected' : '') + '>' + TICKET_STATUS_LABEL[s] + '</option>').join('');
-      return '<tr><td class="item-name">' + t.ticket_no + '</td><td>' + (t.customer_name || 'Walk-in') + (t.phone ? '<div class="item-cat">' + t.phone + '</div>' : '') + '</td>' +
+      const pending = t.approval_status !== 'approved';
+      return '<tr><td class="item-name">' + t.ticket_no + (pending ? '<div><span class="status-badge unpaid" title="Needs Azad/admin to verify the amount before production">PENDING APPROVAL</span></div>' : '') + '</td>' +
+        '<td>' + (t.customer_name || 'Walk-in') + (t.phone ? '<div class="item-cat">' + t.phone + '</div>' : '') + '</td>' +
         '<td>' + fmtMoney(t.subtotal) + '</td>' +
         '<td><select class="tk-status" data-id="' + t.id + '">' + statusOptions + '</select></td>' +
         '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td>' +
         '<td class="last-mv">' + timeAgo(t.created_at) + '</td>' +
         '<td><div class="row-actions">' +
           '<button class="tk-view" data-id="' + t.id + '" title="View / Print">🖨</button>' +
-          (isAdmin ? '<button class="tk-edit" data-id="' + t.id + '" title="Edit ticket">✎</button>' : '') +
+          (isTicketApprover && pending ? '<button class="tk-approve" data-id="' + t.id + '" title="Approve as-is">✓</button>' : '') +
+          (isTicketApprover ? '<button class="tk-edit" data-id="' + t.id + '" title="Verify / edit ticket">✎</button>' : '') +
           (t.payment_status !== 'paid' && !isWalkinOnly ? '<button class="tk-pay" data-id="' + t.id + '" title="Mark paid">₹</button>' : '') +
-          (isAdmin ? '<button class="tk-delete danger" data-id="' + t.id + '" title="Delete ticket">✕</button>' : '') +
+          (isTicketApprover ? '<button class="tk-delete danger" data-id="' + t.id + '" title="Delete ticket">✕</button>' : '') +
         '</div></td></tr>';
     }).join('');
     tbody.querySelectorAll('.tk-status').forEach(sel => sel.addEventListener('change', async function(){
-      const { error } = await supabaseClient.from('job_tickets').update({ status: this.value }).eq('id', this.dataset.id);
-      if (error){ alert(error.message); return; }
-      await loadTickets(); renderTicketsTable(); renderTicketStats();
+      const prevValue = tickets.find(x => x.id === this.dataset.id)?.status || 'received';
+      const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: this.value });
+      if (error){ alert(error.message); this.value = prevValue; return; }
+      await loadTickets(); renderTicketsTable(); renderTicketStats(); renderMachineBoard();
     }));
     tbody.querySelectorAll('.tk-view').forEach(btn => btn.addEventListener('click', async function(){
       const t = tickets.find(x => x.id === this.dataset.id);
       const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', t.id);
       openTicketPrintPreview(t, items || []);
+    }));
+    tbody.querySelectorAll('.tk-approve').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireTicketApprover()) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.rpc('approve_ticket', { p_ticket_id: this.dataset.id });
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await refreshTicketsPanel();
     }));
     tbody.querySelectorAll('.tk-edit').forEach(btn => btn.addEventListener('click', function(){
       const t = tickets.find(x => x.id === this.dataset.id);
@@ -2426,7 +2452,7 @@
       await markTicketPaid(t);
     }));
     tbody.querySelectorAll('.tk-delete').forEach(btn => btn.addEventListener('click', async function(){
-      if (!requireAdmin()) return;
+      if (!requireTicketApprover()) return;
       const t = tickets.find(x => x.id === this.dataset.id);
       if (!t) return;
       const paidWarning = t.payment_status === 'paid' ? ' This ticket is already marked PAID — its invoice and payment record will NOT be deleted, only the job ticket itself.' : '';
@@ -2467,12 +2493,16 @@
       const colRows = rows.filter(t => t.status === col.status).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
       const cards = colRows.map(t => {
         const tags = [t.machine, t.operator_name].filter(Boolean).join(' · ');
+        const pending = t.approval_status !== 'approved';
+        let actionHtml = '';
+        if (pending) actionHtml = '<div class="bc-pending">⏳ Awaiting approval</div>';
+        else if (col.next) actionHtml = '<button class="bc-advance" data-id="' + t.id + '" data-next="' + col.next + '">' + col.action + '</button>';
         return '<div class="board-card" data-id="' + t.id + '">' +
           '<div class="bc-no">' + t.ticket_no + '</div>' +
           '<div class="bc-cust">' + (t.customer_name || 'Walk-in') + '</div>' +
           '<div class="bc-amt">' + fmtMoney(t.subtotal) + ' · ' + timeAgo(t.created_at) + '</div>' +
           (tags ? '<div class="bc-amt">🖨 ' + tags + '</div>' : '') +
-          (col.next ? '<button class="bc-advance" data-id="' + t.id + '" data-next="' + col.next + '">' + col.action + '</button>' : '') +
+          actionHtml +
         '</div>';
       }).join('') || '<div class="board-empty">Nothing here.</div>';
       return '<div class="board-col col-' + col.status + '">' +
@@ -2482,7 +2512,7 @@
 
     wrap.querySelectorAll('.bc-advance').forEach(btn => btn.addEventListener('click', async function(){
       this.disabled = true;
-      const { error } = await supabaseClient.from('job_tickets').update({ status: this.dataset.next }).eq('id', this.dataset.id);
+      const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: this.dataset.next });
       if (error){ alert(error.message); this.disabled = false; return; }
       await loadTickets(); renderMachineBoard(); renderTicketsTable(); renderTicketStats();
     }));
