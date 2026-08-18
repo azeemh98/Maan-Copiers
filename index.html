@@ -3344,7 +3344,13 @@
       e.stopPropagation();
       const i = rows.find(x => x.id === this.dataset.id);
       const isEst = i.type === 'estimate';
-      if (!window.confirm('Cancel ' + i.invoice_no + (isEst ? '?' : '? Linked stock movements will be reversed.'))) return;
+      // A cancelled invoice must not leave a "payment received" behind — party_balances
+      // counts payments independently of invoice status, so an orphaned payment on a
+      // cancelled invoice silently throws the party's balance off (confirmed the hard way).
+      const { data: existingPayments } = await supabaseClient.from('payments').select('id, amount').eq('invoice_id', i.id);
+      const payTotal = (existingPayments || []).reduce((s,p) => s + Number(p.amount), 0);
+      const payWarning = payTotal > 0 ? ' This invoice has ' + fmtMoney(payTotal) + ' in recorded payment(s) against it — cancelling will remove those payment records too, since the sale itself is being voided.' : '';
+      if (!window.confirm('Cancel ' + i.invoice_no + (isEst ? '?' : '? Linked stock movements will be reversed.') + payWarning)) return;
       try {
         if (!isEst){
           const { data: mvs } = await supabaseClient.from('stock_movements').select('*').eq('invoice_id', i.id).eq('source','invoice');
@@ -3353,9 +3359,13 @@
             invoice_id: i.id, source: 'invoice' }));
           if (reversals.length) await supabaseClient.from('stock_movements').insert(reversals);
         }
-        await supabaseClient.from('invoices').update({ status:'cancelled' }).eq('id', i.id);
-        await Promise.all([ refreshStockPanel(), loadInvoices(), loadPartiesAndBalances() ]);
-        renderInvoicesTable(); renderPartiesTable(); renderOutstandingSummary();
+        if (existingPayments && existingPayments.length){
+          const { error: payDelErr } = await supabaseClient.from('payments').delete().eq('invoice_id', i.id);
+          if (payDelErr) throw payDelErr;
+        }
+        await supabaseClient.from('invoices').update({ status:'cancelled', amount_paid: 0 }).eq('id', i.id);
+        await Promise.all([ refreshStockPanel(), loadInvoices(), loadPartiesAndBalances(), refreshTicketsPanel() ]);
+        renderInvoicesTable(); renderPartiesTable(); renderOutstandingSummary(); renderPaymentsTable();
       } catch (err){ alert(err.message || 'Could not cancel.'); }
     }));
   }
