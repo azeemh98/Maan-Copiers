@@ -2240,6 +2240,7 @@
           '<button class="tk-view" data-id="' + t.id + '" title="View / Print">🖨</button>' +
           (isAdmin ? '<button class="tk-edit" data-id="' + t.id + '" title="Edit ticket">✎</button>' : '') +
           (t.payment_status !== 'paid' && !isWalkinOnly ? '<button class="tk-pay" data-id="' + t.id + '" title="Mark paid">₹</button>' : '') +
+          (isAdmin ? '<button class="tk-delete danger" data-id="' + t.id + '" title="Delete ticket">✕</button>' : '') +
         '</div></td></tr>';
     }).join('');
     tbody.querySelectorAll('.tk-status').forEach(sel => sel.addEventListener('change', async function(){
@@ -2259,6 +2260,18 @@
     tbody.querySelectorAll('.tk-pay').forEach(btn => btn.addEventListener('click', async function(){
       const t = tickets.find(x => x.id === this.dataset.id);
       await markTicketPaid(t);
+    }));
+    tbody.querySelectorAll('.tk-delete').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
+      const t = tickets.find(x => x.id === this.dataset.id);
+      if (!t) return;
+      const paidWarning = t.payment_status === 'paid' ? ' This ticket is already marked PAID — its invoice and payment record will NOT be deleted, only the job ticket itself.' : '';
+      if (!window.confirm('Delete ' + t.ticket_no + ' permanently? This cannot be undone.' + paidWarning)) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.rpc('admin_delete_ticket', { p_ticket_id: t.id });
+      if (error){ alert(error.message); this.disabled = false; return; }
+      if (editingTicketId === t.id) resetTicketForm();
+      await refreshTicketsPanel();
     }));
   }
 
