@@ -749,7 +749,12 @@
     <section class="card" id="newTaskCard" style="display:none;">
       <h2 class="collapsible" id="addTaskToggle"><span>+ Assign a Task</span><span class="chev">▶</span></h2>
       <div id="addTaskBody" style="display:none; margin-top:18px;">
-        <div class="field"><label for="taskTitle">Task</label><input type="text" id="taskTitle" placeholder="e.g. Restock A4 paper, call supplier..."></div>
+        <div class="field"><label for="taskTitle">Task</label><input type="text" id="taskTitle" placeholder="e.g. Print 500 flyers, call supplier..."></div>
+        <div class="field">
+          <label for="taskPartySearch">Customer job is for (optional)</label>
+          <input type="text" id="taskPartySearch" list="tkPartyDatalist" placeholder="Search a saved customer — leave blank for a walk-in" autocomplete="off">
+          <div class="hint" id="taskPartyHint">If this task is for a known customer, whoever accepts it will jump straight into a ticket pre-filled with their details.</div>
+        </div>
         <div class="row2">
           <div class="field">
             <label for="taskAssignee">Assign to (optional)</label>
@@ -2569,8 +2574,20 @@
   // (optionally to a specific person, or leave open for anyone), any staff member can pick
   // up an open task and see it through.
   // ======================================================================
-  let workTasks = [], assignableMembers = [], taskStatusFilter2 = 'all';
+  let workTasks = [], assignableMembers = [], taskStatusFilter2 = 'all', selectedTaskPartyId = null;
   toggleCollapsible($('addTaskToggle'), $('addTaskBody'));
+
+  // Reuses the same party datalist as the ticket form's customer search.
+  $('taskPartySearch').addEventListener('input', function(){
+    const match = parties.find(p => p.is_active && (p.name + (p.phone ? ' — ' + p.phone : '')) === this.value);
+    if (match){
+      selectedTaskPartyId = match.id;
+      $('taskPartyHint').textContent = 'Linked to saved customer "' + match.name + '".';
+    } else {
+      selectedTaskPartyId = null;
+      $('taskPartyHint').textContent = 'If this task is for a known customer, whoever accepts it will jump straight into a ticket pre-filled with their details.';
+    }
+  });
 
   async function loadAssignableMembers(){
     const { data, error } = await supabaseClient.rpc('list_assignable_members', { p_org_id: currentOrgId });
@@ -2605,11 +2622,13 @@
     try {
       const { error } = await supabaseClient.from('tasks').insert({
         org_id: currentOrgId, title, description: $('taskDesc').value.trim() || null,
-        assigned_to: $('taskAssignee').value || null, created_by: currentUserId
+        assigned_to: $('taskAssignee').value || null, party_id: selectedTaskPartyId, created_by: currentUserId
       });
       if (error) throw error;
       showStatus(statusEl, 'Task assigned.', true);
       $('taskTitle').value = ''; $('taskDesc').value = ''; $('taskAssignee').value = '';
+      $('taskPartySearch').value = ''; selectedTaskPartyId = null;
+      $('taskPartyHint').textContent = 'If this task is for a known customer, whoever accepts it will jump straight into a ticket pre-filled with their details.';
       await refreshTasksPanel();
     } catch (err){ showStatus(statusEl, err.message || 'Could not save task.', false); }
     finally { this.disabled = false; }
@@ -2629,6 +2648,27 @@
     return m ? m.username : (t.assigned_to ? '—' : 'Anyone');
   }
 
+  // Accepting a task with a linked customer jumps straight into the ticket form,
+  // pre-filled with their details; no party linked just opens a fresh walk-in ticket.
+  // Operators don't have a Walk-in Jobs tab to redirect to, so they just accept as usual.
+  function acceptTaskAndCreateTicket(task){
+    if (isOperator) return;
+    resetTicketForm();
+    document.querySelector('.nav-tab[data-nav="tickets"]').click();
+    if (task.party_id){
+      const party = parties.find(p => p.id === task.party_id);
+      if (party){
+        selectedTicketPartyId = party.id;
+        $('tkPartySearch').value = party.name + (party.phone ? ' — ' + party.phone : '');
+        $('tkCustomerName').value = party.name;
+        $('tkPhone').value = party.phone || '';
+        $('tkPartyHint').textContent = 'Linked to saved customer "' + party.name + '".';
+      }
+    }
+    $('tkNotes').value = 'From task: ' + task.title;
+    $('tkFormTitle').scrollIntoView({ behavior:'smooth', block:'center' });
+  }
+
   function renderTasksTable(){
     const term = $('taskSearch').value.trim().toLowerCase();
     let rows = workTasks.slice();
@@ -2640,22 +2680,25 @@
       const canTake = t.status === 'open' && (!t.assigned_to || t.assigned_to === currentUserId);
       const holder = t.claimed_by || t.assigned_to;
       const canProgress = t.status === 'in_progress' && (holder === currentUserId || isTicketApprover);
+      const party = t.party_id ? parties.find(p => p.id === t.party_id) : null;
       return '<tr>' +
-        '<td class="item-name">' + t.title + (t.description ? '<div class="item-cat">' + t.description + '</div>' : '') + '</td>' +
+        '<td class="item-name">' + t.title + (t.description ? '<div class="item-cat">' + t.description + '</div>' : '') + (party ? '<div class="item-cat">For: ' + party.name + '</div>' : '') + '</td>' +
         '<td>' + taskAssigneeName(t) + '</td>' +
         '<td><span class="status-badge ' + (t.status === 'done' ? 'paid' : (t.status === 'in_progress' ? 'low' : 'received')) + '">' + TASK_STATUS_LABEL[t.status] + '</span></td>' +
         '<td class="last-mv">' + timeAgo(t.created_at) + '</td>' +
         '<td><div class="row-actions">' +
-          (canTake ? '<button class="task-start" data-id="' + t.id + '" title="Take this task">▶</button>' : '') +
+          (canTake ? '<button class="task-start" data-id="' + t.id + '" title="Accept — jumps into ticket creation">▶</button>' : '') +
           (canProgress ? '<button class="task-done" data-id="' + t.id + '" title="Mark done">✓</button>' : '') +
           (isTicketApprover ? '<button class="task-delete danger" data-id="' + t.id + '" title="Delete task">✕</button>' : '') +
         '</div></td></tr>';
     }).join('');
     tbody.querySelectorAll('.task-start').forEach(btn => btn.addEventListener('click', async function(){
       this.disabled = true;
+      const task = workTasks.find(x => x.id === this.dataset.id);
       const { error } = await supabaseClient.from('tasks').update({ status:'in_progress', claimed_by: currentUserId }).eq('id', this.dataset.id);
       if (error){ alert(error.message); this.disabled = false; return; }
       await refreshTasksPanel();
+      if (task) acceptTaskAndCreateTicket(task);
     }));
     tbody.querySelectorAll('.task-done').forEach(btn => btn.addEventListener('click', async function(){
       this.disabled = true;
