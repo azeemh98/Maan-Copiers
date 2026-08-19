@@ -239,6 +239,37 @@
   .inv-party-box .nm{ font-weight:700; font-size:14px; margin-bottom:3px; }
   .inv-party-box div{ font-size:12.5px; color:var(--muted); line-height:1.6; }
 
+  /* Floating tickets panel — fixed position, sits above every tab regardless of which
+     section-panel is active, so recent job status is one click away from anywhere. */
+  .floating-tickets-btn{
+    position:fixed; bottom:22px; right:22px; z-index:600; width:54px; height:54px; border-radius:50%;
+    background:var(--navy); color:#fff; border:none; font-size:23px; cursor:pointer;
+    box-shadow:0 6px 18px rgba(15,37,64,0.35); display:flex; align-items:center; justify-content:center;
+  }
+  .floating-tickets-btn:hover{ background:#183254; }
+  .ft-badge{
+    position:absolute; top:-3px; right:-3px; background:var(--danger); color:#fff; font-size:10.5px; font-weight:800;
+    border-radius:10px; min-width:19px; height:19px; display:flex; align-items:center; justify-content:center; padding:0 4px;
+    border:2px solid var(--bg);
+  }
+  .floating-tickets-panel{
+    position:fixed; top:0; right:-340px; width:320px; max-width:88vw; height:100vh; background:var(--surface);
+    border-left:1px solid var(--border); box-shadow:-6px 0 24px rgba(15,37,64,0.18); z-index:599;
+    transition:right .25s ease; display:flex; flex-direction:column;
+  }
+  .floating-tickets-panel.open{ right:0; }
+  .ft-head{ padding:16px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:14px; flex-shrink:0; }
+  .ft-head button{ background:none; border:none; font-size:16px; cursor:pointer; color:var(--muted); line-height:1; padding:4px; }
+  .ft-head button:hover{ color:var(--danger); }
+  .ft-body{ flex:1; overflow-y:auto; padding:12px 14px; }
+  .ft-card{ background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:11px 13px; margin-bottom:9px; cursor:pointer; }
+  .ft-card:hover{ border-color:var(--accent); }
+  .ft-card .ft-no{ font-weight:800; font-size:13px; color:var(--ink); }
+  .ft-card .ft-cust{ font-size:12px; color:var(--muted); margin-top:2px; }
+  .ft-card .ft-meta{ font-size:11.5px; color:var(--faint); margin-top:6px; display:flex; justify-content:space-between; align-items:center; }
+  @media (max-width:640px){ .floating-tickets-btn{ bottom:16px; right:16px; width:48px; height:48px; font-size:20px; } }
+  @media print{ .floating-tickets-btn, .floating-tickets-panel{ display:none !important; } }
+
   /* Machine operator status board */
   .board-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
   @media (max-width:900px){ .board-grid{ grid-template-columns:1fr 1fr; } }
@@ -1123,11 +1154,14 @@
             </div>
             <div class="field"><label for="payDateEmp">Date</label><input type="date" id="payDateEmp"></div>
           </div>
-          <button class="add-btn save-btn" id="saveEmpPaymentBtn"><span>Record Payment</span><span></span></button>
+          <div style="display:flex; gap:10px;">
+            <button class="add-btn save-btn" id="saveEmpPaymentBtn" style="margin-top:16px;"><span id="saveEmpPaymentLabel">Record Payment</span><span></span></button>
+            <button class="btn-sm" id="cancelEmpPaymentEditBtn" style="display:none; margin-top:16px;">Cancel Edit</button>
+          </div>
           <div class="status-msg" id="empPaymentStatus"></div>
           <table class="data-table" style="margin-top:18px;">
-            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Note</th></tr></thead>
-            <tbody id="empPaymentsTableBody"><tr class="empty-row"><td colspan="4">Select an employee and month.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Note</th><th></th></tr></thead>
+            <tbody id="empPaymentsTableBody"><tr class="empty-row"><td colspan="5">Select an employee and month.</td></tr></tbody>
           </table>
         </section>
       </div>
@@ -1221,6 +1255,13 @@
 </main>
 
 <footer>MAAN COPIERS · Lucknow</footer>
+
+<!-- Floating tickets panel — visible on every tab, not just Walk-in Jobs -->
+<button class="no-print floating-tickets-btn" id="floatingTicketsBtn" title="Recent tickets">🎫<span class="ft-badge" id="floatingTicketsBadge" style="display:none;">0</span></button>
+<div class="no-print floating-tickets-panel" id="floatingTicketsPanel">
+  <div class="ft-head"><span>Active Tickets</span><button id="closeFloatingTickets">✕</button></div>
+  <div class="ft-body" id="floatingTicketsBody"></div>
+</div>
 
 </div>
 
@@ -2434,6 +2475,35 @@
     renderTicketsTable();
     renderTicketStats();
     renderMachineBoard();
+    renderFloatingTickets();
+  }
+
+  // ---- Floating tickets panel (visible on every tab) ----
+  $('floatingTicketsBtn').addEventListener('click', () => {
+    $('floatingTicketsPanel').classList.toggle('open');
+  });
+  $('closeFloatingTickets').addEventListener('click', () => $('floatingTicketsPanel').classList.remove('open'));
+
+  function renderFloatingTickets(){
+    const active = tickets.filter(t => t.status !== 'delivered' && t.status !== 'cancelled')
+      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 25);
+    $('floatingTicketsBadge').style.display = active.length ? 'flex' : 'none';
+    $('floatingTicketsBadge').textContent = active.length;
+    const body = $('floatingTicketsBody');
+    body.innerHTML = active.length ? active.map(t =>
+      '<div class="ft-card" data-id="' + t.id + '">' +
+        '<div class="ft-no">' + t.ticket_no + (t.approval_status !== 'approved' ? ' <span class="status-badge unpaid">PENDING</span>' : '') + '</div>' +
+        '<div class="ft-cust">' + (t.customer_name || 'Walk-in') + '</div>' +
+        '<div class="ft-meta"><span class="status-badge ' + t.status + '">' + (TICKET_STATUS_LABEL[t.status] || t.status) + '</span><span>' + fmtMoney(t.subtotal) + '</span></div>' +
+      '</div>'
+    ).join('') : '<div class="board-empty">No active tickets.</div>';
+    body.querySelectorAll('.ft-card').forEach(card => card.addEventListener('click', async function(){
+      const t = tickets.find(x => x.id === this.dataset.id);
+      if (!t) return;
+      const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', t.id);
+      openTicketPrintPreview(t, items || []);
+      $('floatingTicketsPanel').classList.remove('open');
+    }));
   }
 
   async function loadTickets(){
@@ -3097,8 +3167,8 @@
   }
 
   // ---- Month-end salary ----
-  $('salEmployee').addEventListener('change', loadSalarySummary);
-  $('salMonth').addEventListener('change', loadSalarySummary);
+  $('salEmployee').addEventListener('change', function(){ resetEmpPaymentForm(); loadSalarySummary(); });
+  $('salMonth').addEventListener('change', function(){ resetEmpPaymentForm(); loadSalarySummary(); });
 
   function monthRange(monthStr){
     const [y,m] = (monthStr || todayISO().slice(0,7)).split('-').map(Number);
@@ -3143,9 +3213,40 @@
       '</div>';
 
     const tbody = $('empPaymentsTableBody');
-    tbody.innerHTML = empPayments.length ? empPayments.map(p => '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + p.type + '</td><td>' + fmtMoney(p.amount) + '</td><td>' + (p.note || '—') + '</td></tr>').join('')
-      : '<tr class="empty-row"><td colspan="4">No payments recorded this month.</td></tr>';
+    tbody.innerHTML = empPayments.length ? empPayments.map(p => '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + p.type + '</td><td>' + fmtMoney(p.amount) + '</td><td>' + (p.note || '—') + '</td>' +
+      '<td><div class="row-actions"><button class="emppay-edit" data-id="' + p.id + '" title="Edit (fix a mistaken entry)">✎</button><button class="emppay-delete danger" data-id="' + p.id + '" title="Delete">✕</button></div></td></tr>').join('')
+      : '<tr class="empty-row"><td colspan="5">No payments recorded this month.</td></tr>';
+    tbody.querySelectorAll('.emppay-edit').forEach(btn => btn.addEventListener('click', function(){
+      if (!requireAdmin()) return;
+      const p = empPayments.find(x => x.id === this.dataset.id);
+      if (!p) return;
+      editingEmpPaymentId = p.id;
+      $('payAmountEmp').value = p.amount;
+      $('payTypeEmp').value = p.type;
+      $('payDateEmp').value = p.payment_date;
+      $('saveEmpPaymentLabel').textContent = 'Update Payment';
+      $('cancelEmpPaymentEditBtn').style.display = 'inline-flex';
+      $('payAmountEmp').scrollIntoView({ behavior:'smooth', block:'center' });
+      $('payAmountEmp').focus();
+    }));
+    tbody.querySelectorAll('.emppay-delete').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
+      if (!window.confirm('Delete this payment entry? This cannot be undone.')) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.from('employee_payments').delete().eq('id', this.dataset.id);
+      if (error){ alert(error.message); this.disabled = false; return; }
+      if (editingEmpPaymentId === this.dataset.id) resetEmpPaymentForm();
+      await loadSalarySummary();
+    }));
   }
+  let editingEmpPaymentId = null;
+  function resetEmpPaymentForm(){
+    editingEmpPaymentId = null;
+    $('payAmountEmp').value = ''; $('payTypeEmp').value = 'salary'; $('payDateEmp').value = todayISO();
+    $('saveEmpPaymentLabel').textContent = 'Record Payment';
+    $('cancelEmpPaymentEditBtn').style.display = 'none';
+  }
+  $('cancelEmpPaymentEditBtn').addEventListener('click', resetEmpPaymentForm);
 
   $('saveAttendanceBtn').addEventListener('click', async function(){
     const statusEl = $('attendanceStatus');
@@ -3177,15 +3278,24 @@
     if (!amount || amount <= 0){ showStatus(statusEl, 'Enter an amount greater than 0.', false); return; }
     this.disabled = true;
     try {
-      const { error } = await supabaseClient.from('employee_payments').insert({
-        org_id: currentOrgId, employee_id: empId, amount, type: $('payTypeEmp').value,
-        payment_date: $('payDateEmp').value || todayISO(), created_by: currentUserId
-      });
-      if (error) throw error;
-      showStatus(statusEl, 'Payment recorded.', true);
-      $('payAmountEmp').value = ''; $('payDateEmp').value = todayISO();
+      if (editingEmpPaymentId){
+        const { error } = await supabaseClient.from('employee_payments').update({
+          amount, type: $('payTypeEmp').value, payment_date: $('payDateEmp').value || todayISO()
+        }).eq('id', editingEmpPaymentId);
+        if (error) throw error;
+        showStatus(statusEl, 'Payment updated.', true);
+        resetEmpPaymentForm();
+      } else {
+        const { error } = await supabaseClient.from('employee_payments').insert({
+          org_id: currentOrgId, employee_id: empId, amount, type: $('payTypeEmp').value,
+          payment_date: $('payDateEmp').value || todayISO(), created_by: currentUserId
+        });
+        if (error) throw error;
+        showStatus(statusEl, 'Payment recorded.', true);
+        $('payAmountEmp').value = ''; $('payDateEmp').value = todayISO();
+      }
       await loadSalarySummary();
-    } catch (err){ showStatus(statusEl, err.message || 'Could not record payment.', false); }
+    } catch (err){ showStatus(statusEl, err.message || 'Could not save payment.', false); }
     finally { this.disabled = false; }
   });
 
