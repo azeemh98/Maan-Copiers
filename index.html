@@ -41,8 +41,8 @@
   .nav-tab svg{ width:16px; height:16px; flex-shrink:0; opacity:0.85; }
   .nav-tab.active svg{ opacity:1; }
   body:not(.is-admin) .nav-tab[data-nav="employees"]{ display:none !important; }
-  body.is-walkin-only .nav-tab:not([data-nav="tickets"]):not([data-nav="machine"]){ display:none !important; }
-  body.is-operator .nav-tab:not([data-nav="machine"]){ display:none !important; }
+  body.is-walkin-only .nav-tab:not([data-nav="tickets"]):not([data-nav="machine"]):not([data-nav="tasks"]){ display:none !important; }
+  body.is-operator .nav-tab:not([data-nav="machine"]):not([data-nav="tasks"]){ display:none !important; }
 
   /* Printing-shop graphics */
   .brand-mark svg{ width:20px; height:20px; }
@@ -269,7 +269,7 @@
   .status-badge.delivered{ background:var(--bg); color:var(--muted); }
   .ticket-status-tabs{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
   .thermal-wrap{ display:flex; justify-content:center; }
-  .thermal-slip{ width:302px; font-family:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace; font-size:15px; color:#000; line-height:1.55; }
+  .thermal-slip{ width:272px; font-family:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace; font-size:15px; color:#000; line-height:1.55; }
   .thermal-slip .t-center{ text-align:center; }
   .thermal-slip .t-big{ font-size:28px; font-weight:800; letter-spacing:0.02em; }
   .thermal-slip .t-rule{ border-top:1px dashed #000; margin:9px 0; }
@@ -284,7 +284,7 @@
      Zero margin removes both; the named page keeps A4 documents (invoices, balance slips)
      on their own sane margin instead of printing edge-to-edge. */
   @page{ margin:10mm; }
-  @page thermal{ size:80mm auto; margin:0; }
+  @page thermal{ size:72mm auto; margin:0; }
   @media print{
     .thermal-slip{ width:100%; page:thermal; }
     .thermal-copy{ page-break-inside:avoid; }
@@ -399,6 +399,7 @@
   <button class="nav-tab active" data-nav="stock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Stock</button>
   <button class="nav-tab" data-nav="tickets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></svg>Walk-in Jobs</button>
   <button class="nav-tab" data-nav="machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="16" height="8" rx="1"/><path d="M8 9V5h8v4M8 17v3h8v-3"/><circle cx="16" cy="13" r="1"/></svg>Machine</button>
+  <button class="nav-tab" data-nav="tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/><path d="m8 15 2 2 4-4"/></svg>Tasks</button>
   <button class="nav-tab" data-nav="parties"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Parties</button>
   <button class="nav-tab" data-nav="invoices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2Z"/><path d="M9 8h6M9 12h6"/></svg>Sales &amp; Purchases</button>
   <button class="nav-tab" data-nav="payments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><circle cx="18" cy="14" r="2"/></svg>Payments</button>
@@ -740,6 +741,42 @@
       </div>
       <div class="hint" style="margin-bottom:16px;">Tap a job to move it to the next stage. Delivered jobs drop off after a day.</div>
       <div class="board-grid" id="machineBoard"></div>
+    </section>
+  </section>
+
+  <!-- ============ TASKS ============ -->
+  <section class="section-panel" id="panel-tasks">
+    <section class="card" id="newTaskCard" style="display:none;">
+      <h2 class="collapsible" id="addTaskToggle"><span>+ Assign a Task</span><span class="chev">▶</span></h2>
+      <div id="addTaskBody" style="display:none; margin-top:18px;">
+        <div class="field"><label for="taskTitle">Task</label><input type="text" id="taskTitle" placeholder="e.g. Restock A4 paper, call supplier..."></div>
+        <div class="row2">
+          <div class="field">
+            <label for="taskAssignee">Assign to (optional)</label>
+            <select id="taskAssignee"><option value="">— open to anyone —</option></select>
+          </div>
+          <div class="field"><label for="taskDesc">Notes (optional)</label><input type="text" id="taskDesc" placeholder="Any extra detail..."></div>
+        </div>
+        <button class="add-btn save-btn" id="saveTaskBtn"><span>Assign Task</span><span></span></button>
+        <div class="status-msg" id="taskStatus"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="table-head-row">
+        <h2>Task List</h2>
+        <div class="search-wrap"><input type="text" id="taskSearch" placeholder="Search tasks…"></div>
+      </div>
+      <div class="cat-tabs" id="taskStatusTabs">
+        <button class="cat-tab active" data-tstatus2="all">All</button>
+        <button class="cat-tab" data-tstatus2="open">Open</button>
+        <button class="cat-tab" data-tstatus2="in_progress">In Progress</button>
+        <button class="cat-tab" data-tstatus2="done">Done</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Task</th><th>Assigned To</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody id="tasksTableBody"><tr class="empty-row"><td colspan="5">Loading…</td></tr></tbody>
+      </table>
     </section>
   </section>
 
@@ -1250,20 +1287,20 @@
     // so this is a UX convenience on top of a real server-side restriction, not the only wall.
     document.body.classList.toggle('is-walkin-only', isWalkinOnly);
     document.querySelectorAll('.nav-tab').forEach(tab => {
-      if (isWalkinOnly && tab.dataset.nav !== 'tickets' && tab.dataset.nav !== 'machine') tab.style.display = 'none';
+      if (isWalkinOnly && tab.dataset.nav !== 'tickets' && tab.dataset.nav !== 'machine' && tab.dataset.nav !== 'tasks') tab.style.display = 'none';
     });
 
-    // Machine operators: only the Machine status board — they update job stages, they
-    // don't create tickets or see business data.
+    // Machine operators: the Machine status board plus Tasks — they update job stages and
+    // can pick up assigned work, but don't create tickets or see business data.
     document.body.classList.toggle('is-operator', isOperator);
     document.querySelectorAll('.nav-tab').forEach(tab => {
-      if (isOperator && tab.dataset.nav !== 'machine') tab.style.display = 'none';
+      if (isOperator && tab.dataset.nav !== 'machine' && tab.dataset.nav !== 'tasks') tab.style.display = 'none';
     });
 
     const activePanel = document.querySelector('.section-panel.active');
-    if (isOperator && activePanel && activePanel.id !== 'panel-machine'){
+    if (isOperator && activePanel && activePanel.id !== 'panel-machine' && activePanel.id !== 'panel-tasks'){
       document.querySelector('.nav-tab[data-nav="machine"]').click();
-    } else if (isWalkinOnly && activePanel && activePanel.id !== 'panel-tickets' && activePanel.id !== 'panel-machine'){
+    } else if (isWalkinOnly && activePanel && activePanel.id !== 'panel-tickets' && activePanel.id !== 'panel-machine' && activePanel.id !== 'panel-tasks'){
       document.querySelector('.nav-tab[data-nav="tickets"]').click();
     } else if (!isAdmin && !isWalkinOnly && !isOperator && activePanel && activePanel.id === 'panel-employees'){
       document.querySelector('.nav-tab[data-nav="stock"]').click();
@@ -1423,6 +1460,7 @@
     stock: ['Stock Management', 'Record material in/out and track remaining sheets and items across every product line.'],
     tickets: ['Walk-in Jobs', 'Printout, photocopy, lamination, binding and other daily cash jobs — print a slip for the customer.'],
     machine: ['Machine Status', 'Quickly move jobs through Received → In Progress → Ready → Delivered.'],
+    tasks: ['Tasks', 'Shop tasks assigned to staff — pick one up, work it, mark it done.'],
     employees: ['Employees & Wastage', 'Track wastage against stock and employees, and settle salaries at month end.'],
     parties: ['Customers & Suppliers', 'Manage parties and see who owes you, and who you owe.'],
     invoices: ['Sales & Purchases', 'Create GST-ready invoices — stock and party balances update automatically.'],
@@ -1433,8 +1471,8 @@
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', function(){
       const nav = this.dataset.nav;
-      if (isWalkinOnly && nav !== 'tickets' && nav !== 'machine') return; // walk-in-only staff cannot navigate anywhere else
-      if (isOperator && nav !== 'machine') return; // operators only work the Machine board
+      if (isWalkinOnly && nav !== 'tickets' && nav !== 'machine' && nav !== 'tasks') return; // walk-in-only staff cannot navigate anywhere else
+      if (isOperator && nav !== 'machine' && nav !== 'tasks') return; // operators only work the Machine board + Tasks
       document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
       this.classList.add('active');
@@ -1459,7 +1497,8 @@
       loadPayments(),
       loadExpenses(),
       refreshTicketsPanel(),
-      refreshEmployeesPanel()
+      refreshEmployeesPanel(),
+      refreshTasksPanel()
     ]);
     renderPartiesTable();
     renderOutstandingSummary();
@@ -2522,6 +2561,115 @@
       const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: this.dataset.next });
       if (error){ alert(error.message); this.disabled = false; return; }
       await loadTickets(); renderMachineBoard(); renderTicketsTable(); renderTicketStats();
+    }));
+  }
+
+  // ======================================================================
+  // TASKS — a general shop to-do list, separate from job tickets. Azad/admins assign
+  // (optionally to a specific person, or leave open for anyone), any staff member can pick
+  // up an open task and see it through.
+  // ======================================================================
+  let workTasks = [], assignableMembers = [], taskStatusFilter2 = 'all';
+  toggleCollapsible($('addTaskToggle'), $('addTaskBody'));
+
+  async function loadAssignableMembers(){
+    const { data, error } = await supabaseClient.rpc('list_assignable_members', { p_org_id: currentOrgId });
+    assignableMembers = error ? [] : (data || []);
+  }
+  function renderTaskAssigneeSelect(){
+    const sel = $('taskAssignee');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— open to anyone —</option>' + assignableMembers.map(m => '<option value="' + m.id + '">' + (m.username || '—') + '</option>').join('');
+    if (prev && assignableMembers.some(m => m.id === prev)) sel.value = prev;
+  }
+
+  async function loadWorkTasks(){
+    const { data, error } = await supabaseClient.from('tasks').select('*').eq('org_id', currentOrgId).order('created_at', { ascending:false }).limit(200);
+    workTasks = error ? [] : (data || []);
+  }
+
+  async function refreshTasksPanel(){
+    $('newTaskCard').style.display = isTicketApprover ? 'block' : 'none';
+    await loadAssignableMembers();
+    renderTaskAssigneeSelect();
+    await loadWorkTasks();
+    renderTasksTable();
+  }
+
+  $('saveTaskBtn').addEventListener('click', async function(){
+    const statusEl = $('taskStatus');
+    if (!requireTicketApprover(statusEl)) return;
+    const title = $('taskTitle').value.trim();
+    if (!title){ showStatus(statusEl, 'Enter a task.', false); return; }
+    this.disabled = true;
+    try {
+      const { error } = await supabaseClient.from('tasks').insert({
+        org_id: currentOrgId, title, description: $('taskDesc').value.trim() || null,
+        assigned_to: $('taskAssignee').value || null, created_by: currentUserId
+      });
+      if (error) throw error;
+      showStatus(statusEl, 'Task assigned.', true);
+      $('taskTitle').value = ''; $('taskDesc').value = ''; $('taskAssignee').value = '';
+      await refreshTasksPanel();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not save task.', false); }
+    finally { this.disabled = false; }
+  });
+
+  document.querySelectorAll('#taskStatusTabs .cat-tab').forEach(btn => btn.addEventListener('click', function(){
+    document.querySelectorAll('#taskStatusTabs .cat-tab').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    taskStatusFilter2 = this.dataset.tstatus2;
+    renderTasksTable();
+  }));
+  $('taskSearch').addEventListener('input', renderTasksTable);
+
+  const TASK_STATUS_LABEL = { open:'Open', in_progress:'In Progress', done:'Done' };
+  function taskAssigneeName(t){
+    const m = t.assigned_to ? assignableMembers.find(x => x.id === t.assigned_to) : null;
+    return m ? m.username : (t.assigned_to ? '—' : 'Anyone');
+  }
+
+  function renderTasksTable(){
+    const term = $('taskSearch').value.trim().toLowerCase();
+    let rows = workTasks.slice();
+    if (taskStatusFilter2 !== 'all') rows = rows.filter(t => t.status === taskStatusFilter2);
+    if (term) rows = rows.filter(t => t.title.toLowerCase().includes(term));
+    const tbody = $('tasksTableBody');
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No tasks yet.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(t => {
+      const canTake = t.status === 'open' && (!t.assigned_to || t.assigned_to === currentUserId);
+      const holder = t.claimed_by || t.assigned_to;
+      const canProgress = t.status === 'in_progress' && (holder === currentUserId || isTicketApprover);
+      return '<tr>' +
+        '<td class="item-name">' + t.title + (t.description ? '<div class="item-cat">' + t.description + '</div>' : '') + '</td>' +
+        '<td>' + taskAssigneeName(t) + '</td>' +
+        '<td><span class="status-badge ' + (t.status === 'done' ? 'paid' : (t.status === 'in_progress' ? 'low' : 'received')) + '">' + TASK_STATUS_LABEL[t.status] + '</span></td>' +
+        '<td class="last-mv">' + timeAgo(t.created_at) + '</td>' +
+        '<td><div class="row-actions">' +
+          (canTake ? '<button class="task-start" data-id="' + t.id + '" title="Take this task">▶</button>' : '') +
+          (canProgress ? '<button class="task-done" data-id="' + t.id + '" title="Mark done">✓</button>' : '') +
+          (isTicketApprover ? '<button class="task-delete danger" data-id="' + t.id + '" title="Delete task">✕</button>' : '') +
+        '</div></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('.task-start').forEach(btn => btn.addEventListener('click', async function(){
+      this.disabled = true;
+      const { error } = await supabaseClient.from('tasks').update({ status:'in_progress', claimed_by: currentUserId }).eq('id', this.dataset.id);
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await refreshTasksPanel();
+    }));
+    tbody.querySelectorAll('.task-done').forEach(btn => btn.addEventListener('click', async function(){
+      this.disabled = true;
+      const { error } = await supabaseClient.from('tasks').update({ status:'done', completed_at: new Date().toISOString() }).eq('id', this.dataset.id);
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await refreshTasksPanel();
+    }));
+    tbody.querySelectorAll('.task-delete').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireTicketApprover()) return;
+      if (!window.confirm('Delete this task?')) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.from('tasks').delete().eq('id', this.dataset.id);
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await refreshTasksPanel();
     }));
   }
 
