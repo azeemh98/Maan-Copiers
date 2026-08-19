@@ -269,14 +269,14 @@
   .status-badge.delivered{ background:var(--bg); color:var(--muted); }
   .ticket-status-tabs{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
   .thermal-wrap{ display:flex; justify-content:center; }
-  .thermal-slip{ width:302px; font-family:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:#000; line-height:1.5; }
+  .thermal-slip{ width:302px; font-family:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace; font-size:15px; color:#000; line-height:1.55; }
   .thermal-slip .t-center{ text-align:center; }
-  .thermal-slip .t-big{ font-size:22px; font-weight:800; letter-spacing:0.02em; }
-  .thermal-slip .t-rule{ border-top:1px dashed #000; margin:8px 0; }
+  .thermal-slip .t-big{ font-size:28px; font-weight:800; letter-spacing:0.02em; }
+  .thermal-slip .t-rule{ border-top:1px dashed #000; margin:9px 0; }
   .thermal-slip .t-row{ display:flex; justify-content:space-between; gap:8px; }
-  .thermal-slip table{ width:100%; border-collapse:collapse; margin:6px 0; }
-  .thermal-slip td{ padding:2px 0; vertical-align:top; }
-  .thermal-slip .t-foot{ margin-top:8px; font-size:11px; text-align:center; }
+  .thermal-slip table{ width:100%; border-collapse:collapse; margin:7px 0; }
+  .thermal-slip td{ padding:3px 0; vertical-align:top; }
+  .thermal-slip .t-foot{ margin-top:9px; font-size:13.5px; text-align:center; }
   .thermal-copy{ padding-bottom:6px; }
   .thermal-cut{ text-align:center; font-size:11px; color:#999; margin:10px 0; letter-spacing:0.05em; }
   /* No @page rule = browser defaults to ~1in margins plus its own header/footer (page title,
@@ -2535,7 +2535,7 @@
     const approver = ticket.approved_by ? profilesMap[ticket.approved_by] : null;
     const approverName = approver ? (approver.username || approver.full_name || approver.email) : 'PENDING';
     return (
-      '<div class="t-center" style="font-size:10px; letter-spacing:0.08em; color:#555;">' + copyLabel + '</div>' +
+      '<div class="t-center" style="font-size:12px; letter-spacing:0.08em; color:#555;">' + copyLabel + '</div>' +
       '<div class="t-center"><b>JOB WORK</b></div>' +
       (org.address ? '<div class="t-center">' + org.address + '</div>' : '') +
       (org.gstin ? '<div class="t-center">GSTIN: ' + org.gstin + '</div>' : '') +
@@ -2549,7 +2549,7 @@
       '<div class="t-rule"></div>' +
       '<table>' + lines + '</table>' +
       '<div class="t-rule"></div>' +
-      '<div class="t-row" style="font-weight:800; font-size:15px;"><span>TOTAL</span><span>' + fmtMoney(ticket.subtotal) + '</span></div>' +
+      '<div class="t-row" style="font-weight:800; font-size:18px;"><span>TOTAL</span><span>' + fmtMoney(ticket.subtotal) + '</span></div>' +
       '<div class="t-row"><span>Payment</span><span>' + ticket.payment_status.toUpperCase() + '</span></div>' +
       (ticket.notes ? '<div class="t-rule"></div><div>' + ticket.notes + '</div>' : '') +
       '<div class="t-rule"></div>' +
