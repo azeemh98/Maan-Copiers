@@ -2235,7 +2235,7 @@
   }
 
   // ---- Ticket line items ----
-  function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0, size:'' }; }
+  function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0, size:'', autoLinked:false }; }
   let selectedTicketPartyId = null;
   // True when selectedTicketPartyId came from noticing the typed name/phone match a saved
   // customer, rather than from an explicit pick in the search box above. Lets later keystrokes
@@ -2265,7 +2265,8 @@
     editingTicketId = ticket.id;
     ticketLineItems = (items && items.length ? items : [{}]).map(li => ({
       service_id: li.service_id ? 'svc:' + li.service_id : (li.material_id ? 'mat:' + li.material_id : ''),
-      description: li.description || '', qty: Number(li.quantity) || 1, unit: li.unit || '', rate: Number(li.rate) || 0
+      description: li.description || '', qty: Number(li.quantity) || 1, unit: li.unit || '', rate: Number(li.rate) || 0,
+      autoLinked: false // an existing saved link is explicit, whether it was originally picked or auto-matched
     }));
     renderTicketLineItems();
     $('tkCustomerName').value = ticket.customer_name || '';
@@ -2345,17 +2346,27 @@
     if (value.indexOf('mat:') === 0){ const m = ticketMaterials.find(x => x.id === id); return m ? m.name + ' — Stock: ' + m.category : ''; }
     return '';
   }
+  // Plain name → catalog entry, for recognizing a typed description that matches a real
+  // service/stock item even when nobody used the search box above. Stock materials win over
+  // services on a name collision, since picking up a stock deduction matters more than an
+  // auto-filled rate.
+  let ticketAutoMatchByName = {};
   function renderTicketServiceDatalist(){
     serviceLookupByLabel = {};
+    ticketAutoMatchByName = {};
     let html = '';
     services.filter(s => s.is_active).forEach(s => {
       const label = s.name + ' — ' + s.category;
-      serviceLookupByLabel[label] = { value: 'svc:' + s.id, name: s.name, unit: s.unit, rate: Number(s.rate) };
+      const entry = { value: 'svc:' + s.id, name: s.name, unit: s.unit, rate: Number(s.rate) };
+      serviceLookupByLabel[label] = entry;
+      ticketAutoMatchByName[s.name.trim().toLowerCase()] = entry;
       html += '<option value="' + label.replace(/"/g,'&quot;') + '"></option>';
     });
     ticketMaterials.forEach(m => {
       const label = m.name + ' — Stock: ' + m.category;
-      serviceLookupByLabel[label] = { value: 'mat:' + m.id, name: m.name, unit: m.unit, rate: null };
+      const entry = { value: 'mat:' + m.id, name: m.name, unit: m.unit, rate: null };
+      serviceLookupByLabel[label] = entry;
+      ticketAutoMatchByName[m.name.trim().toLowerCase()] = entry;
       html += '<option value="' + label.replace(/"/g,'&quot;') + '"></option>';
     });
     $('tkServiceDatalist').innerHTML = html;
@@ -2388,8 +2399,9 @@
       const idx = parseInt(tr.dataset.idx);
       tr.querySelector('.tk-service').addEventListener('input', function(){
         const match = serviceLookupByLabel[this.value];
-        if (!match){ ticketLineItems[idx].service_id = ''; return; }
+        if (!match){ ticketLineItems[idx].service_id = ''; ticketLineItems[idx].autoLinked = false; return; }
         ticketLineItems[idx].service_id = match.value;
+        ticketLineItems[idx].autoLinked = false; // explicit pick from the search box — description-typing won't second-guess it
         ticketLineItems[idx].description = match.name;
         ticketLineItems[idx].unit = match.unit;
         ticketLineItems[idx].size = '';
@@ -2415,7 +2427,29 @@
         }
         updateTicketLineAmount(tr, idx);
       });
-      tr.querySelector('.tk-desc').addEventListener('input', function(){ ticketLineItems[idx].description = this.value; });
+      // Staff very often just type the item straight into Description instead of using the
+      // search box above — which used to mean a real stock item sold this way never deducted
+      // from inventory (this is exactly what happened with a FRC sheet sale that didn't show
+      // up in stock). If what's typed exactly matches a catalog name, link it automatically —
+      // same as picking it from search — without overriding an explicit pick from that box.
+      tr.querySelector('.tk-desc').addEventListener('input', function(){
+        const li = ticketLineItems[idx];
+        li.description = this.value;
+        if (li.service_id && !li.autoLinked) return;
+        const match = ticketAutoMatchByName[this.value.trim().toLowerCase()];
+        if (match){
+          li.service_id = match.value;
+          li.autoLinked = true;
+          li.unit = match.unit;
+          if (match.rate !== null) li.rate = match.rate;
+          const rateInput = tr.querySelector('.tk-rate');
+          if (rateInput) rateInput.value = li.rate;
+          updateTicketLineAmount(tr, idx);
+        } else if (li.autoLinked){
+          li.service_id = '';
+          li.autoLinked = false;
+        }
+      });
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.tk-rate').addEventListener('input', function(){ ticketLineItems[idx].rate = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.li-remove').addEventListener('click', function(){ ticketLineItems.splice(idx, 1); if (ticketLineItems.length === 0) ticketLineItems.push(newTicketLineRow()); renderTicketLineItems(); updateTicketTotal(); });
