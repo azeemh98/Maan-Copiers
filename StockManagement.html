@@ -2977,9 +2977,12 @@
         const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode }).eq('id', ticket.id);
         if (tkErr) throw tkErr;
       } else {
-        // Genuine anonymous walk-in with no saved party attached — create the invoice and
-        // payment together now, booked to the shared "Walk-in / Cash Customers" bucket.
-        const partyId = await ensureWalkInParty();
+        // No linked invoice yet. If the ticket is attached to a saved party (e.g. it was
+        // edited after creation to link a customer, so the create-time auto-invoice never
+        // ran) bill THAT party — never silently fall back to the shared walk-in bucket just
+        // because invoice_id happens to be empty. Only a genuinely anonymous ticket (no
+        // party_id at all) goes to "Walk-in / Cash Customers".
+        const partyId = ticket.party_id || await ensureWalkInParty();
         const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticket.id);
         const { data: nextNum, error: numErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'sale' });
         if (numErr) throw numErr;
