@@ -262,6 +262,12 @@
   .ft-head button{ background:none; border:none; font-size:16px; cursor:pointer; color:var(--muted); line-height:1; padding:4px; }
   .ft-head button:hover{ color:var(--danger); }
   .ft-body{ flex:1; overflow-y:auto; padding:12px 14px; }
+  .ft-section-label{ font-size:10.5px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; color:var(--faint); margin-bottom:8px; }
+  .ft-empty{ font-size:12px; color:var(--faint); padding:4px 0 10px; }
+  .ft-card .ft-accept{
+    width:100%; margin-top:8px; padding:7px; background:var(--accent); border:none; border-radius:6px; color:#fff;
+    font-family:'Inter'; font-weight:700; font-size:11.5px; cursor:pointer;
+  }
   .ft-card{ background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:11px 13px; margin-bottom:9px; cursor:pointer; }
   .ft-card:hover{ border-color:var(--accent); }
   .ft-card .ft-no{ font-weight:800; font-size:13px; color:var(--ink); }
@@ -1256,11 +1262,16 @@
 
 <footer>MAAN COPIERS · Lucknow</footer>
 
-<!-- Floating tickets panel — visible on every tab, not just Walk-in Jobs -->
-<button class="no-print floating-tickets-btn" id="floatingTicketsBtn" title="Recent tickets">🎫<span class="ft-badge" id="floatingTicketsBadge" style="display:none;">0</span></button>
+<!-- Floating tasks + tickets panel — visible on every tab, opens automatically at login -->
+<button class="no-print floating-tickets-btn" id="floatingTicketsBtn" title="Your tasks & active tickets">🎫<span class="ft-badge" id="floatingTicketsBadge" style="display:none;">0</span></button>
 <div class="no-print floating-tickets-panel" id="floatingTicketsPanel">
-  <div class="ft-head"><span>Active Tickets</span><button id="closeFloatingTickets">✕</button></div>
-  <div class="ft-body" id="floatingTicketsBody"></div>
+  <div class="ft-head"><span>Your Tasks &amp; Active Tickets</span><button id="closeFloatingTickets">✕</button></div>
+  <div class="ft-body">
+    <div class="ft-section-label">Tasks for you</div>
+    <div id="floatingTasksBody"></div>
+    <div class="ft-section-label" style="margin-top:18px;">Active Tickets</div>
+    <div id="floatingTicketsBody"></div>
+  </div>
 </div>
 
 </div>
@@ -1353,14 +1364,16 @@
     }
   }
 
-  function showApp(session){
+  async function showApp(session){
     $('authGate').style.display = 'none';
     $('appShell').style.display = 'block';
     $('userBar').style.display = 'flex';
     $('userEmail').textContent = session?.user?.email || '';
     applyModeUI();
     applyAdminGating();
-    loadEverything();
+    await loadEverything();
+    // Surface tasks/tickets the moment someone signs in, instead of making them go find it.
+    $('floatingTicketsPanel').classList.add('open');
   }
   function showAuthGate(message){
     $('appShell').style.display = 'none';
@@ -2487,8 +2500,7 @@
   function renderFloatingTickets(){
     const active = tickets.filter(t => t.status !== 'delivered' && t.status !== 'cancelled')
       .sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 25);
-    $('floatingTicketsBadge').style.display = active.length ? 'flex' : 'none';
-    $('floatingTicketsBadge').textContent = active.length;
+    updateFloatingBadge();
     const body = $('floatingTicketsBody');
     body.innerHTML = active.length ? active.map(t =>
       '<div class="ft-card" data-id="' + t.id + '">' +
@@ -2681,6 +2693,37 @@
     renderTaskAssigneeSelect();
     await loadWorkTasks();
     renderTasksTable();
+    renderFloatingTasks();
+    updateFloatingBadge();
+  }
+
+  // ---- Floating panel: tasks for you (assigned to you, or open to anyone) ----
+  function renderFloatingTasks(){
+    const mine = workTasks.filter(t => t.status !== 'done' && (t.assigned_to === currentUserId || !t.assigned_to))
+      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 15);
+    const body = $('floatingTasksBody');
+    body.innerHTML = mine.length ? mine.map(t => {
+      const party = t.party_id ? parties.find(p => p.id === t.party_id) : null;
+      const canTake = t.status === 'open';
+      return '<div class="ft-card">' +
+        '<div class="ft-no">' + t.title + '</div>' +
+        (party ? '<div class="ft-cust">For: ' + party.name + '</div>' : '') +
+        '<div class="ft-meta"><span class="status-badge ' + (t.status === 'in_progress' ? 'low' : 'received') + '">' + TASK_STATUS_LABEL[t.status] + '</span></div>' +
+        (canTake ? '<button class="ft-accept" data-id="' + t.id + '">▶ Accept</button>' : '') +
+      '</div>';
+    }).join('') : '<div class="ft-empty">Nothing assigned to you right now.</div>';
+    body.querySelectorAll('.ft-accept').forEach(btn => btn.addEventListener('click', async function(){
+      this.disabled = true;
+      await acceptTask(this.dataset.id);
+    }));
+  }
+
+  function updateFloatingBadge(){
+    const myOpenTasks = workTasks.filter(t => t.status !== 'done' && (t.assigned_to === currentUserId || !t.assigned_to)).length;
+    const activeTix = tickets.filter(t => t.status !== 'delivered' && t.status !== 'cancelled').length;
+    const total = myOpenTasks + activeTix;
+    $('floatingTicketsBadge').style.display = total ? 'flex' : 'none';
+    $('floatingTicketsBadge').textContent = total;
   }
 
   $('saveTaskBtn').addEventListener('click', async function(){
@@ -2739,6 +2782,18 @@
     $('tkFormTitle').scrollIntoView({ behavior:'smooth', block:'center' });
   }
 
+  // Shared accept action — used by both the Tasks tab and the floating panel, so accepting
+  // from either place claims the task and (for roles with a tickets tab) jumps straight
+  // into ticket creation the same way.
+  async function acceptTask(taskId){
+    const task = workTasks.find(x => x.id === taskId);
+    const { error } = await supabaseClient.from('tasks').update({ status:'in_progress', claimed_by: currentUserId }).eq('id', taskId);
+    if (error){ alert(error.message); return; }
+    await refreshTasksPanel();
+    $('floatingTicketsPanel').classList.remove('open');
+    if (task) acceptTaskAndCreateTicket(task);
+  }
+
   function renderTasksTable(){
     const term = $('taskSearch').value.trim().toLowerCase();
     let rows = workTasks.slice();
@@ -2764,11 +2819,7 @@
     }).join('');
     tbody.querySelectorAll('.task-start').forEach(btn => btn.addEventListener('click', async function(){
       this.disabled = true;
-      const task = workTasks.find(x => x.id === this.dataset.id);
-      const { error } = await supabaseClient.from('tasks').update({ status:'in_progress', claimed_by: currentUserId }).eq('id', this.dataset.id);
-      if (error){ alert(error.message); this.disabled = false; return; }
-      await refreshTasksPanel();
-      if (task) acceptTaskAndCreateTicket(task);
+      await acceptTask(this.dataset.id);
     }));
     tbody.querySelectorAll('.task-done').forEach(btn => btn.addEventListener('click', async function(){
       this.disabled = true;
