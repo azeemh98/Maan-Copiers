@@ -1158,7 +1158,7 @@
           <button class="btn-sm" id="saveAttendanceBtn">Save Attendance</button>
           <div class="status-msg" id="attendanceStatus"></div>
           <div id="salarySummary" style="margin-top:16px;"></div>
-          <div class="row3" style="margin-top:16px;">
+          <div class="row4" style="margin-top:16px;">
             <div class="field"><label for="payAmountEmp">Amount (₹)</label><input type="number" id="payAmountEmp" min="0.01" step="0.01"></div>
             <div class="field"><label for="payTypeEmp">Type</label>
               <select id="payTypeEmp">
@@ -1166,6 +1166,15 @@
                 <option value="advance">Advance</option>
                 <option value="bonus">Bonus</option>
                 <option value="deduction">Deduction</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field"><label for="payModeEmp">Paid via</label>
+              <select id="payModeEmp">
+                <option value="cash">Cash</option>
+                <option value="bank">Bank Transfer</option>
+                <option value="upi">UPI</option>
+                <option value="cheque">Cheque</option>
                 <option value="other">Other</option>
               </select>
             </div>
@@ -1177,8 +1186,8 @@
           </div>
           <div class="status-msg" id="empPaymentStatus"></div>
           <table class="data-table" style="margin-top:18px;">
-            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Note</th><th></th></tr></thead>
-            <tbody id="empPaymentsTableBody"><tr class="empty-row"><td colspan="5">Select an employee and month.</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Type</th><th>Paid via</th><th>Amount</th><th>Note</th><th></th></tr></thead>
+            <tbody id="empPaymentsTableBody"><tr class="empty-row"><td colspan="6">Select an employee and month.</td></tr></tbody>
           </table>
         </section>
       </div>
@@ -3094,7 +3103,7 @@
   $('saveEmployeeBtn').addEventListener('click', async function(){
     const statusEl = $('employeeStatus');
     if (!requireAdmin(statusEl)) return;
-    const name = $('empName').value.trim();
+    const name = $('empName').value.trim().toUpperCase();
     if (!name){ showStatus(statusEl, 'Enter an employee name.', false); return; }
     this.disabled = true;
     try {
@@ -3175,7 +3184,7 @@
       let added = 0, updated = 0, skipped = 0;
       for (const row of rows){
         const code = String(pick(row, 'employeecode','code','empcode') || '').trim();
-        const name = String(pick(row, 'name','employeename') || '').trim();
+        const name = String(pick(row, 'name','employeename') || '').trim().toUpperCase();
         const phone = String(pick(row, 'phone','mobile','phonenumber') || '').trim();
         const salaryRaw = pick(row, 'monthlysalary','salary');
         const salary = parseFloat(salaryRaw) || 0;
@@ -3367,9 +3376,9 @@
       '</div>';
 
     const tbody = $('empPaymentsTableBody');
-    tbody.innerHTML = empPayments.length ? empPayments.map(p => '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + p.type + '</td><td>' + fmtMoney(p.amount) + '</td><td>' + (p.note || '—') + '</td>' +
+    tbody.innerHTML = empPayments.length ? empPayments.map(p => '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + p.type + '</td><td>' + (EMP_PAY_MODE_LABEL[p.mode] || 'Cash') + '</td><td>' + fmtMoney(p.amount) + '</td><td>' + (p.note || '—') + '</td>' +
       '<td><div class="row-actions"><button class="emppay-edit" data-id="' + p.id + '" title="Edit (fix a mistaken entry)">✎</button><button class="emppay-delete danger" data-id="' + p.id + '" title="Delete">✕</button></div></td></tr>').join('')
-      : '<tr class="empty-row"><td colspan="5">No payments recorded this month.</td></tr>';
+      : '<tr class="empty-row"><td colspan="6">No payments recorded this month.</td></tr>';
     tbody.querySelectorAll('.emppay-edit').forEach(btn => btn.addEventListener('click', function(){
       if (!requireAdmin()) return;
       const p = empPayments.find(x => x.id === this.dataset.id);
@@ -3377,6 +3386,7 @@
       editingEmpPaymentId = p.id;
       $('payAmountEmp').value = p.amount;
       $('payTypeEmp').value = p.type;
+      $('payModeEmp').value = p.mode || 'cash';
       $('payDateEmp').value = p.payment_date;
       $('saveEmpPaymentLabel').textContent = 'Update Payment';
       $('cancelEmpPaymentEditBtn').style.display = 'inline-flex';
@@ -3393,10 +3403,11 @@
       await loadSalarySummary();
     }));
   }
+  const EMP_PAY_MODE_LABEL = { cash:'Cash', bank:'Bank Transfer', upi:'UPI', cheque:'Cheque', other:'Other' };
   let editingEmpPaymentId = null;
   function resetEmpPaymentForm(){
     editingEmpPaymentId = null;
-    $('payAmountEmp').value = ''; $('payTypeEmp').value = 'salary'; $('payDateEmp').value = todayISO();
+    $('payAmountEmp').value = ''; $('payTypeEmp').value = 'salary'; $('payModeEmp').value = 'cash'; $('payDateEmp').value = todayISO();
     $('saveEmpPaymentLabel').textContent = 'Record Payment';
     $('cancelEmpPaymentEditBtn').style.display = 'none';
   }
@@ -3434,14 +3445,14 @@
     try {
       if (editingEmpPaymentId){
         const { error } = await supabaseClient.from('employee_payments').update({
-          amount, type: $('payTypeEmp').value, payment_date: $('payDateEmp').value || todayISO()
+          amount, type: $('payTypeEmp').value, mode: $('payModeEmp').value, payment_date: $('payDateEmp').value || todayISO()
         }).eq('id', editingEmpPaymentId);
         if (error) throw error;
         showStatus(statusEl, 'Payment updated.', true);
         resetEmpPaymentForm();
       } else {
         const { error } = await supabaseClient.from('employee_payments').insert({
-          org_id: currentOrgId, employee_id: empId, amount, type: $('payTypeEmp').value,
+          org_id: currentOrgId, employee_id: empId, amount, type: $('payTypeEmp').value, mode: $('payModeEmp').value,
           payment_date: $('payDateEmp').value || todayISO(), created_by: currentUserId
         });
         if (error) throw error;
