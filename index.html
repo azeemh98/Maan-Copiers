@@ -2228,12 +2228,17 @@
   // ---- Ticket line items ----
   function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0, size:'' }; }
   let selectedTicketPartyId = null;
+  // True when selectedTicketPartyId came from noticing the typed name/phone match a saved
+  // customer, rather than from an explicit pick in the search box above. Lets later keystrokes
+  // in the name/phone fields keep re-checking (and un-link if they no longer match) without
+  // ever overriding a deliberate search-box pick.
+  let autoLinkedTicketParty = false;
   let editingTicketId = null;
   function resetTicketForm(){
     ticketLineItems = [newTicketLineRow()];
     renderTicketLineItems();
     $('tkCustomerName').value = ''; $('tkPhone').value = ''; $('tkNotes').value = ''; $('tkExpected').value = '';
-    $('tkPartySearch').value = ''; selectedTicketPartyId = null;
+    $('tkPartySearch').value = ''; selectedTicketPartyId = null; autoLinkedTicketParty = false;
     $('tkMachine').value = ''; $('tkOperator').value = '';
     editingTicketId = null;
     $('tkFormTitle').textContent = 'New Walk-in Job Ticket';
@@ -2259,6 +2264,7 @@
     $('tkNotes').value = ticket.notes || '';
     $('tkExpected').value = ticket.expected_at ? new Date(new Date(ticket.expected_at).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : '';
     selectedTicketPartyId = ticket.party_id || null;
+    autoLinkedTicketParty = false;
     const party = ticket.party_id ? parties.find(p => p.id === ticket.party_id) : null;
     $('tkPartySearch').value = party ? (party.name + (party.phone ? ' — ' + party.phone : '')) : '';
     $('tkMachine').value = ticket.machine || '';
@@ -2280,14 +2286,44 @@
     const match = parties.find(p => p.is_active && (p.name + (p.phone ? ' — ' + p.phone : '')) === this.value);
     if (match){
       selectedTicketPartyId = match.id;
+      autoLinkedTicketParty = false; // explicit pick — later edits to the name/phone fields won't fight it
       $('tkCustomerName').value = match.name;
       $('tkPhone').value = match.phone || '';
       $('tkPartyHint').textContent = 'Linked to saved customer "' + match.name + '".';
     } else {
       selectedTicketPartyId = null;
+      autoLinkedTicketParty = false;
       $('tkPartyHint').textContent = 'Pick a saved customer to auto-fill their details, or just type a name below for a one-off walk-in.';
     }
   });
+
+  // A customer typed straight into the plain name/phone fields — instead of picked from the
+  // search box above — used to create a disconnected "walk-in" ticket even when that exact
+  // customer already had a saved account, so their balance silently never updated. This
+  // catches that: if what's typed matches a saved party by phone or exact name, link the
+  // ticket to them automatically, same as if they'd been picked from search. Never overrides
+  // an explicit search-box pick, and un-links itself if the text is edited to no longer match.
+  function tryAutoLinkTicketByTypedInfo(){
+    if (selectedTicketPartyId && !autoLinkedTicketParty) return;
+    const nameVal = $('tkCustomerName').value.trim();
+    const phoneVal = $('tkPhone').value.trim();
+    let match = null;
+    if (phoneVal) match = parties.find(p => p.is_active && p.phone && p.phone === phoneVal);
+    if (!match && nameVal) match = parties.find(p => p.is_active && p.name.toLowerCase() === nameVal.toLowerCase());
+    if (match){
+      selectedTicketPartyId = match.id;
+      autoLinkedTicketParty = true;
+      $('tkPartySearch').value = match.name + (match.phone ? ' — ' + match.phone : '');
+      $('tkPartyHint').textContent = 'Matches saved customer "' + match.name + '" — linking this ticket to their account.';
+    } else if (autoLinkedTicketParty){
+      selectedTicketPartyId = null;
+      autoLinkedTicketParty = false;
+      $('tkPartySearch').value = '';
+      $('tkPartyHint').textContent = 'Pick a saved customer to auto-fill their details, or just type a name below for a one-off walk-in.';
+    }
+  }
+  $('tkCustomerName').addEventListener('input', tryAutoLinkTicketByTypedInfo);
+  $('tkPhone').addEventListener('input', tryAutoLinkTicketByTypedInfo);
 
   // Search-as-you-type picker for ticket lines (Services + Stock catalog combined) — a plain
   // <select> with 100+ options grouped across 15 categories was too slow to hunt through by
