@@ -276,6 +276,17 @@
   @media (max-width:640px){ .floating-tickets-btn{ bottom:16px; right:16px; width:48px; height:48px; font-size:20px; } }
   @media print{ .floating-tickets-btn, .floating-tickets-panel{ display:none !important; } }
 
+  /* Live-update toasts — fire when another logged-in user's action (new ticket, new task,
+     status change) arrives over the realtime subscription, so it's noticed without a refresh. */
+  #liveToasts{ position:fixed; top:18px; right:18px; z-index:700; display:flex; flex-direction:column; gap:8px; max-width:320px; }
+  .live-toast{
+    background:var(--navy); color:#fff; border-radius:8px; padding:12px 14px; font-size:12.5px; line-height:1.5;
+    box-shadow:0 8px 22px rgba(15,37,64,0.35); cursor:pointer; animation:toastIn .2s ease;
+  }
+  .live-toast b{ display:block; font-size:12.5px; margin-bottom:2px; }
+  @keyframes toastIn{ from{ opacity:0; transform:translateX(12px); } to{ opacity:1; transform:translateX(0); } }
+  @media print{ #liveToasts{ display:none !important; } }
+
   /* Machine operator status board */
   .board-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
   @media (max-width:900px){ .board-grid{ grid-template-columns:1fr 1fr; } }
@@ -1262,6 +1273,9 @@
 
 <footer>MAAN COPIERS · Lucknow</footer>
 
+<!-- Live-update toasts: pop up when a realtime change (new ticket/task, status update) arrives -->
+<div class="no-print" id="liveToasts"></div>
+
 <!-- Floating tasks + tickets panel — visible on every tab, opens automatically at login -->
 <button class="no-print floating-tickets-btn" id="floatingTicketsBtn" title="Your tasks & active tickets">🎫<span class="ft-badge" id="floatingTicketsBadge" style="display:none;">0</span></button>
 <div class="no-print floating-tickets-panel" id="floatingTicketsPanel">
@@ -1372,6 +1386,7 @@
     applyModeUI();
     applyAdminGating();
     await loadEverything();
+    setupRealtime();
     // Surface tasks/tickets the moment someone signs in, instead of making them go find it.
     $('floatingTicketsPanel').classList.add('open');
   }
@@ -1385,6 +1400,7 @@
   }
 
   $('signOutBtn').addEventListener('click', async function(){
+    if (realtimeChannel){ supabaseClient.removeChannel(realtimeChannel); realtimeChannel = null; }
     await supabaseClient.auth.signOut();
     currentOrgId = null; currentUserId = null; isAdmin = false;
     showAuthGate();
@@ -2724,6 +2740,54 @@
     const total = myOpenTasks + activeTix;
     $('floatingTicketsBadge').style.display = total ? 'flex' : 'none';
     $('floatingTicketsBadge').textContent = total;
+  }
+
+  // ======================================================================
+  // LIVE SYNC — a Supabase Realtime subscription so a ticket/task created or changed by
+  // one signed-in user shows up for everyone else automatically, no manual refresh needed.
+  // A short pop-up (toast) also calls out new tickets/tasks as they arrive.
+  // ======================================================================
+  let realtimeChannel = null;
+  let realtimeRefreshTimer = null;
+  function scheduleRealtimeRefresh(kind){
+    clearTimeout(realtimeRefreshTimer);
+    realtimeRefreshTimer = setTimeout(async () => {
+      if (kind === 'tickets'){
+        await loadTickets();
+        renderTicketsTable(); renderTicketStats(); renderMachineBoard(); renderFloatingTickets();
+      } else {
+        await loadWorkTasks();
+        renderTasksTable(); renderFloatingTasks(); updateFloatingBadge();
+      }
+    }, 400); // small debounce so a burst of changes doesn't re-render on every single row
+  }
+  function showToast(title, sub){
+    const box = $('liveToasts');
+    if (!box) return;
+    const el = document.createElement('div');
+    el.className = 'live-toast';
+    el.innerHTML = '<b>' + title + '</b>' + (sub ? sub : '');
+    el.addEventListener('click', function(){ el.remove(); $('floatingTicketsPanel').classList.add('open'); });
+    box.appendChild(el);
+    setTimeout(() => el.remove(), 7000);
+  }
+  function setupRealtime(){
+    if (realtimeChannel){ supabaseClient.removeChannel(realtimeChannel); realtimeChannel = null; }
+    if (!currentOrgId) return;
+    realtimeChannel = supabaseClient.channel('org-live-' + currentOrgId)
+      .on('postgres_changes', { event:'*', schema:'public', table:'job_tickets', filter:'org_id=eq.' + currentOrgId }, function(payload){
+        scheduleRealtimeRefresh('tickets');
+        if (payload.eventType === 'INSERT' && payload.new.created_by !== currentUserId){
+          showToast('🎫 New ticket ' + payload.new.ticket_no, payload.new.customer_name || 'Walk-in');
+        }
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'tasks', filter:'org_id=eq.' + currentOrgId }, function(payload){
+        scheduleRealtimeRefresh('tasks');
+        if (payload.eventType === 'INSERT' && payload.new.created_by !== currentUserId && (!payload.new.assigned_to || payload.new.assigned_to === currentUserId)){
+          showToast('🔔 New task for you', payload.new.title);
+        }
+      })
+      .subscribe();
   }
 
   $('saveTaskBtn').addEventListener('click', async function(){
