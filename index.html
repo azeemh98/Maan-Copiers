@@ -157,6 +157,8 @@
   .status-badge.low{ background:var(--warn-soft); color:var(--warn); }
   .status-badge.out{ background:var(--danger-soft); color:var(--danger); }
   .status-badge.inactive{ background:var(--bg); color:var(--faint); }
+  .tk-stock-hint{ margin-top:5px; }
+  .tk-stock-hint:empty{ display:none; }
   .status-badge.paid{ background:var(--ok-soft); color:var(--ok); }
   .status-badge.unpaid{ background:var(--danger-soft); color:var(--danger); }
   .status-badge.partially_paid{ background:var(--warn-soft); color:var(--warn); }
@@ -2382,12 +2384,24 @@
   // (width × height) so nobody has to do that math by hand, and tags it onto the description.
   const SIZE_PATTERN = /^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)$/;
 
+  // Only speaks up when a linked stock item is genuinely low/out — silent otherwise, since
+  // this is a heads-up before finishing the ticket, not a block on creating it.
+  function ticketStockHintFor(li){
+    if (!li.service_id || li.service_id.indexOf('mat:') !== 0) return '';
+    const m = ticketMaterials.find(x => x.id === li.service_id.slice(4));
+    if (!m) return '';
+    const st = statusFor(m);
+    if (st === 'out') return '<span class="status-badge out">OUT OF STOCK</span>';
+    if (st === 'low') return '<span class="status-badge low">LOW STOCK — ' + fmtQty(m.remaining) + ' ' + m.unit + ' left</span>';
+    return '';
+  }
   function renderTicketLineItems(){
     const tbody = $('tkLineItems');
     tbody.innerHTML = ticketLineItems.map((li, idx) => {
       const amount = li.qty * li.rate;
       return '<tr data-idx="' + idx + '">' +
-        '<td><input type="text" class="tk-service" list="tkServiceDatalist" value="' + serviceLabelFor(li.service_id).replace(/"/g,'&quot;') + '" placeholder="Search or leave blank for custom…" autocomplete="off"></td>' +
+        '<td><input type="text" class="tk-service" list="tkServiceDatalist" value="' + serviceLabelFor(li.service_id).replace(/"/g,'&quot;') + '" placeholder="Search or leave blank for custom…" autocomplete="off">' +
+          '<div class="tk-stock-hint">' + ticketStockHintFor(li) + '</div></td>' +
         '<td><input type="text" class="tk-size" value="' + (li.size || '').replace(/"/g,'&quot;') + '" placeholder="4X5" style="width:64px;"></td>' +
         '<td><input type="text" class="tk-desc" value="' + (li.description || '').replace(/"/g,'&quot;') + '" placeholder="Description"></td>' +
         '<td><input type="number" class="tk-qty" value="' + li.qty + '" min="0.01" step="0.01" style="width:70px;"></td>' +
@@ -2449,6 +2463,8 @@
           li.service_id = '';
           li.autoLinked = false;
         }
+        const hintEl = tr.querySelector('.tk-stock-hint');
+        if (hintEl) hintEl.innerHTML = ticketStockHintFor(li);
       });
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.tk-rate').addEventListener('input', function(){ ticketLineItems[idx].rate = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
