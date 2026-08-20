@@ -2264,7 +2264,7 @@
     if (error){ alert(error.message); return; }
     editingTicketId = ticket.id;
     ticketLineItems = (items && items.length ? items : [{}]).map(li => ({
-      service_id: li.service_id ? 'svc:' + li.service_id : '',
+      service_id: li.service_id ? 'svc:' + li.service_id : (li.material_id ? 'mat:' + li.material_id : ''),
       description: li.description || '', qty: Number(li.quantity) || 1, unit: li.unit || '', rate: Number(li.rate) || 0
     }));
     renderTicketLineItems();
@@ -2442,10 +2442,9 @@
     this.disabled = true;
     try {
       if (editingTicketId){
-        // job_ticket_items.service_id only references the services table — a picked stock
-        // item (mat:...) autofills description/unit like a service does, but isn't a real FK.
         const itemsPayload = validLines.map(li => ({
           service_id: li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : '',
+          material_id: li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : '',
           description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || '', rate: li.rate
         }));
         const operatorTyped = $('tkOperator').value.trim();
@@ -2464,6 +2463,7 @@
         showStatus(statusEl, 'Ticket updated.', true);
         resetTicketForm();
         await refreshTicketsPanel();
+        await refreshStockPanel(); // edited items may have changed which stock got deducted
         return;
       }
 
@@ -2492,12 +2492,25 @@
 
       const itemRows = validLines.map(li => {
         const realServiceId = li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : null;
-        return { org_id: currentOrgId, ticket_id: tkRow.id, service_id: realServiceId,
+        const realMaterialId = li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : null;
+        return { org_id: currentOrgId, ticket_id: tkRow.id, service_id: realServiceId, material_id: realMaterialId,
           description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || null,
           rate: li.rate, amount: li.qty * li.rate };
       });
       const { error: itemsErr } = await supabaseClient.from('job_ticket_items').insert(itemRows);
       if (itemsErr) throw itemsErr;
+
+      // A line item picked straight from the Stock catalog (not a plain service) pulls real
+      // inventory — deduct it now, the same as a sale invoice would, instead of only
+      // affecting stock once/if the job is later billed through Sales & Purchases.
+      const stockMoveRows = itemRows.filter(r => r.material_id).map(r => ({
+        org_id: currentOrgId, material_id: r.material_id, type: 'exit', quantity: r.quantity,
+        transaction_date: todayISO(), note: 'Ticket ' + ticketNo, source: 'ticket', ticket_id: tkRow.id, created_by: currentUserId
+      }));
+      if (stockMoveRows.length){
+        const { error: moveErr } = await supabaseClient.from('stock_movements').insert(stockMoveRows);
+        if (moveErr) throw moveErr;
+      }
 
       // A job tied to a saved customer is billed to their account right away — as an
       // outstanding receivable — rather than waiting for Mark Paid, so the amount shows up
@@ -2531,6 +2544,7 @@
       const savedTicket = { ...tkRow, subtotal };
       resetTicketForm();
       await refreshTicketsPanel();
+      if (stockMoveRows.length) await refreshStockPanel();
       openTicketPrintPreview(savedTicket, itemRows);
     } catch (err){ showStatus(statusEl, err.message || 'Could not save ticket.', false); }
     finally { this.disabled = false; }
@@ -2656,6 +2670,7 @@
       if (error){ alert(error.message); this.disabled = false; return; }
       if (editingTicketId === t.id) resetTicketForm();
       await refreshTicketsPanel();
+      await refreshStockPanel(); // deleting reverses any stock this ticket's items had deducted
     }));
   }
 
