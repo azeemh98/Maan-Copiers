@@ -159,6 +159,19 @@
   .status-badge.inactive{ background:var(--bg); color:var(--faint); }
   .tk-stock-hint{ margin-top:5px; }
   .tk-stock-hint:empty{ display:none; }
+
+  /* Money-in/money-out charts on the Payments tab — hand-rolled SVG bar/donut charts, no
+     charting library, so they keep working through the same CDN-fetch deploy as everything
+     else without adding one more thing that can go stale or fail to load. */
+  .chart-legend{ display:flex; gap:16px; margin-top:10px; flex-wrap:wrap; }
+  .chart-legend-item{ font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:6px; font-weight:600; }
+  .chart-swatch{ width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0; }
+  .chart-legend-list{ display:flex; flex-direction:column; gap:8px; flex:1; min-width:150px; }
+  .chart-legend-row{ display:flex; align-items:center; gap:8px; font-size:12.5px; }
+  .chart-legend-row .cl-label{ flex:1; color:var(--ink); font-weight:600; }
+  .chart-legend-row .cl-val{ color:var(--muted); font-weight:700; white-space:nowrap; }
+  .chart-empty{ color:var(--faint); font-size:13px; padding:26px 0; text-align:center; }
+  .chart-donut-wrap{ display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
   .status-badge.paid{ background:var(--ok-soft); color:var(--ok); }
   .status-badge.unpaid{ background:var(--danger-soft); color:var(--danger); }
   .status-badge.partially_paid{ background:var(--warn-soft); color:var(--warn); }
@@ -1042,6 +1055,22 @@
     <div class="content-grid">
       <div class="main-col">
         <section class="card">
+          <h2>Money In vs Money Out <span class="hint" style="font-weight:400;">(last 6 months, payments + expenses)</span></h2>
+          <div id="chartMonthly"></div>
+        </section>
+        <section class="card">
+          <div class="row2">
+            <div>
+              <h2>Where It's Spent</h2>
+              <div id="chartExpenseCategory"></div>
+            </div>
+            <div>
+              <h2>By Payment Method</h2>
+              <div id="chartByMode"></div>
+            </div>
+          </div>
+        </section>
+        <section class="card">
           <h2>Record Payment</h2>
           <div class="field">
             <label>Direction</label>
@@ -1085,8 +1114,17 @@
           <h2 class="collapsible" id="addExpenseToggle"><span>+ Log an Expense</span><span class="chev">▶</span></h2>
           <div id="addExpenseBody" style="display:none; margin-top:18px;">
             <div class="field"><label for="expCategory">Category</label><input type="text" id="expCategory" placeholder="e.g. Rent, Electricity, Salaries"></div>
-            <div class="row2">
+            <div class="row3">
               <div class="field"><label for="expAmount">Amount (₹)</label><input type="number" id="expAmount" min="0.01" step="0.01"></div>
+              <div class="field"><label for="expMode">Paid via</label>
+                <select id="expMode">
+                  <option value="cash">Cash</option>
+                  <option value="bank">Bank Transfer</option>
+                  <option value="upi">UPI</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
               <div class="field"><label for="expDate">Date</label><input type="date" id="expDate"></div>
             </div>
             <div class="field"><label for="expNote">Note (optional)</label><input type="text" id="expNote"></div>
@@ -1582,6 +1620,7 @@
       loadInvoices(),
       loadPayments(),
       loadExpenses(),
+      loadPaymentCharts(),
       refreshTicketsPanel(),
       refreshEmployeesPanel(),
       refreshTasksPanel()
@@ -1593,6 +1632,7 @@
     renderInvoicesTable();
     renderPaymentsTable();
     renderExpenseList();
+    renderPaymentCharts();
     renderTicketPartyDatalist();
   }
 
@@ -4090,8 +4130,8 @@
       if (invoiceId) await recomputeInvoiceStatus(invoiceId);
       showStatus(statusEl, 'Payment of ' + fmtMoney(amount) + ' recorded.', true);
       $('payAmount').value = ''; $('payNote').value = ''; $('payDate').value = todayISO();
-      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices() ]);
-      renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderPaymentInvoiceOptions(); renderInvoicesTable();
+      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts() ]);
+      renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderPaymentInvoiceOptions(); renderInvoicesTable(); renderPaymentCharts();
     } catch (err){ showStatus(statusEl, err.message || 'Could not record payment.', false); }
     finally { this.disabled = false; }
   });
@@ -4126,8 +4166,8 @@
       const { error } = await supabaseClient.from('payments').delete().eq('id', this.dataset.id);
       if (error){ alert(error.message); return; }
       if (p?.invoice_id) await recomputeInvoiceStatus(p.invoice_id);
-      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices() ]);
-      renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderInvoicesTable();
+      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts() ]);
+      renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderInvoicesTable(); renderPaymentCharts();
     }));
   }
 
@@ -4142,11 +4182,12 @@
     if (!amount || amount <= 0){ showStatus(statusEl, 'Enter an amount greater than 0.', false); return; }
     this.disabled = true;
     try {
-      const { error } = await supabaseClient.from('expenses').insert({ org_id: currentOrgId, category, amount, expense_date: $('expDate').value || todayISO(), note: $('expNote').value.trim() || null, created_by: currentUserId });
+      const { error } = await supabaseClient.from('expenses').insert({ org_id: currentOrgId, category, amount, mode: $('expMode').value, expense_date: $('expDate').value || todayISO(), note: $('expNote').value.trim() || null, created_by: currentUserId });
       if (error) throw error;
       showStatus(statusEl, 'Expense logged.', true);
-      $('expCategory').value = ''; $('expAmount').value = ''; $('expNote').value = ''; $('expDate').value = todayISO();
+      $('expCategory').value = ''; $('expAmount').value = ''; $('expNote').value = ''; $('expDate').value = todayISO(); $('expMode').value = 'cash';
       await loadExpenses(); renderExpenseList();
+      await loadPaymentCharts(); renderPaymentCharts();
     } catch (err){ showStatus(statusEl, err.message || 'Could not save expense.', false); }
     finally { this.disabled = false; }
   });
@@ -4157,7 +4198,155 @@
   function renderExpenseList(){
     const wrap = $('recentExpenses');
     if (expenses.length === 0){ wrap.innerHTML = '<div class="empty-activity">No expenses logged yet.</div>'; return; }
-    wrap.innerHTML = expenses.map(e => '<div class="activity-item"><div class="act-icon out">₹</div><div class="act-body"><div class="act-line1">' + e.category + ' <b>' + fmtMoney(e.amount) + '</b></div><div class="act-line2">' + fmtDate(e.expense_date) + '</div>' + (e.note ? '<div class="act-note">"' + e.note + '"</div>' : '') + '</div></div>').join('');
+    wrap.innerHTML = expenses.map(e => '<div class="activity-item"><div class="act-icon out">₹</div><div class="act-body"><div class="act-line1">' + e.category + ' <b>' + fmtMoney(e.amount) + '</b> <span class="status-badge inactive">' + (EMP_PAY_MODE_LABEL[e.mode] || 'Cash') + '</span></div><div class="act-line2">' + fmtDate(e.expense_date) + '</div>' + (e.note ? '<div class="act-note">"' + e.note + '"</div>' : '') + '</div></div>').join('');
+  }
+
+  // ======================================================================
+  // PAYMENT CHARTS — "where do we spend, how much do we earn", right on the Payments tab.
+  // Hand-rolled SVG (no chart library) so nothing new can go stale/break via the CDN fetch
+  // this whole app is deployed through. Pulls its own 6-month window directly from the DB
+  // rather than reusing the capped recent-N lists the tables above show.
+  // ======================================================================
+  let chartPayments = [], chartExpenses = [];
+  const CHART_CATEGORY_PALETTE = ['#2A5CDB','#1D7A4C','#8A5A16','#B3261E','#6B4FA0','#0F8B8D'];
+
+  async function loadPaymentCharts(){
+    const since = new Date(); since.setMonth(since.getMonth() - 5); since.setDate(1);
+    const sinceISO = since.toISOString().slice(0,10);
+    const [{ data: payRows }, { data: expRows }] = await Promise.all([
+      supabaseClient.from('payments').select('direction, amount, mode, payment_date').eq('org_id', currentOrgId).gte('payment_date', sinceISO),
+      supabaseClient.from('expenses').select('category, amount, mode, expense_date').eq('org_id', currentOrgId).gte('expense_date', sinceISO)
+    ]);
+    chartPayments = payRows || [];
+    chartExpenses = expRows || [];
+  }
+
+  function niceChartCeil(v){
+    if (v <= 0) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(v)));
+    const norm = v / mag;
+    const niceNorm = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+    return niceNorm * mag;
+  }
+
+  function renderGroupedBarChart(containerId, categories, series){
+    const el = $(containerId);
+    if (!el) return;
+    const total = series.reduce((s, ser) => s + ser.values.reduce((a,b) => a+b, 0), 0);
+    if (total <= 0 || categories.length === 0){ el.innerHTML = '<div class="chart-empty">Nothing recorded in this window yet.</div>'; return; }
+    const W = 640, H = 220, padL = 52, padB = 30, padT = 12, padR = 10;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const maxVal = Math.max(1, ...series.flatMap(s => s.values));
+    const niceMax = niceChartCeil(maxVal);
+    const groupW = plotW / categories.length;
+    const barGap = 4;
+    const barW = Math.max(5, (groupW - barGap*(series.length+1)) / series.length);
+    let bars = '';
+    categories.forEach((cat, ci) => {
+      series.forEach((s, si) => {
+        const v = s.values[ci] || 0;
+        const bh = (v / niceMax) * plotH;
+        const x = padL + ci*groupW + barGap + si*(barW+barGap);
+        const y = padT + plotH - bh;
+        bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + Math.max(0,bh).toFixed(1) + '" fill="' + s.color + '" rx="2"><title>' + s.name + ' — ' + cat + ': ' + fmtMoney(v) + '</title></rect>';
+      });
+    });
+    let grid = '';
+    [0, 0.5, 1].forEach(f => {
+      const y = padT + plotH - f*plotH;
+      grid += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W-padR) + '" y2="' + y.toFixed(1) + '" stroke="var(--border)" stroke-width="1"/>';
+      grid += '<text x="' + (padL-8) + '" y="' + (y+4).toFixed(1) + '" font-size="10" fill="var(--faint)" text-anchor="end">' + fmtMoney0(f*niceMax) + '</text>';
+    });
+    let xLabels = '';
+    categories.forEach((cat, ci) => {
+      const x = padL + ci*groupW + groupW/2;
+      xLabels += '<text x="' + x.toFixed(1) + '" y="' + (H-8) + '" font-size="10.5" fill="var(--muted)" text-anchor="middle">' + cat + '</text>';
+    });
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%; height:auto; display:block;">' + grid + bars + xLabels + '</svg>' +
+      '<div class="chart-legend">' + series.map(s => '<span class="chart-legend-item"><span class="chart-swatch" style="background:' + s.color + '"></span>' + s.name + '</span>').join('') + '</div>';
+  }
+
+  function renderDonutChart(containerId, slices){
+    const el = $(containerId);
+    if (!el) return;
+    const total = slices.reduce((s,x) => s + x.value, 0);
+    if (total <= 0){ el.innerHTML = '<div class="chart-empty">No expenses logged in this window yet.</div>'; return; }
+    const cx = 75, cy = 75, r = 66, rInner = 40;
+    let angle = -90;
+    let paths = '';
+    slices.forEach(sl => {
+      const frac = sl.value / total;
+      const sweep = Math.max(frac * 360, frac > 0 ? 0.5 : 0);
+      const endAngle = angle + sweep;
+      const rad = a => a * Math.PI / 180;
+      const x1 = cx + r*Math.cos(rad(angle)), y1 = cy + r*Math.sin(rad(angle));
+      const x2 = cx + r*Math.cos(rad(endAngle)), y2 = cy + r*Math.sin(rad(endAngle));
+      const ix1 = cx + rInner*Math.cos(rad(angle)), iy1 = cy + rInner*Math.sin(rad(angle));
+      const ix2 = cx + rInner*Math.cos(rad(endAngle)), iy2 = cy + rInner*Math.sin(rad(endAngle));
+      const large = sweep > 180 ? 1 : 0;
+      paths += '<path d="M ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) +
+        ' L ' + ix2.toFixed(2) + ' ' + iy2.toFixed(2) + ' A ' + rInner + ' ' + rInner + ' 0 ' + large + ' 0 ' + ix1.toFixed(2) + ' ' + iy1.toFixed(2) + ' Z" fill="' + sl.color + '"><title>' + sl.label + ': ' + fmtMoney(sl.value) + '</title></path>';
+      angle = endAngle;
+    });
+    const legend = slices.map(sl => {
+      const pct = Math.round(sl.value/total*100);
+      return '<div class="chart-legend-row"><span class="chart-swatch" style="background:' + sl.color + '"></span><span class="cl-label">' + sl.label + '</span><span class="cl-val">' + fmtMoney0(sl.value) + ' (' + pct + '%)</span></div>';
+    }).join('');
+    el.innerHTML = '<div class="chart-donut-wrap"><svg viewBox="0 0 150 150" style="width:140px; height:140px; flex-shrink:0;">' + paths + '</svg>' +
+      '<div class="chart-legend-list">' + legend + '</div></div>';
+  }
+
+  function renderPaymentCharts(){
+    // A) Money in vs out, month by month
+    const months = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--){
+      const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      months.push({ key: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'), label: d.toLocaleDateString('en-IN',{month:'short'}), income:0, expense:0 });
+    }
+    const monthIdx = {}; months.forEach((m,i) => monthIdx[m.key] = i);
+    chartPayments.forEach(p => {
+      const key = (p.payment_date || '').slice(0,7);
+      if (!(key in monthIdx)) return;
+      if (p.direction === 'in') months[monthIdx[key]].income += Number(p.amount);
+      else months[monthIdx[key]].expense += Number(p.amount);
+    });
+    chartExpenses.forEach(e => {
+      const key = (e.expense_date || '').slice(0,7);
+      if (key in monthIdx) months[monthIdx[key]].expense += Number(e.amount);
+    });
+    renderGroupedBarChart('chartMonthly', months.map(m => m.label), [
+      { name:'Received', color:'var(--ok)', values: months.map(m => m.income) },
+      { name:'Spent', color:'var(--danger)', values: months.map(m => m.expense) }
+    ]);
+
+    // B) Where expense money goes, by category
+    const catMap = {};
+    chartExpenses.forEach(e => { catMap[e.category] = (catMap[e.category]||0) + Number(e.amount); });
+    let catSlices = Object.entries(catMap).sort((a,b) => b[1]-a[1]).map(([label,value],i) => ({ label, value, color: CHART_CATEGORY_PALETTE[i % CHART_CATEGORY_PALETTE.length] }));
+    if (catSlices.length > 6){
+      const top = catSlices.slice(0,5);
+      const restTotal = catSlices.slice(5).reduce((s,x) => s+x.value, 0);
+      catSlices = [...top, { label:'Other', value: restTotal, color: CHART_CATEGORY_PALETTE[5] }];
+    }
+    renderDonutChart('chartExpenseCategory', catSlices);
+
+    // C) Received vs spent, by payment method (party payments + expenses)
+    const modes = ['cash','bank','upi','cheque','other'];
+    const modeIn = Object.fromEntries(modes.map(m => [m,0]));
+    const modeOut = Object.fromEntries(modes.map(m => [m,0]));
+    chartPayments.forEach(p => {
+      const m = modes.includes(p.mode) ? p.mode : 'other';
+      if (p.direction === 'in') modeIn[m] += Number(p.amount); else modeOut[m] += Number(p.amount);
+    });
+    chartExpenses.forEach(e => {
+      const m = modes.includes(e.mode) ? e.mode : 'other';
+      modeOut[m] += Number(e.amount);
+    });
+    renderGroupedBarChart('chartByMode', modes.map(m => EMP_PAY_MODE_LABEL[m]), [
+      { name:'Received', color:'var(--ok)', values: modes.map(m => modeIn[m]) },
+      { name:'Spent', color:'var(--danger)', values: modes.map(m => modeOut[m]) }
+    ]);
   }
 
   // ======================================================================
