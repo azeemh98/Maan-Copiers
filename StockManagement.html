@@ -3400,7 +3400,7 @@
       // whatever they still owe then shows up as a deduction in Month-End Salary below.
       const partyBtn = linkedParty
         ? '<button class="emp-view-party" data-id="' + linkedParty.id + '" title="Linked to a party — their job-work balance auto-deducts from salary">🔗</button>'
-        : '<button class="emp-add-party" data-id="' + e.id + '" title="Add as a customer party — job work billed to them will deduct from salary">+ Party</button>';
+        : '<button class="emp-add-party" data-id="' + e.id + '" title="Add as a customer party — job work billed to them will deduct from salary">➕</button>';
       return '<tr><td>' + (e.employee_code || '—') + '</td><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
         '<td><div class="row-actions">' + partyBtn + '<button class="emp-edit-salary" data-id="' + e.id + '" title="Edit salary">✎</button><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>';
     }).join('');
