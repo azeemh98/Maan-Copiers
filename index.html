@@ -2526,11 +2526,41 @@
   }
   resetTicketForm();
 
+  // Confusion about whether Save actually went through (the form clears and the print
+  // preview takes a beat to appear while the rest of the ticket saves in the background) was
+  // leading staff to click Save again on what looked like an unsubmitted form, quietly
+  // generating a second identical ticket. Catch that here: same customer name + same total,
+  // created in the last minute, isn't cancelled — flag it and let them confirm before a
+  // second one gets created, rather than finding out from two printed slips.
+  function findRecentDuplicateTicket(subtotal){
+    const cutoffMs = Date.now() - 60000;
+    const custName = ($('tkCustomerName').value || '').trim().toLowerCase();
+    return tickets.find(t => t.status !== 'cancelled' &&
+      new Date(t.created_at).getTime() >= cutoffMs &&
+      (t.customer_name || '').trim().toLowerCase() === custName &&
+      Number(t.subtotal) === Number(subtotal)
+    ) || null;
+  }
+
   $('saveTicketBtn').addEventListener('click', async function(){
     const statusEl = $('ticketStatus');
     const validLines = ticketLineItems.filter(li => li.qty > 0 && (li.description.trim() || li.service_id));
     if (validLines.length === 0){ showStatus(statusEl, 'Add at least one job line.', false); return; }
+
+    if (!editingTicketId){
+      const dup = findRecentDuplicateTicket(computeTicketTotal());
+      if (dup){
+        const proceed = window.confirm(
+          '"' + (dup.customer_name || 'Walk-in') + '" already has ' + dup.ticket_no + ' for ' + fmtMoney(dup.subtotal) +
+          ', created ' + timeAgo(dup.created_at) + '.\n\nLooks like a possible duplicate — create this ticket anyway?'
+        );
+        if (!proceed) return;
+      }
+    }
+
+    const origLabel = $('saveTicketLabel').textContent;
     this.disabled = true;
+    $('saveTicketLabel').textContent = 'Saving…';
     try {
       if (editingTicketId){
         const itemsPayload = validLines.map(li => ({
@@ -2580,6 +2610,13 @@
         created_by: currentUserId
       }).select().single();
       if (tkErr) throw tkErr;
+
+      // Fire the "yes, that worked" signal the instant the ticket itself exists, rather than
+      // waiting on everything else below (items, stock, invoice, full panel refresh) — that
+      // gap was long enough, with a form that had already gone blank, to look like nothing
+      // happened at all.
+      showToast('🎫 ' + ticketNo + ' created', ($('tkCustomerName').value.trim() || 'Walk-in') + ' — ' + fmtMoney(subtotal));
+      showStatus(statusEl, ticketNo + ' created.', true);
 
       const itemRows = validLines.map(li => {
         const realServiceId = li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : null;
@@ -2631,14 +2668,15 @@
         renderPartiesTable(); renderOutstandingSummary();
       }
 
-      showStatus(statusEl, ticketNo + ' created.', true);
       const savedTicket = { ...tkRow, subtotal };
       resetTicketForm();
       await refreshTicketsPanel();
       if (stockMoveRows.length) await refreshStockPanel();
       openTicketPrintPreview(savedTicket, itemRows);
-    } catch (err){ showStatus(statusEl, err.message || 'Could not save ticket.', false); }
-    finally { this.disabled = false; }
+    } catch (err){
+      showStatus(statusEl, err.message || 'Could not save ticket.', false);
+      $('saveTicketLabel').textContent = origLabel;
+    } finally { this.disabled = false; }
   });
 
   async function refreshTicketsPanel(){
