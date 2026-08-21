@@ -1633,6 +1633,7 @@
     renderPaymentsTable();
     renderExpenseList();
     renderPaymentCharts();
+    renderEmployeesTable(); // re-render now that parties has definitely loaded, for the employee↔party link badge
     renderTicketPartyDatalist();
   }
 
@@ -2211,7 +2212,7 @@
   function resolveOperatorByName(name){
     return operators.find(o => (o.username || '').toLowerCase() === name.trim().toLowerCase()) || null;
   }
-  const COMMON_MACHINES = ['KONIKA MINOLTA', 'FLEX PRINTING'];
+  const COMMON_MACHINES = ['KONIKA MINOLTA', 'FLEX PRINTING', 'CANON 8505'];
   function renderMachineDatalist(){
     const dl = $('tkMachineDatalist');
     const uniq = Array.from(new Set([...COMMON_MACHINES, ...tickets.map(t => t.machine).filter(Boolean)]));
@@ -3230,8 +3231,33 @@
     const tbody = $('employeesTableBody');
     const rows = employees.filter(e => e.is_active);
     if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No employees yet — add one above.</td></tr>'; return; }
-    tbody.innerHTML = rows.map(e => '<tr><td>' + (e.employee_code || '—') + '</td><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
-      '<td><div class="row-actions"><button class="emp-edit-salary" data-id="' + e.id + '" title="Edit salary">✎</button><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>').join('');
+    tbody.innerHTML = rows.map(e => {
+      const linkedParty = parties.find(p => p.employee_id === e.id);
+      // Linking an employee to a party lets a ticket be billed to them like any customer —
+      // whatever they still owe then shows up as a deduction in Month-End Salary below.
+      const partyBtn = linkedParty
+        ? '<button class="emp-view-party" data-id="' + linkedParty.id + '" title="Linked to a party — their job-work balance auto-deducts from salary">🔗</button>'
+        : '<button class="emp-add-party" data-id="' + e.id + '" title="Add as a customer party — job work billed to them will deduct from salary">+ Party</button>';
+      return '<tr><td>' + (e.employee_code || '—') + '</td><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
+        '<td><div class="row-actions">' + partyBtn + '<button class="emp-edit-salary" data-id="' + e.id + '" title="Edit salary">✎</button><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('.emp-add-party').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
+      const e = employees.find(x => x.id === this.dataset.id);
+      if (!e) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.from('parties').insert({
+        org_id: currentOrgId, type:'customer', name: e.name, phone: e.phone || null, employee_id: e.id, created_by: currentUserId
+      });
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await loadPartiesAndBalances();
+      renderEmployeesTable(); renderPartiesTable();
+    }));
+    tbody.querySelectorAll('.emp-view-party').forEach(btn => btn.addEventListener('click', function(){
+      document.querySelector('.nav-tab[data-nav="parties"]').click();
+      const p = parties.find(x => x.id === this.dataset.id);
+      if (p){ $('partySearch').value = p.name; renderPartiesTable(); }
+    }));
     tbody.querySelectorAll('.emp-edit-salary').forEach(btn => btn.addEventListener('click', async function(){
       if (!requireAdmin()) return;
       const e = employees.find(x => x.id === this.dataset.id);
@@ -3454,28 +3480,34 @@
     const empId = $('salEmployee').value;
     if (!empId) return;
     const emp = employees.find(e => e.id === empId);
+    const linkedParty = parties.find(p => p.employee_id === empId);
     const { from, to } = monthRange($('salMonth').value);
-    const [{ data: wRows }, { data: pRows }, { data: attRows }] = await Promise.all([
+    const [{ data: wRows }, { data: pRows }, { data: attRows }, balRow] = await Promise.all([
       supabaseClient.from('wastage_records').select('*').eq('employee_id', empId).gte('wastage_date', from).lte('wastage_date', to),
       supabaseClient.from('employee_payments').select('*').eq('employee_id', empId).gte('payment_date', from).lte('payment_date', to),
-      supabaseClient.from('employee_monthly_attendance').select('*').eq('employee_id', empId).eq('month', monthFirstDay($('salMonth').value)).limit(1)
+      supabaseClient.from('employee_monthly_attendance').select('*').eq('employee_id', empId).eq('month', monthFirstDay($('salMonth').value)).limit(1),
+      linkedParty ? supabaseClient.from('party_balances').select('balance').eq('party_id', linkedParty.id).maybeSingle().then(r => r.data) : Promise.resolve(null)
     ]);
     empPayments = pRows || [];
     const wastageTotal = (wRows || []).reduce((s,w) => s + Number(w.amount), 0);
     const paidTotal = empPayments.reduce((s,p) => s + Number(p.amount), 0);
     const baseSalary = emp ? Number(emp.monthly_salary) : 0;
+    // Job work billed to them as a customer — only ever deducts (a credit balance on their
+    // party account isn't a salary top-up, that's a separate matter from wages).
+    const jobWorkOwed = Math.max(0, Number(balRow?.balance || 0));
 
     const attendance = (attRows && attRows[0]) || null;
     $('salDaysWorked').value = attendance ? attendance.total_days : '';
     $('salStandardDays').value = attendance ? attendance.standard_days : 26;
     const proratedSalary = attendance ? (baseSalary * Number(attendance.total_days) / Number(attendance.standard_days)) : baseSalary;
-    const netPayable = proratedSalary - wastageTotal - paidTotal;
+    const netPayable = proratedSalary - wastageTotal - paidTotal - jobWorkOwed;
 
     $('salarySummary').innerHTML =
       '<div class="totals-box" style="margin-left:0; width:100%; max-width:100%;">' +
       '<div class="t-row"><span>Monthly salary (full)</span><span>' + fmtMoney(baseSalary) + '</span></div>' +
       (attendance ? '<div class="t-row"><span>Prorated for ' + fmtQty(attendance.total_days) + ' of ' + fmtQty(attendance.standard_days) + ' days</span><span>' + fmtMoney(proratedSalary) + '</span></div>' : '<div class="t-row"><span>Days worked</span><span>Not set — using full salary</span></div>') +
       '<div class="t-row"><span>Wastage charged (' + (wRows || []).length + ' entries)</span><span class="amt-neg">− ' + fmtMoney(wastageTotal) + '</span></div>' +
+      (linkedParty ? '<div class="t-row"><span>Job work billed to them (' + linkedParty.name + ')</span><span class="amt-neg">− ' + fmtMoney(jobWorkOwed) + '</span></div>' : '') +
       '<div class="t-row"><span>Already paid this month</span><span class="amt-neg">− ' + fmtMoney(paidTotal) + '</span></div>' +
       '<div class="t-row grand"><span>Balance still due</span><span>' + fmtMoney(netPayable) + '</span></div>' +
       '</div>';
