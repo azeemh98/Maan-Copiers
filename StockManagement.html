@@ -747,7 +747,19 @@
             <tbody id="tkLineItems"></tbody>
           </table>
           <button class="btn-sm" id="tkAddLineBtn">+ Add line</button>
-          <div class="totals-box" style="margin-top:18px;">
+          <div class="field" style="margin-top:14px; max-width:220px;">
+            <label for="tkGstPct">GST</label>
+            <select id="tkGstPct">
+              <option value="0">No GST</option>
+              <option value="5">GST 5%</option>
+              <option value="12">GST 12%</option>
+              <option value="18">GST 18%</option>
+              <option value="28">GST 28%</option>
+            </select>
+          </div>
+          <div class="totals-box" style="margin-top:14px;">
+            <div class="t-row" id="tkSubtotalRow" style="display:none;"><span>Subtotal</span><span id="tkSubtotalVal">₹0</span></div>
+            <div class="t-row" id="tkGstRow" style="display:none;"><span id="tkGstLabel">GST</span><span id="tkGstVal">₹0</span></div>
             <div class="t-row grand"><span>Total</span><span id="tkGrandTotal">₹0</span></div>
           </div>
           <div class="row2" style="margin-top:14px;">
@@ -918,9 +930,9 @@
             </div>
             <h4 style="margin:16px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Jobs Done</h4>
             <table class="data-table">
-              <thead><tr><th>Date</th><th>Ticket</th><th>Job Details</th><th>Amount</th><th>Status</th></tr></thead>
-              <tbody id="partyJobsBody"><tr class="empty-row"><td colspan="5">—</td></tr></tbody>
-              <tfoot><tr><td colspan="3" style="text-align:right; font-weight:700;">Total work done</td><td id="partyJobsTotal" style="font-weight:700;">₹0</td><td></td></tr></tfoot>
+              <thead><tr><th>Date</th><th>Ticket</th><th>Job Details</th><th>GST</th><th>Amount</th><th>Status</th></tr></thead>
+              <tbody id="partyJobsBody"><tr class="empty-row"><td colspan="6">—</td></tr></tbody>
+              <tfoot><tr><td colspan="4" style="text-align:right; font-weight:700;">Total work done</td><td id="partyJobsTotal" style="font-weight:700;">₹0</td><td></td></tr></tfoot>
             </table>
             <h4 style="margin:20px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Account Ledger</h4>
             <table class="data-table">
@@ -960,9 +972,9 @@
           </div>
           <h3 style="margin:22px 0 8px; font-size:14px;">Jobs Done</h3>
           <table class="li-table" style="font-size:12.5px;">
-            <thead><tr><th>Date</th><th>Ticket</th><th>Job Details</th><th style="text-align:right;">Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Ticket</th><th>Job Details</th><th style="text-align:right;">GST</th><th style="text-align:right;">Amount</th><th>Status</th></tr></thead>
             <tbody id="bsJobsRows"></tbody>
-            <tfoot><tr><td colspan="3" style="text-align:right; font-weight:700;">Total work done</td><td id="bsJobsTotal" class="li-amt"></td><td></td></tr></tfoot>
+            <tfoot><tr><td colspan="4" style="text-align:right; font-weight:700;">Total work done</td><td id="bsJobsTotal" class="li-amt"></td><td></td></tr></tfoot>
           </table>
           <h3 style="margin:24px 0 8px; font-size:14px;">Account Ledger</h3>
           <table class="li-table" style="font-size:12.5px;">
@@ -2368,10 +2380,12 @@
     $('tkCustomerName').value = ''; $('tkPhone').value = ''; $('tkNotes').value = ''; $('tkExpected').value = '';
     $('tkPartySearch').value = ''; selectedTicketPartyId = null; autoLinkedTicketParty = false;
     $('tkMachine').value = ''; $('tkOperator').value = '';
+    $('tkGstPct').value = '0';
     editingTicketId = null;
     $('tkFormTitle').textContent = 'New Walk-in Job Ticket';
     $('saveTicketLabel').textContent = 'Save & Print Slip';
     $('cancelTicketEditBtn').style.display = 'none';
+    updateTicketTotal();
   }
   $('cancelTicketEditBtn').addEventListener('click', resetTicketForm);
   $('tkAddLineBtn').addEventListener('click', () => { ticketLineItems.push(newTicketLineRow()); renderTicketLineItems(); });
@@ -2398,10 +2412,12 @@
     $('tkPartySearch').value = party ? (party.name + (party.phone ? ' — ' + party.phone : '')) : '';
     $('tkMachine').value = ticket.machine || '';
     $('tkOperator').value = ticket.operator_name || '';
+    $('tkGstPct').value = String(Number(ticket.gst_pct) || 0);
     $('tkFormTitle').textContent = '✎ Editing ' + ticket.ticket_no;
     $('saveTicketLabel').textContent = 'Update Ticket';
     $('cancelTicketEditBtn').style.display = 'inline-flex';
     $('tkFormTitle').scrollIntoView({ behavior:'smooth', block:'center' });
+    updateTicketTotal();
   }
 
   // ---- Party search for tickets (works for full members and walk-in-only staff alike) ----
@@ -2595,11 +2611,28 @@
     updateTicketTotal();
   }
   function computeTicketTotal(){ return ticketLineItems.reduce((s,li) => s + li.qty * li.rate, 0); }
-  function updateTicketTotal(){
-    const total = computeTicketTotal();
-    $('tkGrandTotal').textContent = fmtMoney(total);
-    $('tkTotalPreview').textContent = fmtMoney(total);
+  function computeTicketGstAmount(subtotal){
+    const pct = parseFloat($('tkGstPct').value) || 0;
+    return pct ? Math.round((subtotal ?? computeTicketTotal()) * pct) / 100 : 0;
   }
+  function updateTicketTotal(){
+    const subtotal = computeTicketTotal();
+    const gstPct = parseFloat($('tkGstPct').value) || 0;
+    const gstAmount = computeTicketGstAmount(subtotal);
+    const grand = subtotal + gstAmount;
+    $('tkSubtotalRow').style.display = gstPct ? 'flex' : 'none';
+    $('tkSubtotalVal').textContent = fmtMoney(subtotal);
+    $('tkGstRow').style.display = gstPct ? 'flex' : 'none';
+    $('tkGstLabel').textContent = 'GST (' + gstPct + '%)';
+    $('tkGstVal').textContent = fmtMoney(gstAmount);
+    $('tkGrandTotal').textContent = fmtMoney(grand);
+    $('tkTotalPreview').textContent = fmtMoney(grand);
+  }
+  $('tkGstPct').addEventListener('change', updateTicketTotal);
+  // The amount actually owed/collected includes GST — every place that shows or charges "the
+  // ticket amount" (list rows, Mark Paid, the printed slip, party statements) needs this, not
+  // the bare pre-tax subtotal.
+  function ticketGrandTotal(t){ return Number(t.subtotal) + Number(t.gst_amount || 0); }
   resetTicketForm();
 
   // Confusion about whether Save actually went through (the form clears and the print
@@ -2627,7 +2660,7 @@
       const dup = findRecentDuplicateTicket(computeTicketTotal());
       if (dup){
         const proceed = window.confirm(
-          '"' + (dup.customer_name || 'Walk-in') + '" already has ' + dup.ticket_no + ' for ' + fmtMoney(dup.subtotal) +
+          '"' + (dup.customer_name || 'Walk-in') + '" already has ' + dup.ticket_no + ' for ' + fmtMoney(ticketGrandTotal(dup)) +
           ', created ' + timeAgo(dup.created_at) + '.\n\nLooks like a possible duplicate — create this ticket anyway?'
         );
         if (!proceed) return;
@@ -2654,7 +2687,8 @@
           p_items: itemsPayload,
           p_machine: $('tkMachine').value.trim() || null,
           p_assigned_operator_id: matchedOperator ? matchedOperator.id : null,
-          p_operator_name: operatorTyped || null
+          p_operator_name: operatorTyped || null,
+          p_gst_pct: parseFloat($('tkGstPct').value) || 0
         });
         if (error) throw error;
         showStatus(statusEl, 'Ticket updated.', true);
@@ -2668,13 +2702,16 @@
       if (numErr) throw numErr;
       const ticketNo = 'JT-' + String(nextNum).padStart(4, '0');
       const subtotal = computeTicketTotal();
+      const gstPct = parseFloat($('tkGstPct').value) || 0;
+      const gstAmount = computeTicketGstAmount(subtotal);
+      const grandTotal = subtotal + gstAmount;
 
       const operatorTyped = $('tkOperator').value.trim();
       const matchedOperator = operatorTyped ? resolveOperatorByName(operatorTyped) : null;
       const { data: tkRow, error: tkErr } = await supabaseClient.from('job_tickets').insert({
         org_id: currentOrgId, ticket_no: ticketNo, party_id: selectedTicketPartyId,
         customer_name: $('tkCustomerName').value.trim() || null, phone: $('tkPhone').value.trim() || null,
-        subtotal, notes: $('tkNotes').value.trim() || null,
+        subtotal, gst_pct: gstPct, gst_amount: gstAmount, notes: $('tkNotes').value.trim() || null,
         expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
         machine: $('tkMachine').value.trim() || null,
         assigned_operator_id: matchedOperator ? matchedOperator.id : null,
@@ -2691,7 +2728,7 @@
       // waiting on everything else below (items, stock, invoice, full panel refresh) — that
       // gap was long enough, with a form that had already gone blank, to look like nothing
       // happened at all.
-      showToast('🎫 ' + ticketNo + ' created', ($('tkCustomerName').value.trim() || 'Walk-in') + ' — ' + fmtMoney(subtotal));
+      showToast('🎫 ' + ticketNo + ' created', ($('tkCustomerName').value.trim() || 'Walk-in') + ' — ' + fmtMoney(grandTotal));
       showStatus(statusEl, ticketNo + ' created.', true);
 
       const itemRows = validLines.map(li => {
@@ -2726,13 +2763,16 @@
         const saleInvoiceNo = 'INV-' + String(nextInvNum).padStart(4, '0');
         const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
           org_id: currentOrgId, type:'sale', invoice_no: saleInvoiceNo, party_id: selectedTicketPartyId, invoice_date: todayISO(),
-          subtotal, discount_total: 0, tax_total: 0, round_off: 0, grand_total: subtotal,
+          subtotal, discount_total: 0, tax_total: gstAmount, round_off: 0, grand_total: grandTotal,
           status:'unpaid', amount_paid: 0, notes:'Walk-in job ' + ticketNo, created_by: currentUserId
         }).select().single();
         if (invErr) throw invErr;
-        const invItemRows = itemRows.map(r => ({ org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
-          description: r.description, quantity: r.quantity, unit: r.unit, rate: r.rate, discount_pct:0, tax_pct:0,
-          taxable_amount: r.amount, tax_amount:0, line_total: r.amount }));
+        const invItemRows = itemRows.map(r => {
+          const lineTaxAmount = gstPct ? Math.round(r.amount * gstPct) / 100 : 0;
+          return { org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
+            description: r.description, quantity: r.quantity, unit: r.unit, rate: r.rate, discount_pct:0, tax_pct: gstPct,
+            taxable_amount: r.amount, tax_amount: lineTaxAmount, line_total: r.amount + lineTaxAmount };
+        });
         if (invItemRows.length){
           const { error: invItemsErr } = await supabaseClient.from('invoice_items').insert(invItemRows);
           if (invItemsErr) throw invItemsErr;
@@ -2786,7 +2826,7 @@
       '<div class="ft-card" data-id="' + t.id + '">' +
         '<div class="ft-no">' + t.ticket_no + (t.approval_status !== 'approved' ? ' <span class="status-badge unpaid">PENDING</span>' : '') + '</div>' +
         '<div class="ft-cust">' + (t.customer_name || 'Walk-in') + '</div>' +
-        '<div class="ft-meta"><span class="status-badge ' + t.status + '">' + (TICKET_STATUS_LABEL[t.status] || t.status) + '</span><span>' + fmtMoney(t.subtotal) + '</span></div>' +
+        '<div class="ft-meta"><span class="status-badge ' + t.status + '">' + (TICKET_STATUS_LABEL[t.status] || t.status) + '</span><span>' + fmtMoney(ticketGrandTotal(t)) + '</span></div>' +
       '</div>'
     ).join('') : '<div class="board-empty">No active tickets.</div>';
     body.querySelectorAll('.ft-card').forEach(card => card.addEventListener('click', async function(){
@@ -2826,7 +2866,7 @@
       const pending = t.approval_status !== 'approved';
       return '<tr><td class="item-name">' + t.ticket_no + (pending ? '<div><span class="status-badge unpaid" title="Needs Azad/admin to verify the amount before production">PENDING APPROVAL</span></div>' : '') + '</td>' +
         '<td>' + (t.customer_name || 'Walk-in') + (t.phone ? '<div class="item-cat">' + t.phone + '</div>' : '') + '</td>' +
-        '<td>' + fmtMoney(t.subtotal) + '</td>' +
+        '<td>' + fmtMoney(ticketGrandTotal(t)) + (Number(t.gst_amount) > 0 ? '<div class="item-cat">incl. GST ' + fmtMoney(t.gst_amount) + '</div>' : '') + '</td>' +
         '<td><select class="tk-status" data-id="' + t.id + '">' + statusOptions + '</select></td>' +
         '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td>' +
         '<td class="last-mv">' + timeAgo(t.created_at) + '</td>' +
@@ -2882,7 +2922,7 @@
   function renderTicketStats(){
     const start = new Date(); start.setHours(0,0,0,0);
     const todays = tickets.filter(t => new Date(t.created_at) >= start);
-    const cashToday = todays.filter(t => t.payment_status === 'paid').reduce((s,t) => s + Number(t.subtotal), 0);
+    const cashToday = todays.filter(t => t.payment_status === 'paid').reduce((s,t) => s + ticketGrandTotal(t), 0);
     $('tkStatToday').textContent = todays.length;
     $('tkStatCashToday').textContent = fmtMoney0(cashToday);
   }
@@ -2914,7 +2954,7 @@
         return '<div class="board-card" data-id="' + t.id + '">' +
           '<div class="bc-no">' + t.ticket_no + '</div>' +
           '<div class="bc-cust">' + (t.customer_name || 'Walk-in') + '</div>' +
-          '<div class="bc-amt">' + fmtMoney(t.subtotal) + ' · ' + timeAgo(t.created_at) + '</div>' +
+          '<div class="bc-amt">' + fmtMoney(ticketGrandTotal(t)) + ' · ' + timeAgo(t.created_at) + '</div>' +
           (tags ? '<div class="bc-amt">🖨 ' + tags + '</div>' : '') +
           actionHtml +
         '</div>';
@@ -3190,7 +3230,11 @@
       '<div class="t-rule"></div>' +
       '<table>' + lines + '</table>' +
       '<div class="t-rule"></div>' +
-      '<div class="t-row" style="font-weight:800; font-size:18px;"><span>TOTAL</span><span>' + fmtMoney(ticket.subtotal) + '</span></div>' +
+      (Number(ticket.gst_amount) > 0 ?
+        '<div class="t-row"><span>Subtotal</span><span>' + fmtMoney(ticket.subtotal) + '</span></div>' +
+        '<div class="t-row"><span>GST (' + Number(ticket.gst_pct) + '%)</span><span>' + fmtMoney(ticket.gst_amount) + '</span></div>'
+        : '') +
+      '<div class="t-row" style="font-weight:800; font-size:18px;"><span>TOTAL</span><span>' + fmtMoney(ticketGrandTotal(ticket)) + '</span></div>' +
       '<div class="t-row"><span>Payment</span><span>' + ticket.payment_status.toUpperCase() + '</span></div>' +
       (ticket.notes ? '<div class="t-rule"></div><div>' + ticket.notes + '</div>' : '') +
       '<div class="t-rule"></div>' +
@@ -3235,7 +3279,7 @@
         // instead of creating a duplicate one.
         const { error: payErr } = await supabaseClient.from('payments').insert({
           org_id: currentOrgId, party_id: ticket.party_id, invoice_id: ticket.invoice_id, direction:'in',
-          amount: ticket.subtotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
+          amount: ticketGrandTotal(ticket), mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
         });
         if (payErr) throw payErr;
         await recomputeInvoiceStatus(ticket.invoice_id);
@@ -3252,22 +3296,27 @@
         const { data: nextNum, error: numErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'sale' });
         if (numErr) throw numErr;
         const invoiceNo = 'INV-' + String(nextNum).padStart(4, '0');
+        const grandTotal = ticketGrandTotal(ticket);
         const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
           org_id: currentOrgId, type:'sale', invoice_no: invoiceNo, party_id: partyId, invoice_date: todayISO(),
-          subtotal: ticket.subtotal, discount_total: 0, tax_total: 0, round_off: 0, grand_total: ticket.subtotal,
-          status:'paid', amount_paid: ticket.subtotal, notes:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
+          subtotal: ticket.subtotal, discount_total: 0, tax_total: Number(ticket.gst_amount || 0), round_off: 0, grand_total: grandTotal,
+          status:'paid', amount_paid: grandTotal, notes:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
         }).select().single();
         if (invErr) throw invErr;
 
-        const itemRows = (items || []).map(li => ({ org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
-          description: li.description, quantity: li.quantity, unit: li.unit, rate: li.rate, discount_pct:0, tax_pct:0,
-          taxable_amount: li.amount, tax_amount:0, line_total: li.amount }));
+        const gstPct = Number(ticket.gst_pct || 0);
+        const itemRows = (items || []).map(li => {
+          const lineTaxAmount = gstPct ? Math.round(li.amount * gstPct) / 100 : 0;
+          return { org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
+            description: li.description, quantity: li.quantity, unit: li.unit, rate: li.rate, discount_pct:0, tax_pct: gstPct,
+            taxable_amount: li.amount, tax_amount: lineTaxAmount, line_total: li.amount + lineTaxAmount };
+        });
         if (itemRows.length){
           const { error: itemsErr } = await supabaseClient.from('invoice_items').insert(itemRows);
           if (itemsErr) throw itemsErr;
         }
 
-        const { error: payErr } = await supabaseClient.from('payments').insert({ org_id: currentOrgId, party_id: partyId, invoice_id: invRow.id, direction:'in', amount: ticket.subtotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId });
+        const { error: payErr } = await supabaseClient.from('payments').insert({ org_id: currentOrgId, party_id: partyId, invoice_id: invRow.id, direction:'in', amount: grandTotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId });
         if (payErr) throw payErr;
 
         const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode, invoice_id: invRow.id }).eq('id', ticket.id);
@@ -3850,13 +3899,14 @@
   // "What jobs did we actually do for this client, and for how much" — separate from the
   // debit/credit ledger below, which shows money movement but not the work itself.
   function buildPartyJobsRows(tickets){
-    if (!tickets.length) return '<tr class="empty-row"><td colspan="5">No jobs recorded yet.</td></tr>';
+    if (!tickets.length) return '<tr class="empty-row"><td colspan="6">No jobs recorded yet.</td></tr>';
     return tickets.map(t => {
       const items = (t.job_ticket_items || []).map(li =>
         li.description + ' (' + fmtQty(li.quantity) + (li.unit ? ' ' + li.unit : '') + ' × ' + fmtMoney(li.rate) + ')'
       ).join('; ');
       return '<tr><td>' + fmtDate(t.created_at) + '</td><td>' + t.ticket_no + '</td><td>' + (items || t.notes || '—') + '</td>' +
-        '<td class="li-amt">' + fmtMoney(t.subtotal) + '</td>' +
+        '<td class="li-amt">' + (Number(t.gst_amount) > 0 ? fmtMoney(t.gst_amount) + ' (' + Number(t.gst_pct) + '%)' : '—') + '</td>' +
+        '<td class="li-amt">' + fmtMoney(ticketGrandTotal(t)) + '</td>' +
         '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td></tr>';
     }).join('');
   }
@@ -3878,7 +3928,7 @@
       supabaseClient.from('job_tickets').select('*, job_ticket_items(*)').eq('party_id', partyId).neq('status','cancelled').order('created_at')
     ]);
     currentLedgerTickets = tix || [];
-    const jobsTotal = currentLedgerTickets.reduce((s,t) => s + Number(t.subtotal), 0);
+    const jobsTotal = currentLedgerTickets.reduce((s,t) => s + ticketGrandTotal(t), 0);
     $('partyJobsBody').innerHTML = buildPartyJobsRows(currentLedgerTickets);
     $('partyJobsTotal').textContent = fmtMoney(jobsTotal);
 
@@ -3918,7 +3968,7 @@
     $('bsClosingBalance').className = 'nm ' + (bal > 0 ? 'amt-pos' : (bal < 0 ? 'amt-neg' : ''));
     $('bsClosingLabel').textContent = bal > 0 ? 'Receivable from party' : (bal < 0 ? 'Payable to party' : 'Settled');
     $('bsJobsRows').innerHTML = buildPartyJobsRows(currentLedgerTickets);
-    $('bsJobsTotal').textContent = fmtMoney(currentLedgerTickets.reduce((s,t) => s + Number(t.subtotal), 0));
+    $('bsJobsTotal').textContent = fmtMoney(currentLedgerTickets.reduce((s,t) => s + ticketGrandTotal(t), 0));
     $('bsRows').innerHTML = currentLedgerEntries.length ? currentLedgerEntries.map(e => '<tr><td>' + e.date + '</td><td>' + e.type + '</td><td>' + e.ref + '</td>' +
       '<td style="text-align:right;">' + (e.debit ? fmtMoney(e.debit) : '—') + '</td><td style="text-align:right;">' + (e.credit ? fmtMoney(e.credit) : '—') + '</td>' +
       '<td class="li-amt">' + fmtMoney(e.balance) + '</td></tr>').join('')
