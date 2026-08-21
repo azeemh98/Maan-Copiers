@@ -916,6 +916,13 @@
               <h3 id="ledgerPartyName">—</h3>
               <span class="balance-chip" id="ledgerBalance">₹0</span>
             </div>
+            <h4 style="margin:16px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Jobs Done</h4>
+            <table class="data-table">
+              <thead><tr><th>Date</th><th>Ticket</th><th>Job Details</th><th>Amount</th><th>Status</th></tr></thead>
+              <tbody id="partyJobsBody"><tr class="empty-row"><td colspan="5">—</td></tr></tbody>
+              <tfoot><tr><td colspan="3" style="text-align:right; font-weight:700;">Total work done</td><td id="partyJobsTotal" style="font-weight:700;">₹0</td><td></td></tr></tfoot>
+            </table>
+            <h4 style="margin:20px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Account Ledger</h4>
             <table class="data-table">
               <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
               <tbody id="ledgerBody"><tr class="empty-row"><td colspan="6">—</td></tr></tbody>
@@ -951,6 +958,13 @@
               <div id="bsClosingLabel"></div>
             </div>
           </div>
+          <h3 style="margin:22px 0 8px; font-size:14px;">Jobs Done</h3>
+          <table class="li-table" style="font-size:12.5px;">
+            <thead><tr><th>Date</th><th>Ticket</th><th>Job Details</th><th style="text-align:right;">Amount</th><th>Status</th></tr></thead>
+            <tbody id="bsJobsRows"></tbody>
+            <tfoot><tr><td colspan="3" style="text-align:right; font-weight:700;">Total work done</td><td id="bsJobsTotal" class="li-amt"></td><td></td></tr></tfoot>
+          </table>
+          <h3 style="margin:24px 0 8px; font-size:14px;">Account Ledger</h3>
           <table class="li-table" style="font-size:12.5px;">
             <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th style="text-align:right;">Debit</th><th style="text-align:right;">Credit</th><th style="text-align:right;">Balance</th></tr></thead>
             <tbody id="bsRows"></tbody>
@@ -3831,6 +3845,21 @@
 
   let currentLedgerEntries = [];
   let currentLedgerParty = null;
+  let currentLedgerTickets = [];
+
+  // "What jobs did we actually do for this client, and for how much" — separate from the
+  // debit/credit ledger below, which shows money movement but not the work itself.
+  function buildPartyJobsRows(tickets){
+    if (!tickets.length) return '<tr class="empty-row"><td colspan="5">No jobs recorded yet.</td></tr>';
+    return tickets.map(t => {
+      const items = (t.job_ticket_items || []).map(li =>
+        li.description + ' (' + fmtQty(li.quantity) + (li.unit ? ' ' + li.unit : '') + ' × ' + fmtMoney(li.rate) + ')'
+      ).join('; ');
+      return '<tr><td>' + fmtDate(t.created_at) + '</td><td>' + t.ticket_no + '</td><td>' + (items || t.notes || '—') + '</td>' +
+        '<td class="li-amt">' + fmtMoney(t.subtotal) + '</td>' +
+        '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td></tr>';
+    }).join('');
+  }
 
   async function openLedger(partyId){
     openLedgerPartyId = partyId;
@@ -3843,10 +3872,16 @@
     chip.textContent = fmtMoney(Math.abs(bal)) + (bal > 0 ? ' receivable' : (bal < 0 ? ' payable' : ''));
     chip.className = 'balance-chip ' + (bal > 0 ? 'pos' : (bal < 0 ? 'neg' : 'zero'));
 
-    const [{ data: inv }, { data: pay }] = await Promise.all([
+    const [{ data: inv }, { data: pay }, { data: tix }] = await Promise.all([
       supabaseClient.from('invoices').select('*').eq('party_id', partyId).neq('status','cancelled').neq('type','estimate').order('invoice_date'),
-      supabaseClient.from('payments').select('*').eq('party_id', partyId).order('payment_date')
+      supabaseClient.from('payments').select('*').eq('party_id', partyId).order('payment_date'),
+      supabaseClient.from('job_tickets').select('*, job_ticket_items(*)').eq('party_id', partyId).neq('status','cancelled').order('created_at')
     ]);
+    currentLedgerTickets = tix || [];
+    const jobsTotal = currentLedgerTickets.reduce((s,t) => s + Number(t.subtotal), 0);
+    $('partyJobsBody').innerHTML = buildPartyJobsRows(currentLedgerTickets);
+    $('partyJobsTotal').textContent = fmtMoney(jobsTotal);
+
     const entries = [];
     if (p.opening_balance) entries.push({ date: '—', type:'Opening', ref:'Opening balance', debit: p.opening_balance > 0 ? p.opening_balance : 0, credit: p.opening_balance < 0 ? -p.opening_balance : 0, sortKey:'0000-00-00' });
     (inv || []).forEach(i => {
@@ -3882,6 +3917,8 @@
     $('bsClosingBalance').textContent = fmtMoney(Math.abs(bal));
     $('bsClosingBalance').className = 'nm ' + (bal > 0 ? 'amt-pos' : (bal < 0 ? 'amt-neg' : ''));
     $('bsClosingLabel').textContent = bal > 0 ? 'Receivable from party' : (bal < 0 ? 'Payable to party' : 'Settled');
+    $('bsJobsRows').innerHTML = buildPartyJobsRows(currentLedgerTickets);
+    $('bsJobsTotal').textContent = fmtMoney(currentLedgerTickets.reduce((s,t) => s + Number(t.subtotal), 0));
     $('bsRows').innerHTML = currentLedgerEntries.length ? currentLedgerEntries.map(e => '<tr><td>' + e.date + '</td><td>' + e.type + '</td><td>' + e.ref + '</td>' +
       '<td style="text-align:right;">' + (e.debit ? fmtMoney(e.debit) : '—') + '</td><td style="text-align:right;">' + (e.credit ? fmtMoney(e.credit) : '—') + '</td>' +
       '<td class="li-amt">' + fmtMoney(e.balance) + '</td></tr>').join('')
