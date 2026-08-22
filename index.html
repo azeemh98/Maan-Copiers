@@ -1696,7 +1696,25 @@
     });
   });
 
-  $('refreshBtn').addEventListener('click', loadEverything);
+  // Previously bound straight to loadEverything with zero visible feedback either way —
+  // a working refresh and a silently-failed one looked identical (nothing happens), which
+  // is exactly what got reported as "refresh button not working". Now it visibly runs, and
+  // any error actually surfaces instead of vanishing.
+  $('refreshBtn').addEventListener('click', async function(){
+    const btn = this;
+    const origLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '↻ Refreshing…';
+    try {
+      await loadEverything();
+      showToast('✓ Refreshed', 'Everything is up to date.');
+    } catch (err){
+      alert('Refresh failed: ' + (err?.message || 'Unknown error — check your connection and try again.'));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origLabel;
+    }
+  });
 
   async function loadEverything(){
     await seedDefaultsIfEmpty();
