@@ -1195,7 +1195,7 @@
     <div class="content-grid" id="employeesPanelBody">
       <div class="main-col">
         <section class="card">
-          <h2 class="collapsible" id="addEmployeeToggle"><span>+ Add Employee</span><span class="chev">▶</span></h2>
+          <h2 class="collapsible" id="addEmployeeToggle"><span id="addEmployeeToggleLabel">+ Add Employee</span><span class="chev">▶</span></h2>
           <div id="addEmployeeBody" style="display:none; margin-top:18px;">
             <div class="row2">
               <div class="field"><label for="empCode">Employee code</label><input type="text" id="empCode" placeholder="e.g. EMP-001"></div>
@@ -1206,7 +1206,10 @@
               <div class="field"><label for="empSalary">Monthly salary (₹)</label><input type="number" id="empSalary" min="0" step="0.01" value="0"></div>
             </div>
             <div class="field"><label for="empJoining">Joining date</label><input type="date" id="empJoining"></div>
-            <button class="add-btn save-btn" id="saveEmployeeBtn"><span>Save Employee</span><span></span></button>
+            <div style="display:flex; gap:10px;">
+              <button class="add-btn save-btn" id="saveEmployeeBtn"><span id="saveEmployeeLabel">Save Employee</span><span></span></button>
+              <button class="btn-sm" id="cancelEmployeeEditBtn" style="display:none;">Cancel Edit</button>
+            </div>
             <div class="status-msg" id="employeeStatus"></div>
           </div>
         </section>
@@ -3392,6 +3395,33 @@
     await populateEmployeeNameSelect($('wsEmployee'));
   }
 
+  // ---- Edit an existing employee (fix a wrong code/name/phone/salary entry) — reuses the
+  // Add Employee form in place, same pattern as editing a party or a ticket. ----
+  let editingEmployeeId = null;
+  function resetEmployeeForm(){
+    editingEmployeeId = null;
+    $('empCode').value = ''; $('empName').value = ''; $('empPhone').value = ''; $('empSalary').value = 0; $('empJoining').value = '';
+    $('addEmployeeToggleLabel').textContent = '+ Add Employee';
+    $('saveEmployeeLabel').textContent = 'Save Employee';
+    $('cancelEmployeeEditBtn').style.display = 'none';
+  }
+  function startEditEmployee(e){
+    editingEmployeeId = e.id;
+    $('empCode').value = e.employee_code || '';
+    $('empName').value = e.name || '';
+    $('empPhone').value = e.phone || '';
+    $('empSalary').value = e.monthly_salary || 0;
+    $('empJoining').value = e.joining_date || '';
+    $('addEmployeeToggleLabel').textContent = '✎ Edit Employee';
+    $('saveEmployeeLabel').textContent = 'Update Employee';
+    $('cancelEmployeeEditBtn').style.display = 'inline-flex';
+    $('addEmployeeBody').style.display = 'block';
+    $('addEmployeeToggle').classList.add('open');
+    $('addEmployeeToggle').scrollIntoView({ behavior:'smooth', block:'center' });
+    $('empCode').focus();
+  }
+  $('cancelEmployeeEditBtn').addEventListener('click', resetEmployeeForm);
+
   $('saveEmployeeBtn').addEventListener('click', async function(){
     const statusEl = $('employeeStatus');
     if (!requireAdmin(statusEl)) return;
@@ -3399,16 +3429,25 @@
     if (!name){ showStatus(statusEl, 'Enter an employee name.', false); return; }
     this.disabled = true;
     try {
-      const { error } = await supabaseClient.from('employees').insert({
-        org_id: currentOrgId, name, employee_code: $('empCode').value.trim() || null, phone: $('empPhone').value.trim() || null,
-        monthly_salary: parseFloat($('empSalary').value) || 0,
-        joining_date: $('empJoining').value || null, created_by: currentUserId
-      });
-      if (error){ if (error.code === '23505') throw new Error('That employee code is already in use.'); throw error; }
-      showStatus(statusEl, '"' + name + '" added.', true);
-      $('empCode').value = ''; $('empName').value = ''; $('empPhone').value = ''; $('empSalary').value = 0; $('empJoining').value = '';
+      const payload = {
+        name, employee_code: $('empCode').value.trim() || null, phone: $('empPhone').value.trim() || null,
+        monthly_salary: parseFloat($('empSalary').value) || 0, joining_date: $('empJoining').value || null
+      };
+      const wasEditingId = editingEmployeeId;
+      if (editingEmployeeId){
+        const { error } = await supabaseClient.from('employees').update(payload).eq('id', editingEmployeeId);
+        if (error){ if (error.code === '23505') throw new Error('That employee code is already in use.'); throw error; }
+        showStatus(statusEl, '"' + name + '" updated.', true);
+        resetEmployeeForm();
+      } else {
+        const { error } = await supabaseClient.from('employees').insert({ ...payload, org_id: currentOrgId, created_by: currentUserId });
+        if (error){ if (error.code === '23505') throw new Error('That employee code is already in use.'); throw error; }
+        showStatus(statusEl, '"' + name + '" added.', true);
+        resetEmployeeForm();
+      }
       await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects();
       await loadWastageEmployeeOptions();
+      if (wasEditingId && $('salEmployee').value === wasEditingId) await loadSalarySummary();
     } catch (err){ showStatus(statusEl, err.message || 'Could not save employee.', false); }
     finally { this.disabled = false; }
   });
@@ -3425,7 +3464,7 @@
         ? '<button class="emp-view-party" data-id="' + linkedParty.id + '" title="Linked to a party — their job-work balance auto-deducts from salary">🔗</button>'
         : '<button class="emp-add-party" data-id="' + e.id + '" title="Add as a customer party — job work billed to them will deduct from salary">➕</button>';
       return '<tr><td>' + (e.employee_code || '—') + '</td><td class="item-name">' + e.name + '</td><td>' + (e.phone || '—') + '</td><td>' + fmtMoney(e.monthly_salary) + '</td><td>' + (e.joining_date ? fmtDate(e.joining_date) : '—') + '</td>' +
-        '<td><div class="row-actions">' + partyBtn + '<button class="emp-edit-salary" data-id="' + e.id + '" title="Edit salary">✎</button><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>';
+        '<td><div class="row-actions">' + partyBtn + '<button class="emp-edit" data-id="' + e.id + '" title="Edit code / name / phone / salary / joining date">✎</button><button class="emp-del danger" data-id="' + e.id + '" title="Deactivate">⦸</button></div></td></tr>';
     }).join('');
     tbody.querySelectorAll('.emp-add-party').forEach(btn => btn.addEventListener('click', async function(){
       if (!requireAdmin()) return;
@@ -3444,17 +3483,10 @@
       const p = parties.find(x => x.id === this.dataset.id);
       if (p){ $('partySearch').value = p.name; renderPartiesTable(); }
     }));
-    tbody.querySelectorAll('.emp-edit-salary').forEach(btn => btn.addEventListener('click', async function(){
+    tbody.querySelectorAll('.emp-edit').forEach(btn => btn.addEventListener('click', function(){
       if (!requireAdmin()) return;
       const e = employees.find(x => x.id === this.dataset.id);
-      const val = window.prompt('New monthly salary for "' + e.name + '" (₹)', e.monthly_salary);
-      if (val === null) return;
-      const salary = parseFloat(val);
-      if (isNaN(salary) || salary < 0){ alert('Enter a valid amount.'); return; }
-      const { error } = await supabaseClient.from('employees').update({ monthly_salary: salary }).eq('id', e.id);
-      if (error){ alert(error.message); return; }
-      await loadEmployees(); renderEmployeesTable(); renderEmployeeSelects();
-      if ($('salEmployee').value === e.id) await loadSalarySummary();
+      if (e) startEditEmployee(e);
     }));
     tbody.querySelectorAll('.emp-del').forEach(btn => btn.addEventListener('click', async function(){
       if (!requireAdmin()) return;
