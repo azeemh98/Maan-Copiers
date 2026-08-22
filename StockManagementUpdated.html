@@ -93,6 +93,11 @@
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='%235B6B80' stroke-width='1.6' fill='none'/></svg>");
     background-repeat:no-repeat; background-position:right 13px center; padding-right:34px;
   }
+  /* The status dropdown in tables (e.g. ticket status: Received/In Progress/Ready/Delivered)
+     sits in a table with table-layout:auto, so a row of fixed-width action buttons elsewhere
+     can starve this column down to a sliver, clipping the selected label to "Re"/"In"/"De".
+     A min-width stops the column from ever shrinking that far. */
+  select.tk-status{ min-width:126px; }
   input:focus, select:focus, textarea:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
   .row3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;}
