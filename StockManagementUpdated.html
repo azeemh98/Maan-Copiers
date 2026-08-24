@@ -5073,11 +5073,15 @@
         supabaseClient.from('expenses').select('amount').eq('org_id', currentOrgId).lte('expense_date', asOf)
       ]);
 
+      // Anonymous walk-in transactions (no party_id — e.g. a cash sale with nobody picked)
+      // must NOT flow into the per-party balances map: JS object keys coerce `null` to the
+      // string "null", which would silently create a bogus phantom "party" and misclassify
+      // the whole amount as Receivable/Payable instead of just Cash & Bank. Guard on party_id.
       const balances = {};
       (allParties || []).forEach(p => { balances[p.id] = Number(p.opening_balance) || 0; });
-      (saleInv || []).forEach(i => { balances[i.party_id] = (balances[i.party_id] || 0) + Number(i.grand_total); });
-      (purInv || []).forEach(i => { balances[i.party_id] = (balances[i.party_id] || 0) - Number(i.grand_total); });
-      (payRows || []).forEach(p => { balances[p.party_id] = (balances[p.party_id] || 0) + (p.direction === 'in' ? -Number(p.amount) : Number(p.amount)); });
+      (saleInv || []).forEach(i => { if (!i.party_id) return; balances[i.party_id] = (balances[i.party_id] || 0) + Number(i.grand_total); });
+      (purInv || []).forEach(i => { if (!i.party_id) return; balances[i.party_id] = (balances[i.party_id] || 0) - Number(i.grand_total); });
+      (payRows || []).forEach(p => { if (!p.party_id) return; balances[p.party_id] = (balances[p.party_id] || 0) + (p.direction === 'in' ? -Number(p.amount) : Number(p.amount)); });
 
       let receivable = 0, payable = 0;
       Object.values(balances).forEach(b => { if (b > 0) receivable += b; else payable += -b; });
