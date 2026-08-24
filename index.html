@@ -1658,6 +1658,30 @@
   function fmtDateTime(d){ return new Date(d).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); }
   function fmtDate(d){ return new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }); }
   function todayISO(){ const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+  // Same trick as todayISO — new Date(y,m,d).toISOString() converts through UTC, which silently
+  // shifts the date backward a day for any timezone ahead of UTC (India included). Shifting by
+  // the local offset first keeps the calendar date the caller actually meant.
+  function toISODateLocal(d){ const c = new Date(d); c.setMinutes(c.getMinutes() - c.getTimezoneOffset()); return c.toISOString().slice(0,10); }
+  // Bank-statement date columns are almost always DD/MM/YYYY (or DD-MM-YYYY, 2-digit year) —
+  // formats plain `new Date(...)` parses unreliably or silently gets wrong (it tends to assume
+  // US MM/DD/YYYY, so e.g. "20/08/2026" fails to parse at all). Handles ISO and spelled-out
+  // month names too, and falls back to native parsing for anything else.
+  function parseFlexibleDate(raw){
+    if (!raw) return null;
+    const s = String(raw).trim();
+    if (/[a-zA-Z]/.test(s)){ const d = new Date(s); if (!isNaN(d)) return d; }
+    if (/^\d{4}-\d{1,2}-\d{1,2}/.test(s)){ const d = new Date(s); if (!isNaN(d)) return d; }
+    const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if (m){
+      let dd = parseInt(m[1],10), mm = parseInt(m[2],10), yy = parseInt(m[3],10);
+      if (yy < 100) yy += 2000;
+      if (mm > 12 && dd <= 12){ const t = dd; dd = mm; mm = t; } // e.g. an occasional MM/DD input
+      const dt = new Date(yy, mm - 1, dd);
+      if (!isNaN(dt)) return dt;
+    }
+    const d = new Date(s);
+    return isNaN(d) ? null : d;
+  }
   function timeAgo(d){
     const diff = (Date.now() - new Date(d).getTime()) / 1000;
     if (diff < 60) return 'just now';
@@ -4610,9 +4634,9 @@
           direction = typeRaw.includes('cr') ? 'in' : (typeRaw.includes('dr') ? 'out' : ((parseFloat(amtRaw) || 0) < 0 ? 'out' : 'in'));
         }
         if (!dateRaw || !amount) continue;
-        const d = new Date(dateRaw);
-        if (isNaN(d)) continue;
-        parsed.push({ txn_date: d.toISOString().slice(0,10), description: desc || null, amount, direction });
+        const d = parseFlexibleDate(dateRaw);
+        if (!d) continue;
+        parsed.push({ txn_date: toISODateLocal(d), description: desc || null, amount, direction });
       }
       if (parsed.length === 0) throw new Error('Could not read any transactions — check the file has Date + Amount (or Debit/Credit) columns.');
 
