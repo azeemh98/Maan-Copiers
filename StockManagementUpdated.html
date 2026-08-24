@@ -1169,7 +1169,10 @@
             <input type="file" id="bankStatementFile" accept=".csv,.xlsx,.xls">
           </div>
           <div class="hint">Expected columns (any order, case-insensitive): <b>Date</b>, <b>Narration/Description/Particulars</b>, and either <b>Debit</b>+<b>Credit</b> columns or a single <b>Amount</b> with a <b>Type/Dr-Cr</b> column — matches most bank exports as-is.</div>
-          <button class="add-btn save-btn" id="importBankStatementBtn" style="margin-top:12px;"><span>Import &amp; Match</span><span></span></button>
+          <div style="display:flex; gap:10px; margin-top:12px;">
+            <button class="add-btn save-btn" id="importBankStatementBtn"><span>Import &amp; Match</span><span></span></button>
+            <button class="btn-sm" id="exportBankTallyBtn" title="Turn everything currently in this table into a Tally voucher sheet — matched rows get the real party name, unmatched rows go to a Suspense ledger to sort out later">⭳ Export as Tally Vouchers</button>
+          </div>
           <div class="status-msg" id="bankReconStatus"></div>
           <div id="bankReconSummary" style="margin-top:16px;"></div>
           <table class="data-table" style="margin-top:14px;">
@@ -1353,6 +1356,13 @@
         <thead><tr><th>Party</th><th>Type</th><th>Balance</th></tr></thead>
         <tbody id="reportOutstandingBody"><tr class="empty-row"><td colspan="3">—</td></tr></tbody>
       </table>
+    </section>
+
+    <section class="card">
+      <h2>Tally Export <span class="hint" style="font-weight:400;">— voucher entries for the period selected above</span></h2>
+      <div class="hint">A day-book style Excel sheet — one row per ledger line, grouped by voucher number, Debit and Credit in separate columns (no sign convention to get wrong). Covers Sales, Purchases, Payments Received/Made, and Expenses. Hand this to your accountant, or key it into Tally directly.</div>
+      <button class="btn-sm primary" id="exportTallyBtn" style="margin-top:12px;">⭳ Download Tally Voucher Sheet (.xlsx)</button>
+      <div class="status-msg" id="tallyExportStatus"></div>
     </section>
   </section>
 
@@ -4662,6 +4672,37 @@
     finally { this.disabled = false; }
   });
 
+  // Straight from the bank feed to Tally-ready lines — matched rows carry the real party name
+  // (from the smart-match above), unmatched ones go to a Suspense ledger so nothing silently
+  // gets lost; whoever's posting these just has to clear the Suspense balance by hand.
+  $('exportBankTallyBtn').addEventListener('click', function(){
+    const statusEl = $('bankReconStatus');
+    if (!bankTransactions.length){ showStatus(statusEl, 'Nothing imported yet — import a statement first.', false); return; }
+    const rows = bankTransactions.filter(t => t.match_status !== 'ignored').map(t => {
+      const matchedName = t.payments?.parties?.name;
+      const otherLedger = matchedName || (t.direction === 'in' ? 'Suspense — Unidentified Receipt' : 'Suspense — Unidentified Payment');
+      const vno = 'BANK-' + t.id.slice(0,8);
+      const narration = (t.description || '') + (matchedName ? '' : ' [unmatched — verify party]');
+      return t.direction === 'in'
+        ? [
+            { Date: fmtDate(t.txn_date), 'Voucher Type':'Receipt', 'Voucher No.':vno, 'Ledger Name':'Bank', Debit:Number(Number(t.amount).toFixed(2)), Credit:'', Narration: narration },
+            { Date: fmtDate(t.txn_date), 'Voucher Type':'Receipt', 'Voucher No.':vno, 'Ledger Name':otherLedger, Debit:'', Credit:Number(Number(t.amount).toFixed(2)), Narration: narration }
+          ]
+        : [
+            { Date: fmtDate(t.txn_date), 'Voucher Type':'Payment', 'Voucher No.':vno, 'Ledger Name':otherLedger, Debit:Number(Number(t.amount).toFixed(2)), Credit:'', Narration: narration },
+            { Date: fmtDate(t.txn_date), 'Voucher Type':'Payment', 'Voucher No.':vno, 'Ledger Name':'Bank', Debit:'', Credit:Number(Number(t.amount).toFixed(2)), Narration: narration }
+          ];
+    }).flat();
+    if (!rows.length){ showStatus(statusEl, 'Nothing to export (everything on file is marked Ignored).', false); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{wch:11},{wch:10},{wch:12},{wch:26},{wch:11},{wch:11},{wch:34}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bank Vouchers');
+    XLSX.writeFile(wb, 'Bank-Statement-Tally-Vouchers.xlsx');
+    const unmatchedCount = bankTransactions.filter(t => t.match_status === 'unmatched').length;
+    showStatus(statusEl, rows.length + ' lines exported' + (unmatchedCount ? ' — ' + unmatchedCount + ' went to Suspense, worth reviewing before posting' : '') + '.', true);
+  });
+
   async function recomputeInvoiceStatus(invoiceId){
     const { data: inv } = await supabaseClient.from('invoices').select('grand_total').eq('id', invoiceId).single();
     const { data: pays } = await supabaseClient.from('payments').select('amount').eq('invoice_id', invoiceId);
@@ -4945,6 +4986,106 @@
     outBody.innerHTML = outRows.length ? outRows.map(p => { const bal = partyBalances[p.id]||0; return '<tr><td>' + p.name + '</td><td>' + p.type + '</td><td class="' + (bal>0?'amt-pos':'amt-neg') + '">' + fmtMoney(bal) + '</td></tr>'; }).join('')
       : '<tr class="empty-row"><td colspan="3">No outstanding balances.</td></tr>';
   }
+
+  // ======================================================================
+  // TALLY EXPORT — a day-book style voucher sheet for the selected report period. Debit and
+  // Credit are separate columns (not a signed AMOUNT field like Tally's native XML import),
+  // deliberately — that format has a debit/credit sign convention that's easy to get backwards
+  // and I can't verify it against a real Tally install from here. This is unambiguous instead:
+  // any accountant can read it directly, and it's the same layout TallyPrime's own Excel
+  // import expects if that route is used.
+  // ======================================================================
+  $('exportTallyBtn').addEventListener('click', async function(){
+    const statusEl = $('tallyExportStatus');
+    this.disabled = true;
+    try {
+      const { from, to } = reportRange();
+      const [{ data: saleInv }, { data: purInv }, { data: payRows }, { data: expRows }] = await Promise.all([
+        supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('invoice_date'),
+        supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('invoice_date'),
+        supabaseClient.from('payments').select('*, parties(name)').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to).order('payment_date'),
+        supabaseClient.from('expenses').select('*').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to).order('expense_date')
+      ]);
+
+      const partyName = id => (parties.find(p => p.id === id) || {}).name || 'Cash/Unknown Party';
+      const MODE_LEDGER = { cash:'Cash', bank:'Bank', upi:'Bank', cheque:'Bank', other:'Cash' };
+
+      const rows = [];
+      function addLine(date, vtype, vno, ledger, debit, credit, narration){
+        rows.push({
+          Date: fmtDate(date), 'Voucher Type': vtype, 'Voucher No.': vno, 'Ledger Name': ledger,
+          Debit: debit ? Number(Number(debit).toFixed(2)) : '', Credit: credit ? Number(Number(credit).toFixed(2)) : '',
+          Narration: narration || ''
+        });
+      }
+
+      (saleInv || []).forEach(inv => {
+        const isIntra = org.biz_state && inv.place_of_supply && org.biz_state.trim().toLowerCase() === inv.place_of_supply.trim().toLowerCase();
+        const taxable = Number(inv.subtotal) - Number(inv.discount_total || 0);
+        const tax = Number(inv.tax_total || 0);
+        const narration = 'Sales invoice ' + inv.invoice_no;
+        addLine(inv.invoice_date, 'Sales', inv.invoice_no, partyName(inv.party_id), Number(inv.grand_total), 0, narration);
+        addLine(inv.invoice_date, 'Sales', inv.invoice_no, 'Sales Account', 0, taxable, narration);
+        if (tax > 0){
+          if (isIntra){
+            addLine(inv.invoice_date, 'Sales', inv.invoice_no, 'Output CGST', 0, tax / 2, narration);
+            addLine(inv.invoice_date, 'Sales', inv.invoice_no, 'Output SGST', 0, tax / 2, narration);
+          } else {
+            addLine(inv.invoice_date, 'Sales', inv.invoice_no, 'Output IGST', 0, tax, narration);
+          }
+        }
+      });
+
+      (purInv || []).forEach(inv => {
+        const isIntra = org.biz_state && inv.place_of_supply && org.biz_state.trim().toLowerCase() === inv.place_of_supply.trim().toLowerCase();
+        const taxable = Number(inv.subtotal) - Number(inv.discount_total || 0);
+        const tax = Number(inv.tax_total || 0);
+        const narration = 'Purchase invoice ' + inv.invoice_no;
+        addLine(inv.invoice_date, 'Purchase', inv.invoice_no, 'Purchase Account', taxable, 0, narration);
+        if (tax > 0){
+          if (isIntra){
+            addLine(inv.invoice_date, 'Purchase', inv.invoice_no, 'Input CGST', tax / 2, 0, narration);
+            addLine(inv.invoice_date, 'Purchase', inv.invoice_no, 'Input SGST', tax / 2, 0, narration);
+          } else {
+            addLine(inv.invoice_date, 'Purchase', inv.invoice_no, 'Input IGST', tax, 0, narration);
+          }
+        }
+        addLine(inv.invoice_date, 'Purchase', inv.invoice_no, partyName(inv.party_id), 0, Number(inv.grand_total), narration);
+      });
+
+      (payRows || []).forEach(p => {
+        const cashBankLedger = MODE_LEDGER[p.mode] || 'Cash';
+        const pName = p.parties?.name || partyName(p.party_id);
+        const vno = 'PMT-' + p.id.slice(0,8);
+        const narration = p.note || (p.direction === 'in' ? 'Payment received' : 'Payment made');
+        if (p.direction === 'in'){
+          addLine(p.payment_date, 'Receipt', vno, cashBankLedger, Number(p.amount), 0, narration);
+          addLine(p.payment_date, 'Receipt', vno, pName, 0, Number(p.amount), narration);
+        } else {
+          addLine(p.payment_date, 'Payment', vno, pName, Number(p.amount), 0, narration);
+          addLine(p.payment_date, 'Payment', vno, cashBankLedger, 0, Number(p.amount), narration);
+        }
+      });
+
+      (expRows || []).forEach(e => {
+        const cashBankLedger = MODE_LEDGER[e.mode] || 'Cash';
+        const vno = 'EXP-' + e.id.slice(0,8);
+        const narration = e.note || e.category;
+        addLine(e.expense_date, 'Payment', vno, e.category, Number(e.amount), 0, narration);
+        addLine(e.expense_date, 'Payment', vno, cashBankLedger, 0, Number(e.amount), narration);
+      });
+
+      if (rows.length === 0) throw new Error('No transactions in this period to export.');
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [{wch:11},{wch:10},{wch:14},{wch:22},{wch:11},{wch:11},{wch:30}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Tally Vouchers');
+      XLSX.writeFile(wb, 'Tally-Vouchers-' + from + '-to-' + to + '.xlsx');
+      showStatus(statusEl, rows.length + ' ledger lines exported — ' + (saleInv?.length||0) + ' sales, ' + (purInv?.length||0) + ' purchases, ' + (payRows?.length||0) + ' payments, ' + (expRows?.length||0) + ' expenses.', true);
+    } catch (err){ showStatus(statusEl, err.message || 'Could not export.', false); }
+    finally { this.disabled = false; }
+  });
 
 })();
 </script>
