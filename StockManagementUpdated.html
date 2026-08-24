@@ -949,6 +949,24 @@
               <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
               <tbody id="ledgerBody"><tr class="empty-row"><td colspan="6">—</td></tr></tbody>
             </table>
+
+            <h4 style="margin:20px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Communication Log</h4>
+            <div class="row3">
+              <div class="field" style="grid-column:span 2;"><label for="commNote">Note</label><input type="text" id="commNote" placeholder="e.g. Called about pending payment, promised by Friday"></div>
+              <div class="field"><label for="commChannel">Via</label>
+                <select id="commChannel">
+                  <option value="call">Phone Call</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="sms">SMS</option>
+                  <option value="email">Email</option>
+                  <option value="in_person">In Person</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn-sm" id="logCommBtn" style="margin-top:4px;">+ Log Communication</button>
+            <div id="commLogList" style="margin-top:14px;"></div>
+
             <div style="display:flex; gap:8px; margin-top:12px;">
               <button class="btn-sm" id="closeLedgerBtn">Close</button>
               <button class="btn-sm primary" id="printBalanceSlipBtn">🖨 Print Balance Slip</button>
@@ -1356,6 +1374,21 @@
         <thead><tr><th>Party</th><th>Type</th><th>Balance</th></tr></thead>
         <tbody id="reportOutstandingBody"><tr class="empty-row"><td colspan="3">—</td></tr></tbody>
       </table>
+    </section>
+
+    <section class="card">
+      <h2>Balance Sheet <span class="hint" style="font-weight:400;">(snapshot, not a statutory statement — read the note below)</span></h2>
+      <div class="row2">
+        <div class="field"><label for="bsAsOfDate">As of date</label><input type="date" id="bsAsOfDate"></div>
+        <div class="field" style="align-self:flex-end;"><button class="btn-sm primary" id="runBalanceSheetBtn">Generate</button></div>
+      </div>
+      <div class="stats-row" id="balanceSheetStats" style="display:none;">
+        <div class="stat-card ok"><div class="s-label">Cash &amp; Bank (net)</div><div class="s-val" id="bsCash">—</div></div>
+        <div class="stat-card ok"><div class="s-label">Receivable</div><div class="s-val" id="bsReceivable">—</div></div>
+        <div class="stat-card danger"><div class="s-label">Payable</div><div class="s-val" id="bsPayable">—</div></div>
+        <div class="stat-card" id="bsNetCard"><div class="s-label">Net Position</div><div class="s-val" id="bsNet">—</div></div>
+      </div>
+      <div class="hint" style="margin-top:14px;">This is <b>Cash &amp; Bank + Receivable − Payable</b> as of the chosen date — not a full balance sheet. It doesn't include an inventory valuation (stock is tracked by quantity, not cost, so there's no rupee figure to include), fixed assets (machines, furniture — not tracked at all), or a capital/equity account. Useful as a quick internal check; not something to hand a CA as a substitute for a proper statutory balance sheet.</div>
     </section>
 
     <section class="card">
@@ -4062,6 +4095,7 @@
     const jobsTotal = currentLedgerTickets.reduce((s,t) => s + ticketGrandTotal(t), 0);
     $('partyJobsBody').innerHTML = buildPartyJobsRows(currentLedgerTickets);
     $('partyJobsTotal').textContent = fmtMoney(jobsTotal);
+    await loadPartyCommLog(partyId);
 
     const entries = [];
     if (p.opening_balance) entries.push({ date: '—', type:'Opening', ref:'Opening balance', debit: p.opening_balance > 0 ? p.opening_balance : 0, credit: p.opening_balance < 0 ? -p.opening_balance : 0, sortKey:'0000-00-00' });
@@ -4086,6 +4120,39 @@
     $('partyLedger').scrollIntoView({ behavior:'smooth', block:'nearest' });
   }
   $('closeLedgerBtn').addEventListener('click', () => { $('partyLedger').classList.remove('show'); openLedgerPartyId = null; });
+
+  // ---- Communication log — a running record of calls/messages with this party, so whoever
+  // picks up the phone next knows what was already promised/discussed. ----
+  const COMM_CHANNEL_LABEL = { call:'📞 Call', whatsapp:'💬 WhatsApp', sms:'✉ SMS', email:'📧 Email', in_person:'🤝 In Person', other:'Other' };
+  async function loadPartyCommLog(partyId){
+    const { data } = await supabaseClient.from('party_communications').select('*').eq('party_id', partyId).order('created_at', { ascending:false }).limit(50);
+    const list = $('commLogList');
+    const rows = data || [];
+    list.innerHTML = rows.length ? rows.map(c => {
+      const who = profilesMap[c.created_by];
+      const whoName = who ? (who.username || who.full_name || who.email) : null;
+      return '<div class="activity-item"><div class="act-body">' +
+        '<div class="act-line1">' + (COMM_CHANNEL_LABEL[c.channel] || c.channel) + '</div>' +
+        '<div class="act-note">"' + c.note + '"</div>' +
+        '<div class="act-line2">' + fmtDateTime(c.created_at) + (whoName ? ' · ' + whoName : '') + '</div>' +
+        '</div></div>';
+    }).join('') : '<div class="empty-activity">No communication logged with this party yet.</div>';
+  }
+  $('logCommBtn').addEventListener('click', async function(){
+    if (!openLedgerPartyId) return;
+    const note = $('commNote').value.trim();
+    if (!note){ alert('Enter a note describing the communication.'); return; }
+    this.disabled = true;
+    try {
+      const { error } = await supabaseClient.from('party_communications').insert({
+        org_id: currentOrgId, party_id: openLedgerPartyId, channel: $('commChannel').value, note, created_by: currentUserId
+      });
+      if (error) throw error;
+      $('commNote').value = '';
+      await loadPartyCommLog(openLedgerPartyId);
+    } catch (err){ alert(err.message || 'Could not log this.'); }
+    finally { this.disabled = false; }
+  });
 
   $('printBalanceSlipBtn').addEventListener('click', function(){
     if (!currentLedgerParty) return;
@@ -4986,6 +5053,50 @@
     outBody.innerHTML = outRows.length ? outRows.map(p => { const bal = partyBalances[p.id]||0; return '<tr><td>' + p.name + '</td><td>' + p.type + '</td><td class="' + (bal>0?'amt-pos':'amt-neg') + '">' + fmtMoney(bal) + '</td></tr>'; }).join('')
       : '<tr class="empty-row"><td colspan="3">No outstanding balances.</td></tr>';
   }
+
+  // ======================================================================
+  // BALANCE SHEET (SNAPSHOT) — Cash & Bank + Receivable − Payable as of a chosen date. Not a
+  // full statutory balance sheet: no inventory valuation (stock is tracked by quantity, not
+  // cost — there's genuinely no rupee figure to pull), no fixed asset register, no capital
+  // account. Said plainly in the UI itself so it can't be mistaken for the real thing.
+  // ======================================================================
+  $('bsAsOfDate').value = todayISO();
+  $('runBalanceSheetBtn').addEventListener('click', async function(){
+    const asOf = $('bsAsOfDate').value || todayISO();
+    this.disabled = true;
+    try {
+      const [{ data: allParties }, { data: saleInv }, { data: purInv }, { data: payRows }, { data: expRows }] = await Promise.all([
+        supabaseClient.from('parties').select('id, opening_balance').eq('org_id', currentOrgId),
+        supabaseClient.from('invoices').select('party_id, grand_total').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').lte('invoice_date', asOf),
+        supabaseClient.from('invoices').select('party_id, grand_total').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').lte('invoice_date', asOf),
+        supabaseClient.from('payments').select('party_id, amount, direction').eq('org_id', currentOrgId).lte('payment_date', asOf),
+        supabaseClient.from('expenses').select('amount').eq('org_id', currentOrgId).lte('expense_date', asOf)
+      ]);
+
+      const balances = {};
+      (allParties || []).forEach(p => { balances[p.id] = Number(p.opening_balance) || 0; });
+      (saleInv || []).forEach(i => { balances[i.party_id] = (balances[i.party_id] || 0) + Number(i.grand_total); });
+      (purInv || []).forEach(i => { balances[i.party_id] = (balances[i.party_id] || 0) - Number(i.grand_total); });
+      (payRows || []).forEach(p => { balances[p.party_id] = (balances[p.party_id] || 0) + (p.direction === 'in' ? -Number(p.amount) : Number(p.amount)); });
+
+      let receivable = 0, payable = 0;
+      Object.values(balances).forEach(b => { if (b > 0) receivable += b; else payable += -b; });
+
+      const cashIn = (payRows || []).filter(p => p.direction === 'in').reduce((s,p) => s + Number(p.amount), 0);
+      const cashOut = (payRows || []).filter(p => p.direction === 'out').reduce((s,p) => s + Number(p.amount), 0);
+      const expTotal = (expRows || []).reduce((s,e) => s + Number(e.amount), 0);
+      const cashBank = cashIn - cashOut - expTotal;
+      const net = cashBank + receivable - payable;
+
+      $('bsCash').textContent = fmtMoney0(cashBank);
+      $('bsReceivable').textContent = fmtMoney0(receivable);
+      $('bsPayable').textContent = fmtMoney0(payable);
+      $('bsNet').textContent = fmtMoney0(net);
+      $('bsNetCard').className = 'stat-card ' + (net >= 0 ? 'ok' : 'danger');
+      $('balanceSheetStats').style.display = 'grid';
+    } catch (err){ alert(err.message || 'Could not generate.'); }
+    finally { this.disabled = false; }
+  });
 
   // ======================================================================
   // TALLY EXPORT — a day-book style voucher sheet for the selected report period. Debit and
