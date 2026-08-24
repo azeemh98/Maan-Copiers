@@ -1161,6 +1161,22 @@
             <tbody id="paymentsTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
           </table>
         </section>
+
+        <section class="card">
+          <h2>Bank Reconciliation <span class="hint" style="font-weight:400;">— match a bank statement against recorded payments</span></h2>
+          <div class="field">
+            <label for="bankStatementFile">Bank statement (CSV or Excel)</label>
+            <input type="file" id="bankStatementFile" accept=".csv,.xlsx,.xls">
+          </div>
+          <div class="hint">Expected columns (any order, case-insensitive): <b>Date</b>, <b>Narration/Description/Particulars</b>, and either <b>Debit</b>+<b>Credit</b> columns or a single <b>Amount</b> with a <b>Type/Dr-Cr</b> column — matches most bank exports as-is.</div>
+          <button class="add-btn save-btn" id="importBankStatementBtn" style="margin-top:12px;"><span>Import &amp; Match</span><span></span></button>
+          <div class="status-msg" id="bankReconStatus"></div>
+          <div id="bankReconSummary" style="margin-top:16px;"></div>
+          <table class="data-table" style="margin-top:14px;">
+            <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Status</th><th></th></tr></thead>
+            <tbody id="bankTxnTableBody"><tr class="empty-row"><td colspan="6">Upload a statement to begin.</td></tr></tbody>
+          </table>
+        </section>
       </div>
       <aside class="side-col">
         <section class="card sticky">
@@ -1740,6 +1756,7 @@
       loadPayments(),
       loadExpenses(),
       loadPaymentCharts(),
+      loadBankTransactions(),
       refreshTicketsPanel(),
       refreshEmployeesPanel(),
       refreshTasksPanel()
@@ -1752,6 +1769,7 @@
     renderPaymentsTable();
     renderExpenseList();
     renderPaymentCharts();
+    renderBankReconTable();
     renderEmployeesTable(); // re-render now that parties has definitely loaded, for the employee↔party link badge
     renderTicketPartyDatalist();
   }
@@ -4419,18 +4437,204 @@
     this.disabled = true;
     try {
       const invoiceId = $('payInvoice').value || null;
-      const { error } = await supabaseClient.from('payments').insert({
+      const { data: payRow, error } = await supabaseClient.from('payments').insert({
         org_id: currentOrgId, party_id: partyId, invoice_id: invoiceId, direction: payDirection,
         amount, mode: $('payMode').value, payment_date: $('payDate').value || todayISO(),
         note: $('payNote').value.trim() || null, created_by: currentUserId
-      });
+      }).select().single();
       if (error) throw error;
       if (invoiceId) await recomputeInvoiceStatus(invoiceId);
+      // If this payment was recorded straight from an unmatched bank-statement row (via the
+      // "+ Payment" button in Bank Reconciliation below), link the two instead of leaving the
+      // bank row to be picked up separately by the next matching pass.
+      if (pendingBankTxnId){
+        await supabaseClient.from('bank_transactions').update({ match_status:'matched', matched_payment_id: payRow.id }).eq('id', pendingBankTxnId);
+        pendingBankTxnId = null;
+        await loadBankTransactions(); renderBankReconTable();
+      }
       showStatus(statusEl, 'Payment of ' + fmtMoney(amount) + ' recorded.', true);
       $('payAmount').value = ''; $('payNote').value = ''; $('payDate').value = todayISO();
       await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts() ]);
       renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderPaymentInvoiceOptions(); renderInvoicesTable(); renderPaymentCharts();
     } catch (err){ showStatus(statusEl, err.message || 'Could not record payment.', false); }
+    finally { this.disabled = false; }
+  });
+
+  // ======================================================================
+  // BANK RECONCILIATION — import a bank statement, smart-match it against recorded
+  // payments (amount + date window + party name found in the narration), and let staff
+  // clear up whatever's left by hand. No hosted LLM call — this is a deterministic
+  // matching heuristic ("smart match"), which avoids needing a separate paid API key/setup
+  // just for this; upgrading to true narration-parsing AI is a separate, later step if wanted.
+  // ======================================================================
+  let bankTransactions = [];
+  let pendingBankTxnId = null;
+
+  function findMatchingPayment(txn, pool){
+    const txnDate = new Date(txn.txn_date).getTime();
+    const desc = (txn.description || '').toLowerCase();
+    let best = null, bestScore = -1;
+    pool.forEach(p => {
+      if (p.direction !== txn.direction) return;
+      if (Math.abs(Number(p.amount) - Number(txn.amount)) > 0.5) return;
+      const dayDiff = Math.abs(new Date(p.payment_date).getTime() - txnDate) / 86400000;
+      if (dayDiff > 7) return;
+      let score = 100 - dayDiff;
+      const partyName = (p.parties?.name || '').toLowerCase();
+      if (partyName && desc.includes(partyName)) score += 50;
+      if (score > bestScore){ bestScore = score; best = p; }
+    });
+    return best;
+  }
+
+  async function runBankMatching(){
+    const { data: unmatchedTxns } = await supabaseClient.from('bank_transactions').select('*').eq('org_id', currentOrgId).eq('match_status','unmatched');
+    if (!unmatchedTxns || !unmatchedTxns.length) return;
+    const [{ data: candidatePayments }, { data: alreadyLinked }] = await Promise.all([
+      supabaseClient.from('payments').select('*, parties(name)').eq('org_id', currentOrgId),
+      supabaseClient.from('bank_transactions').select('matched_payment_id').eq('org_id', currentOrgId).eq('match_status','matched')
+    ]);
+    const linkedIds = new Set((alreadyLinked || []).map(x => x.matched_payment_id).filter(Boolean));
+    let pool = (candidatePayments || []).filter(p => !linkedIds.has(p.id));
+    for (const txn of unmatchedTxns){
+      const match = findMatchingPayment(txn, pool);
+      if (match){
+        await supabaseClient.from('bank_transactions').update({ match_status:'matched', matched_payment_id: match.id }).eq('id', txn.id);
+        pool = pool.filter(p => p.id !== match.id); // one bank row per payment
+      }
+    }
+  }
+
+  async function loadBankTransactions(){
+    const { data } = await supabaseClient.from('bank_transactions').select('*, payments(amount, mode, parties(name))').eq('org_id', currentOrgId).order('txn_date', { ascending:false }).limit(300);
+    bankTransactions = data || [];
+  }
+
+  function renderBankReconSummary(){
+    const matched = bankTransactions.filter(t => t.match_status === 'matched').length;
+    const unmatched = bankTransactions.filter(t => t.match_status === 'unmatched').length;
+    const ignored = bankTransactions.filter(t => t.match_status === 'ignored').length;
+    $('bankReconSummary').innerHTML = bankTransactions.length ? (
+      '<div class="stats-row" style="margin:0;">' +
+      '<div class="stat-card ok"><div class="s-label">Matched</div><div class="s-val">' + matched + '</div></div>' +
+      '<div class="stat-card danger"><div class="s-label">Unmatched</div><div class="s-val">' + unmatched + '</div></div>' +
+      '<div class="stat-card"><div class="s-label">Ignored</div><div class="s-val">' + ignored + '</div></div>' +
+      '</div>'
+    ) : '';
+  }
+
+  function renderBankReconTable(){
+    const tbody = $('bankTxnTableBody');
+    if (!bankTransactions.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Upload a statement to begin.</td></tr>'; renderBankReconSummary(); return; }
+    tbody.innerHTML = bankTransactions.map(t => {
+      const matchedInfo = t.payments ? [(t.payments.parties?.name), t.payments.mode].filter(Boolean).join(' · ') : '';
+      const statusCell = t.match_status === 'matched'
+        ? '<span class="status-badge paid">MATCHED</span>' + (matchedInfo ? '<div class="item-cat">' + matchedInfo + '</div>' : '')
+        : t.match_status === 'ignored'
+        ? '<span class="status-badge inactive">IGNORED</span>'
+        : '<span class="status-badge unpaid">UNMATCHED</span>';
+      const actions = t.match_status === 'matched'
+        ? '<button class="bt-unmatch" data-id="' + t.id + '" title="Unlink from that payment">Unmatch</button>'
+        : t.match_status === 'ignored'
+        ? '<button class="bt-restore" data-id="' + t.id + '" title="Bring back for review">Restore</button>'
+        : '<button class="bt-record" data-id="' + t.id + '" title="Record as a new payment and link it">+ Payment</button><button class="bt-ignore" data-id="' + t.id + '" title="Not relevant — e.g. a bank charge">Ignore</button>';
+      return '<tr><td>' + fmtDate(t.txn_date) + '</td><td>' + (t.description || '—') + '</td><td>' + fmtMoney(t.amount) + '</td>' +
+        '<td><span class="status-badge ' + (t.direction === 'in' ? 'ok' : 'out') + '">' + (t.direction === 'in' ? 'IN' : 'OUT') + '</span></td>' +
+        '<td>' + statusCell + '</td><td><div class="row-actions">' + actions + '</div></td></tr>';
+    }).join('');
+
+    tbody.querySelectorAll('.bt-record').forEach(btn => btn.addEventListener('click', function(){
+      const t = bankTransactions.find(x => x.id === this.dataset.id);
+      if (!t) return;
+      pendingBankTxnId = t.id;
+      document.querySelectorAll('#panel-payments .pill-toggle .pill').forEach(b => b.classList.toggle('active', b.dataset.v === t.direction));
+      payDirection = t.direction;
+      $('payAmount').value = t.amount;
+      $('payDate').value = t.txn_date;
+      $('payNote').value = t.description || '';
+      $('payMode').value = 'bank';
+      $('savePaymentBtn').scrollIntoView({ behavior:'smooth', block:'center' });
+      showStatus($('bankReconStatus'), 'Pick the party above, then Record Payment — it\'ll link to this row automatically.', true);
+    }));
+    tbody.querySelectorAll('.bt-ignore').forEach(btn => btn.addEventListener('click', async function(){
+      await supabaseClient.from('bank_transactions').update({ match_status:'ignored' }).eq('id', this.dataset.id);
+      await loadBankTransactions(); renderBankReconTable();
+    }));
+    tbody.querySelectorAll('.bt-restore').forEach(btn => btn.addEventListener('click', async function(){
+      await supabaseClient.from('bank_transactions').update({ match_status:'unmatched' }).eq('id', this.dataset.id);
+      await loadBankTransactions(); renderBankReconTable();
+    }));
+    tbody.querySelectorAll('.bt-unmatch').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
+      await supabaseClient.from('bank_transactions').update({ match_status:'unmatched', matched_payment_id:null }).eq('id', this.dataset.id);
+      await loadBankTransactions(); renderBankReconTable();
+    }));
+    renderBankReconSummary();
+  }
+
+  $('importBankStatementBtn').addEventListener('click', async function(){
+    const statusEl = $('bankReconStatus');
+    if (isWalkinOnly){ showStatus(statusEl, 'Not authorized for bank reconciliation.', false); return; }
+    const fileInput = $('bankStatementFile');
+    const file = fileInput.files[0];
+    if (!file){ showStatus(statusEl, 'Choose a file first.', false); return; }
+    this.disabled = true;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:false });
+      if (rows.length === 0) throw new Error('No rows found in that file.');
+
+      const pick = (row, ...keys) => {
+        for (const k of Object.keys(row)){
+          const norm = k.trim().toLowerCase().replace(/[^a-z]/g,'');
+          if (keys.includes(norm)) return row[k];
+        }
+        return '';
+      };
+
+      const parsed = [];
+      for (const row of rows){
+        const dateRaw = pick(row, 'date','txndate','transactiondate','valuedate');
+        const desc = String(pick(row, 'narration','description','particulars','details','remarks') || '').trim();
+        const debit = parseFloat(String(pick(row, 'debit','withdrawal','withdrawalamt','debitamount','dr')).replace(/,/g,'')) || 0;
+        const credit = parseFloat(String(pick(row, 'credit','deposit','depositamt','creditamount','cr')).replace(/,/g,'')) || 0;
+        let amount = 0, direction = null;
+        if (debit > 0){ amount = debit; direction = 'out'; }
+        else if (credit > 0){ amount = credit; direction = 'in'; }
+        else {
+          const amtRaw = String(pick(row, 'amount','txnamount')).replace(/,/g,'');
+          const typeRaw = String(pick(row, 'type','drcr','crdr') || '').trim().toLowerCase();
+          amount = Math.abs(parseFloat(amtRaw) || 0);
+          direction = typeRaw.includes('cr') ? 'in' : (typeRaw.includes('dr') ? 'out' : ((parseFloat(amtRaw) || 0) < 0 ? 'out' : 'in'));
+        }
+        if (!dateRaw || !amount) continue;
+        const d = new Date(dateRaw);
+        if (isNaN(d)) continue;
+        parsed.push({ txn_date: d.toISOString().slice(0,10), description: desc || null, amount, direction });
+      }
+      if (parsed.length === 0) throw new Error('Could not read any transactions — check the file has Date + Amount (or Debit/Credit) columns.');
+
+      // Skip rows that look like an exact re-import of something already on file for this org.
+      const { data: existing } = await supabaseClient.from('bank_transactions').select('txn_date, description, amount, direction').eq('org_id', currentOrgId);
+      const existingKeys = new Set((existing || []).map(e => e.txn_date + '|' + (e.description||'') + '|' + e.amount + '|' + e.direction));
+      const toInsert = parsed.filter(p => !existingKeys.has(p.txn_date + '|' + (p.description||'') + '|' + p.amount + '|' + p.direction));
+      const skipped = parsed.length - toInsert.length;
+
+      if (toInsert.length){
+        const { error } = await supabaseClient.from('bank_transactions').insert(
+          toInsert.map(p => ({ ...p, org_id: currentOrgId, source_file: file.name, created_by: currentUserId }))
+        );
+        if (error) throw error;
+      }
+
+      showStatus(statusEl, toInsert.length + ' transaction(s) imported' + (skipped ? ', ' + skipped + ' skipped as already-on-file' : '') + '. Matching…', true);
+      fileInput.value = '';
+      await runBankMatching();
+      await loadBankTransactions();
+      renderBankReconTable();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not import statement.', false); }
     finally { this.disabled = false; }
   });
 
