@@ -165,6 +165,8 @@
   .status-badge.inactive{ background:var(--bg); color:var(--faint); }
   .tk-stock-hint{ margin-top:5px; }
   .tk-stock-hint:empty{ display:none; }
+  .inv-link{ background:none; border:none; padding:0; font:inherit; font-weight:600; color:var(--accent-dark); cursor:pointer; }
+  .inv-link:hover{ text-decoration:underline; }
 
   /* Money-in/money-out charts on the Payments tab — hand-rolled SVG bar/donut charts, no
      charting library, so they keep working through the same CDN-fetch deploy as everything
@@ -4497,6 +4499,11 @@
     $('pvTotals').innerHTML = totalsHtml;
     $('pvNotes').textContent = inv.notes || '';
 
+    // The preview lives inside the Sales & Purchases panel — invisible if triggered from
+    // somewhere else (e.g. the invoice link in Payment History) unless that tab is switched
+    // to first, since the whole panel is display:none otherwise.
+    const invoicesNavTab = document.querySelector('.nav-tab[data-nav="invoices"]');
+    if (invoicesNavTab && !invoicesNavTab.classList.contains('active')) invoicesNavTab.click();
     $('invoicePreview').classList.add('show');
     $('invoicePreview').scrollIntoView({ behavior:'smooth' });
   }
@@ -4789,11 +4796,15 @@
     if (payments.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No payments recorded yet.</td></tr>'; return; }
     tbody.innerHTML = payments.map(p => {
       const delBtn = isAdmin ? '<button class="pay-del danger" data-id="' + p.id + '" title="Delete">✕</button>' : '';
+      const invoiceCell = p.invoice_id && p.invoices?.invoice_no
+        ? '<button class="inv-link" data-id="' + p.invoice_id + '" title="View / print this invoice">' + p.invoices.invoice_no + '</button>'
+        : '—';
       return '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + (p.parties?.name || '—') + '</td>' +
         '<td><span class="status-badge ' + (p.direction === 'in' ? 'ok' : 'out') + '">' + (p.direction === 'in' ? 'RECEIVED' : 'PAID') + '</span></td>' +
-        '<td>' + fmtMoney(p.amount) + '</td><td>' + p.mode + '</td><td>' + (p.invoices?.invoice_no || '—') + '</td>' +
+        '<td>' + fmtMoney(p.amount) + '</td><td>' + p.mode + '</td><td>' + invoiceCell + '</td>' +
         '<td><div class="row-actions">' + delBtn + '</div></td></tr>';
     }).join('');
+    tbody.querySelectorAll('.inv-link').forEach(btn => btn.addEventListener('click', function(){ viewInvoice(this.dataset.id); }));
     tbody.querySelectorAll('.pay-del').forEach(btn => btn.addEventListener('click', async function(){
       if (!window.confirm('Delete this payment?')) return;
       const p = payments.find(x => x.id === this.dataset.id);
