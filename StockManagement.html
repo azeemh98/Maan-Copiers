@@ -157,6 +157,10 @@
   table.data-table tr.clickable:hover{ background:var(--bg); }
   .item-name{ font-weight:700; color:var(--ink); }
   .item-cat{ font-size:11px; color:var(--faint); margin-top:1px; }
+  /* Job-tickets table grouped into day-by-day sections — this is the heading row for each day. */
+  tr.tk-day-row td{ background:var(--accent-soft); padding:9px 10px; border-bottom:1px solid var(--border); }
+  .tk-day-title{ font-weight:800; font-size:12.5px; color:var(--accent-dark); }
+  .tk-day-stats{ font-size:11px; color:var(--muted); margin-top:2px; }
   .remaining-val{ font-weight:800; font-size:14px; }
   .status-badge{ display:inline-block; padding:3px 9px; border-radius:5px; font-size:10.5px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .status-badge.ok{ background:var(--ok-soft); color:var(--ok); }
@@ -1744,6 +1748,25 @@
     const d = new Date(s);
     return isNaN(d) ? null : d;
   }
+  function fmtTimeOnly(d){ return new Date(d).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }); }
+  // Human-readable gap between two timestamps, for "how long until the next slip" displays.
+  function formatDuration(ms){
+    const mins = Math.round(ms / 60000);
+    if (mins < 1) return '<1m';
+    if (mins < 60) return mins + 'm';
+    const hrs = Math.floor(mins / 60), remMins = mins % 60;
+    if (hrs < 24) return hrs + 'h' + (remMins ? ' ' + remMins + 'm' : '');
+    const days = Math.floor(hrs / 24), remHrs = hrs % 24;
+    return days + 'd' + (remHrs ? ' ' + remHrs + 'h' : '');
+  }
+  // Day-section heading for the job-tickets table — builds the date from y/m/d parts (not
+  // `new Date(key)`, which parses a bare "YYYY-MM-DD" as UTC midnight and can print the wrong
+  // calendar date once localized — same gotcha toISODateLocal exists to avoid).
+  function tkDayLabel(key){
+    const [y, m, d] = key.split('-').map(Number);
+    const label = new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
+    return key === todayISO() ? 'Today · ' + label : label;
+  }
   function timeAgo(d){
     const diff = (Date.now() - new Date(d).getTime()) / 1000;
     if (diff < 60) return 'just now';
@@ -3002,24 +3025,49 @@
     if (term) rows = rows.filter(t => t.ticket_no.toLowerCase().includes(term) || (t.customer_name || '').toLowerCase().includes(term));
     const tbody = $('ticketsTableBody');
     if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No tickets yet.</td></tr>'; return; }
-    tbody.innerHTML = rows.map(t => {
-      const nextStatuses = Object.keys(TICKET_STATUS_LABEL).filter(s => s !== 'cancelled');
-      const statusOptions = nextStatuses.map(s => '<option value="' + s + '"' + (s === t.status ? ' selected' : '') + '>' + TICKET_STATUS_LABEL[s] + '</option>').join('');
-      const pending = t.approval_status !== 'approved';
-      return '<tr><td class="item-name">' + t.ticket_no + (pending ? '<div><span class="status-badge unpaid" title="Needs Azad/admin to verify the amount before production">PENDING APPROVAL</span></div>' : '') + '</td>' +
-        '<td>' + (t.customer_name || 'Walk-in') + (t.phone ? '<div class="item-cat">' + t.phone + '</div>' : '') + '</td>' +
-        '<td>' + fmtMoney(ticketGrandTotal(t)) + (Number(t.gst_amount) > 0 ? '<div class="item-cat">incl. GST ' + fmtMoney(t.gst_amount) + '</div>' : '') + '</td>' +
-        '<td><select class="tk-status" data-id="' + t.id + '">' + statusOptions + '</select></td>' +
-        '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td>' +
-        '<td class="last-mv">' + timeAgo(t.created_at) + '</td>' +
-        '<td><div class="row-actions">' +
-          '<button class="tk-view" data-id="' + t.id + '" title="View / Print">🖨</button>' +
-          (isTicketApprover && pending ? '<button class="tk-approve" data-id="' + t.id + '" title="Approve as-is">✓</button>' : '') +
-          (isTicketApprover ? '<button class="tk-edit" data-id="' + t.id + '" title="Verify / edit ticket">✎</button>' : '') +
-          (t.payment_status !== 'paid' && !isWalkinOnly ? '<button class="tk-pay" data-id="' + t.id + '" title="Mark paid">₹</button>' : '') +
-          (isTicketApprover ? '<button class="tk-delete danger" data-id="' + t.id + '" title="Delete ticket">✕</button>' : '') +
-        '</div></td></tr>';
-    }).join('');
+    // Group into day-by-day sections instead of one long flat list. `rows` is already
+    // newest-first (loadTickets orders by created_at desc), so bucketing in that order gives
+    // newest-day-first for free — a JS Map iterates in insertion order.
+    const dayMap = new Map();
+    rows.forEach(t => {
+      const key = toISODateLocal(t.created_at);
+      if (!dayMap.has(key)) dayMap.set(key, []);
+      dayMap.get(key).push(t);
+    });
+    const nextStatuses = Object.keys(TICKET_STATUS_LABEL).filter(s => s !== 'cancelled');
+    const statusOptionsHtml = selected => nextStatuses.map(s => '<option value="' + s + '"' + (s === selected ? ' selected' : '') + '>' + TICKET_STATUS_LABEL[s] + '</option>').join('');
+    let html = '';
+    dayMap.forEach((dayTicketsDesc, key) => {
+      // Oldest-first within the day — reads top-to-bottom like a work log, so the gap shown
+      // under a row is literally "time until the next row down" (the next slip made that day).
+      const dayTickets = dayTicketsDesc.slice().reverse();
+      const dayTotal = dayTickets.reduce((s,t) => s + ticketGrandTotal(t), 0);
+      const dayUnpaid = dayTickets.filter(t => t.payment_status !== 'paid').reduce((s,t) => s + ticketGrandTotal(t), 0);
+      const statLine = dayTickets.length + ' slip' + (dayTickets.length === 1 ? '' : 's') + ' · ' + fmtMoney(dayTotal) + ' total' +
+        (dayUnpaid > 0 ? ' · ' + fmtMoney(dayUnpaid) + ' unpaid' : ' · all paid');
+      html += '<tr class="tk-day-row"><td colspan="7"><div class="tk-day-title">' + tkDayLabel(key) + '</div><div class="tk-day-stats">' + statLine + '</div></td></tr>';
+      dayTickets.forEach((t, i) => {
+        const pending = t.approval_status !== 'approved';
+        const gapMs = i < dayTickets.length - 1 ? (new Date(dayTickets[i+1].created_at) - new Date(t.created_at)) : null;
+        const gapHtml = gapMs !== null
+          ? '<div class="item-cat">⏱ ' + formatDuration(gapMs) + ' → next slip</div>'
+          : (dayTickets.length > 1 ? '<div class="item-cat">Last slip of the day</div>' : '');
+        html += '<tr><td class="item-name">' + t.ticket_no + (pending ? '<div><span class="status-badge unpaid" title="Needs Azad/admin to verify the amount before production">PENDING APPROVAL</span></div>' : '') + '</td>' +
+          '<td>' + (t.customer_name || 'Walk-in') + (t.phone ? '<div class="item-cat">' + t.phone + '</div>' : '') + '</td>' +
+          '<td>' + fmtMoney(ticketGrandTotal(t)) + (Number(t.gst_amount) > 0 ? '<div class="item-cat">incl. GST ' + fmtMoney(t.gst_amount) + '</div>' : '') + '</td>' +
+          '<td><select class="tk-status" data-id="' + t.id + '">' + statusOptionsHtml(t.status) + '</select></td>' +
+          '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td>' +
+          '<td class="last-mv">' + fmtTimeOnly(t.created_at) + gapHtml + '</td>' +
+          '<td><div class="row-actions">' +
+            '<button class="tk-view" data-id="' + t.id + '" title="View / Print">🖨</button>' +
+            (isTicketApprover && pending ? '<button class="tk-approve" data-id="' + t.id + '" title="Approve as-is">✓</button>' : '') +
+            (isTicketApprover ? '<button class="tk-edit" data-id="' + t.id + '" title="Verify / edit ticket">✎</button>' : '') +
+            (t.payment_status !== 'paid' && !isWalkinOnly ? '<button class="tk-pay" data-id="' + t.id + '" title="Mark paid">₹</button>' : '') +
+            (isTicketApprover ? '<button class="tk-delete danger" data-id="' + t.id + '" title="Delete ticket">✕</button>' : '') +
+          '</div></td></tr>';
+      });
+    });
+    tbody.innerHTML = html;
     tbody.querySelectorAll('.tk-status').forEach(sel => sel.addEventListener('change', async function(){
       const prevValue = tickets.find(x => x.id === this.dataset.id)?.status || 'received';
       const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: this.value });
