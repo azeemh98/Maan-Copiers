@@ -208,6 +208,10 @@
   .amt-neg{ color:var(--danger); font-weight:700; }
 
   .sticky{ position:sticky; top:20px; }
+  /* Sticks the whole sidebar (not each card individually — two independently-sticky siblings
+     both pinning to the same `top` would overlap each other on scroll) so the print-slip
+     preview stays in view next to the ticket table instead of requiring a scroll down to it. */
+  .side-col-sticky{ position:sticky; top:20px; }
   .activity-item{ display:flex; gap:10px; padding:11px 0; border-bottom:1px solid var(--border); }
   .activity-item:last-child{ border-bottom:none; }
   .act-icon{ width:26px; height:26px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; }
@@ -851,6 +855,12 @@
           </table>
         </section>
 
+      </div>
+
+      <!-- The print preview lives here (not in main-col below the table) and the whole sidebar
+           sticks as you scroll, so after Save & Print Slip -- or tapping 🖨 on any row -- the
+           slip is right there to check and print without hunting for it down the page. -->
+      <aside class="side-col side-col-sticky">
         <section class="card printable-doc" id="ticketPreview">
           <div class="no-print" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:18px;">
             <button class="btn-sm" id="closeTicketPreview">Close</button>
@@ -860,10 +870,7 @@
             <div class="thermal-slip" id="thermalSlipBody"></div>
           </div>
         </section>
-      </div>
-
-      <aside class="side-col">
-        <section class="card sticky">
+        <section class="card">
           <h2>Today's Walk-in Jobs</h2>
           <div class="stat-card ok" style="margin-bottom:10px;"><div class="s-label">Jobs Today</div><div class="s-val" id="tkStatToday">—</div></div>
           <div class="stat-card"><div class="s-label">Cash Collected Today</div><div class="s-val" id="tkStatCashToday">—</div></div>
