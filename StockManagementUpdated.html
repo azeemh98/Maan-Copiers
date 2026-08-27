@@ -161,6 +161,14 @@
   tr.tk-day-row td{ background:var(--accent-soft); padding:9px 10px; border-bottom:1px solid var(--border); }
   .tk-day-title{ font-weight:800; font-size:12.5px; color:var(--accent-dark); }
   .tk-day-stats{ font-size:11px; color:var(--muted); margin-top:2px; }
+  /* Day navigator above the Job Tickets table — page one calendar day at a time. */
+  .ticket-day-nav{ display:flex; align-items:center; gap:10px; margin:2px 0 14px; }
+  .tdn-arrow{ width:30px; height:30px; flex-shrink:0; border-radius:6px; border:1px solid var(--border-strong); background:var(--surface); color:var(--ink); font-size:13px; cursor:pointer; }
+  .tdn-arrow:hover:not(:disabled){ border-color:var(--accent); color:var(--accent-dark); }
+  .tdn-arrow:disabled{ opacity:0.35; cursor:default; }
+  .tdn-label{ font-weight:800; font-size:13.5px; color:var(--ink); min-width:170px; }
+  #tdnPicker{ padding:6px 9px; font-size:12.5px; width:auto; }
+  @media (max-width:640px){ .ticket-day-nav{ flex-wrap:wrap; } .tdn-label{ min-width:0; order:-1; width:100%; } }
   .remaining-val{ font-weight:800; font-size:14px; }
   .status-badge{ display:inline-block; padding:3px 9px; border-radius:5px; font-size:10.5px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .status-badge.ok{ background:var(--ok-soft); color:var(--ok); }
@@ -827,8 +835,18 @@
             <button class="cat-tab" data-tstatus="ready">Ready</button>
             <button class="cat-tab" data-tstatus="delivered">Delivered</button>
           </div>
+          <!-- Defaults to showing one day of slips at a time (today) with newest first; use the
+               arrows or the date field to page back through earlier days like a calendar. Hidden
+               automatically while searching, since a search should look across every day. -->
+          <div class="ticket-day-nav" id="ticketDayNav">
+            <button class="tdn-arrow" id="tdnPrev" title="Previous day">◀</button>
+            <div class="tdn-label" id="tdnLabel">Today</div>
+            <button class="tdn-arrow" id="tdnNext" title="Next day">▶</button>
+            <input type="date" id="tdnPicker" title="Jump to a date">
+            <button class="btn-sm" id="tdnToday" style="display:none;">Today</button>
+          </div>
           <table class="data-table">
-            <thead><tr><th>Ticket #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Payment</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Ticket #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Payment</th><th>Time</th><th></th></tr></thead>
             <tbody id="ticketsTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
           </table>
         </section>
@@ -1714,6 +1732,13 @@
   let openLedgerPartyId = null;
   let services = [], tickets = [], ticketMaterials = [], operators = [];
   let ticketLineItems = [], ticketStatusFilter = 'all', walkInPartyId = null;
+  // Job Tickets table now defaults to one day at a time (see ticketDayNav) instead of every
+  // slip ever made. `tickets` (loaded above, capped at the 200 most recent) covers "today"
+  // live; any other day is fetched on demand and cached here since past days never change.
+  // (todayISO() is a hoisted function declaration, defined further down this same script —
+  // safe to call here.)
+  let selectedTicketDay = todayISO();
+  const ticketDayCache = new Map();
   let employees = [], wastageRecords = [], wastageReasonFilter = 'all';
   let empPayments = [];
 
@@ -1749,7 +1774,7 @@
     return isNaN(d) ? null : d;
   }
   function fmtTimeOnly(d){ return new Date(d).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }); }
-  // Human-readable gap between two timestamps, for "how long until the next slip" displays.
+  // Human-readable gap between two timestamps, for "how long since the previous slip" displays.
   function formatDuration(ms){
     const mins = Math.round(ms / 60000);
     if (mins < 1) return '<1m';
@@ -1759,13 +1784,16 @@
     const days = Math.floor(hrs / 24), remHrs = hrs % 24;
     return days + 'd' + (remHrs ? ' ' + remHrs + 'h' : '');
   }
+  function yesterdayISO(){ const d = new Date(); d.setDate(d.getDate() - 1); return toISODateLocal(d); }
   // Day-section heading for the job-tickets table — builds the date from y/m/d parts (not
   // `new Date(key)`, which parses a bare "YYYY-MM-DD" as UTC midnight and can print the wrong
   // calendar date once localized — same gotcha toISODateLocal exists to avoid).
   function tkDayLabel(key){
     const [y, m, d] = key.split('-').map(Number);
     const label = new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
-    return key === todayISO() ? 'Today · ' + label : label;
+    if (key === todayISO()) return 'Today · ' + label;
+    if (key === yesterdayISO()) return 'Yesterday · ' + label;
+    return label;
   }
   function timeAgo(d){
     const diff = (Date.now() - new Date(d).getTime()) / 1000;
@@ -3006,6 +3034,9 @@
   async function loadTickets(){
     const { data, error } = await supabaseClient.from('job_tickets').select('*').eq('org_id', currentOrgId).order('created_at', { ascending:false }).limit(200);
     tickets = error ? [] : (data || []);
+    // Any mutation that gets here (new ticket, status change, payment, edit, delete) could
+    // touch a day the cache already holds -- drop it all rather than track per-ticket dirtying.
+    ticketDayCache.clear();
   }
 
   document.querySelectorAll('#ticketStatusTabs .cat-tab').forEach(btn => btn.addEventListener('click', function(){
@@ -3016,42 +3047,103 @@
   }));
   $('ticketSearch').addEventListener('input', renderTicketsTable);
 
-  const TICKET_STATUS_LABEL = { received:'Received', in_progress:'In Progress', ready:'Ready', delivered:'Delivered', cancelled:'Cancelled' };
+  // ---- Day navigator for the Job Tickets table (see ticket-day-nav markup) ----
+  function shiftTicketDay(delta){
+    const [y, m, d] = selectedTicketDay.split('-').map(Number);
+    const newKey = toISODateLocal(new Date(y, m - 1, d + delta));
+    if (newKey > todayISO()) return; // no browsing into the future
+    selectedTicketDay = newKey;
+    renderTicketsTable();
+  }
+  $('tdnPrev').addEventListener('click', () => shiftTicketDay(-1));
+  $('tdnNext').addEventListener('click', () => shiftTicketDay(1));
+  $('tdnToday').addEventListener('click', () => { selectedTicketDay = todayISO(); renderTicketsTable(); });
+  $('tdnPicker').addEventListener('change', function(){ if (this.value){ selectedTicketDay = this.value; renderTicketsTable(); } });
 
-  function renderTicketsTable(){
+  // Tickets for a day other than today never change once the day is over, so they're fetched
+  // once from Supabase and cached (loadTickets() clears this cache on every mutation, since
+  // "today" could in theory get edited back-dated — cheap insurance). `tickets` itself already
+  // covers today live and is capped at the 200 most recent, which today's slips always fit in.
+  async function getTicketsForDay(dayKey){
+    if (dayKey === todayISO()) return tickets.filter(t => toISODateLocal(t.created_at) === dayKey);
+    if (ticketDayCache.has(dayKey)) return ticketDayCache.get(dayKey);
+    const [y, m, d] = dayKey.split('-').map(Number);
+    const startLocal = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const endLocal = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
+    const { data, error } = await supabaseClient.from('job_tickets').select('*').eq('org_id', currentOrgId)
+      .gte('created_at', startLocal.toISOString()).lt('created_at', endLocal.toISOString())
+      .order('created_at', { ascending:false }).limit(500);
+    const result = error ? [] : (data || []);
+    ticketDayCache.set(dayKey, result);
+    return result;
+  }
+
+  const TICKET_STATUS_LABEL = { received:'Received', in_progress:'In Progress', ready:'Ready', delivered:'Delivered', cancelled:'Cancelled' };
+  // Tracks whatever set of tickets is on screen right now (today's slips, an older day fetched
+  // via getTicketsForDay, or a cross-day search result) so the row-action buttons below can look
+  // a ticket up even when it isn't in the `tickets` array (which only ever holds the 200 most
+  // recent, i.e. essentially just "today" once the shop's been open a while).
+  let currentlyRenderedTickets = new Map();
+
+  async function renderTicketsTable(){
     const term = $('ticketSearch').value.trim().toLowerCase();
-    let rows = tickets.slice();
+    const tbody = $('ticketsTableBody');
+    const searching = !!term;
+
+    $('ticketDayNav').style.display = searching ? 'none' : 'flex';
+    $('tdnLabel').textContent = tkDayLabel(selectedTicketDay);
+    $('tdnNext').disabled = selectedTicketDay >= todayISO();
+    $('tdnPicker').value = selectedTicketDay;
+    $('tdnPicker').max = todayISO();
+    $('tdnToday').style.display = selectedTicketDay === todayISO() ? 'none' : 'inline-block';
+
+    let rows;
+    if (searching){
+      // A search looks across everything loaded so far, regardless of the selected day.
+      rows = tickets.slice();
+    } else {
+      const requestedDay = selectedTicketDay;
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Loading…</td></tr>';
+      rows = await getTicketsForDay(requestedDay);
+      // The day nav or search box may have changed again while this fetch was in flight —
+      // drop the now-stale response instead of overwriting what the user's looking at now.
+      if (requestedDay !== selectedTicketDay || $('ticketSearch').value.trim().toLowerCase() !== term) return;
+    }
     if (ticketStatusFilter !== 'all') rows = rows.filter(t => t.status === ticketStatusFilter);
     if (term) rows = rows.filter(t => t.ticket_no.toLowerCase().includes(term) || (t.customer_name || '').toLowerCase().includes(term));
-    const tbody = $('ticketsTableBody');
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No tickets yet.</td></tr>'; return; }
-    // Group into day-by-day sections instead of one long flat list. `rows` is already
-    // newest-first (loadTickets orders by created_at desc), so bucketing in that order gives
-    // newest-day-first for free — a JS Map iterates in insertion order.
+
+    currentlyRenderedTickets = new Map(rows.map(t => [t.id, t]));
+
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + (searching ? 'No matching tickets.' : 'No slips on this day.') + '</td></tr>'; return; }
+
+    // Group by calendar day — a single group when browsing one day (the normal case), or
+    // several when a search pulls in matches from more than one day. Rows are already
+    // newest-first from the source (loadTickets / getTicketsForDay both order desc), and a JS
+    // Map iterates in insertion order, so days come out newest-first for free.
     const dayMap = new Map();
     rows.forEach(t => {
       const key = toISODateLocal(t.created_at);
       if (!dayMap.has(key)) dayMap.set(key, []);
       dayMap.get(key).push(t);
     });
+    const multiDay = dayMap.size > 1 || searching;
     const nextStatuses = Object.keys(TICKET_STATUS_LABEL).filter(s => s !== 'cancelled');
     const statusOptionsHtml = selected => nextStatuses.map(s => '<option value="' + s + '"' + (s === selected ? ' selected' : '') + '>' + TICKET_STATUS_LABEL[s] + '</option>').join('');
     let html = '';
-    dayMap.forEach((dayTicketsDesc, key) => {
-      // Oldest-first within the day — reads top-to-bottom like a work log, so the gap shown
-      // under a row is literally "time until the next row down" (the next slip made that day).
-      const dayTickets = dayTicketsDesc.slice().reverse();
+    dayMap.forEach((dayTickets, key) => {
+      // Newest-first within the day too — the latest slip is always the first row. The gap
+      // line under each row is the time *since the previous* (older) slip, i.e. the row below.
       const dayTotal = dayTickets.reduce((s,t) => s + ticketGrandTotal(t), 0);
       const dayUnpaid = dayTickets.filter(t => t.payment_status !== 'paid').reduce((s,t) => s + ticketGrandTotal(t), 0);
       const statLine = dayTickets.length + ' slip' + (dayTickets.length === 1 ? '' : 's') + ' · ' + fmtMoney(dayTotal) + ' total' +
         (dayUnpaid > 0 ? ' · ' + fmtMoney(dayUnpaid) + ' unpaid' : ' · all paid');
-      html += '<tr class="tk-day-row"><td colspan="7"><div class="tk-day-title">' + tkDayLabel(key) + '</div><div class="tk-day-stats">' + statLine + '</div></td></tr>';
+      html += '<tr class="tk-day-row"><td colspan="7">' + (multiDay ? '<div class="tk-day-title">' + tkDayLabel(key) + '</div>' : '') + '<div class="tk-day-stats">' + statLine + '</div></td></tr>';
       dayTickets.forEach((t, i) => {
         const pending = t.approval_status !== 'approved';
-        const gapMs = i < dayTickets.length - 1 ? (new Date(dayTickets[i+1].created_at) - new Date(t.created_at)) : null;
+        const gapMs = i < dayTickets.length - 1 ? (new Date(t.created_at) - new Date(dayTickets[i+1].created_at)) : null;
         const gapHtml = gapMs !== null
-          ? '<div class="item-cat">⏱ ' + formatDuration(gapMs) + ' → next slip</div>'
-          : (dayTickets.length > 1 ? '<div class="item-cat">Last slip of the day</div>' : '');
+          ? '<div class="item-cat">⏱ ' + formatDuration(gapMs) + ' since previous slip</div>'
+          : (dayTickets.length > 1 ? '<div class="item-cat">First slip of the day</div>' : '');
         html += '<tr><td class="item-name">' + t.ticket_no + (pending ? '<div><span class="status-badge unpaid" title="Needs Azad/admin to verify the amount before production">PENDING APPROVAL</span></div>' : '') + '</td>' +
           '<td>' + (t.customer_name || 'Walk-in') + (t.phone ? '<div class="item-cat">' + t.phone + '</div>' : '') + '</td>' +
           '<td>' + fmtMoney(ticketGrandTotal(t)) + (Number(t.gst_amount) > 0 ? '<div class="item-cat">incl. GST ' + fmtMoney(t.gst_amount) + '</div>' : '') + '</td>' +
@@ -3069,13 +3161,13 @@
     });
     tbody.innerHTML = html;
     tbody.querySelectorAll('.tk-status').forEach(sel => sel.addEventListener('change', async function(){
-      const prevValue = tickets.find(x => x.id === this.dataset.id)?.status || 'received';
+      const prevValue = currentlyRenderedTickets.get(this.dataset.id)?.status || 'received';
       const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: this.value });
       if (error){ alert(error.message); this.value = prevValue; return; }
       await loadTickets(); renderTicketsTable(); renderTicketStats(); renderMachineBoard();
     }));
     tbody.querySelectorAll('.tk-view').forEach(btn => btn.addEventListener('click', async function(){
-      const t = tickets.find(x => x.id === this.dataset.id);
+      const t = currentlyRenderedTickets.get(this.dataset.id);
       const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', t.id);
       openTicketPrintPreview(t, items || []);
     }));
@@ -3087,16 +3179,16 @@
       await refreshTicketsPanel();
     }));
     tbody.querySelectorAll('.tk-edit').forEach(btn => btn.addEventListener('click', function(){
-      const t = tickets.find(x => x.id === this.dataset.id);
+      const t = currentlyRenderedTickets.get(this.dataset.id);
       if (t) startEditTicket(t);
     }));
     tbody.querySelectorAll('.tk-pay').forEach(btn => btn.addEventListener('click', async function(){
-      const t = tickets.find(x => x.id === this.dataset.id);
+      const t = currentlyRenderedTickets.get(this.dataset.id);
       await markTicketPaid(t);
     }));
     tbody.querySelectorAll('.tk-delete').forEach(btn => btn.addEventListener('click', async function(){
       if (!requireTicketApprover()) return;
-      const t = tickets.find(x => x.id === this.dataset.id);
+      const t = currentlyRenderedTickets.get(this.dataset.id);
       if (!t) return;
       const paidWarning = t.payment_status === 'paid' ? ' This ticket is already marked PAID — its invoice and payment record will NOT be deleted, only the job ticket itself.' : '';
       if (!window.confirm('Delete ' + t.ticket_no + ' permanently? This cannot be undone.' + paidWarning)) return;
