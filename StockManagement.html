@@ -451,6 +451,16 @@
     body *{ visibility:hidden; }
     .printable-doc, .printable-doc *{ visibility:visible; }
     .printable-doc{ position:absolute; top:0; left:0; width:100%; border:none; padding:0; margin:0; }
+    /* `.printable-doc{position:absolute}` needs its containing block to be the page itself, not
+       some nearer positioned ancestor -- `position:sticky` (like `position:relative`) creates a
+       containing block just like absolute/fixed do, so a printable-doc sitting inside a sticky
+       sidebar (e.g. the job-ticket slip preview) would size/anchor itself to that sidebar's box
+       instead of the page. That silently produced blank extra pages (a job-ticket slip printing
+       as 5 pages instead of 3) once the preview moved into the sticky side-col. Neutralizing the
+       sticky positioning for print restores the original page-relative absolute positioning.
+       Kept broad (any .sticky/.side-col-sticky, not just the ticket one) as insurance against
+       the same bug recurring wherever a printable panel ends up next to a sticky sidebar. */
+    .sticky, .side-col-sticky{ position:static !important; }
     main.wrap{ padding:0; max-width:100%; }
   }
 </style>
