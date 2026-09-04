@@ -99,6 +99,7 @@
      can starve this column down to a sliver, clipping the selected label to "Re"/"In"/"De".
      A min-width stops the column from ever shrinking that far. */
   select.tk-status{ min-width:126px; }
+  select.pay-mode-select{ min-width:118px; }
   input:focus, select:focus, textarea:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
   .row3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;}
@@ -4980,12 +4981,31 @@
       const invoiceCell = p.invoice_id && p.invoices?.invoice_no
         ? '<button class="inv-link" data-id="' + p.invoice_id + '" title="View / print this invoice">' + p.invoices.invoice_no + '</button>'
         : '—';
+      // Mode is editable in place for a wrong entry (e.g. tapped Cash instead of UPI) --
+      // same pattern as the ticket status dropdown, admin-gated like the delete button since
+      // it's a financial record correction.
+      const modeCell = isAdmin
+        ? '<select class="pay-mode-select" data-id="' + p.id + '" title="Fix a wrong entry">' +
+            Object.keys(EMP_PAY_MODE_LABEL).map(m => '<option value="' + m + '"' + (m === p.mode ? ' selected' : '') + '>' + EMP_PAY_MODE_LABEL[m] + '</option>').join('') +
+          '</select>'
+        : (EMP_PAY_MODE_LABEL[p.mode] || p.mode);
       return '<tr><td>' + fmtDate(p.payment_date) + '</td><td>' + (p.parties?.name || '—') + '</td>' +
         '<td><span class="status-badge ' + (p.direction === 'in' ? 'ok' : 'out') + '">' + (p.direction === 'in' ? 'RECEIVED' : 'PAID') + '</span></td>' +
-        '<td>' + fmtMoney(p.amount) + '</td><td>' + p.mode + '</td><td>' + invoiceCell + '</td>' +
+        '<td>' + fmtMoney(p.amount) + '</td><td>' + modeCell + '</td><td>' + invoiceCell + '</td>' +
         '<td><div class="row-actions">' + delBtn + '</div></td></tr>';
     }).join('');
     tbody.querySelectorAll('.inv-link').forEach(btn => btn.addEventListener('click', function(){ viewInvoice(this.dataset.id); }));
+    tbody.querySelectorAll('.pay-mode-select').forEach(sel => sel.addEventListener('change', async function(){
+      const prevValue = payments.find(x => x.id === this.dataset.id)?.mode || 'cash';
+      this.disabled = true;
+      const { error } = await supabaseClient.from('payments').update({ mode: this.value }).eq('id', this.dataset.id);
+      this.disabled = false;
+      if (error){ alert(error.message); this.value = prevValue; return; }
+      const p = payments.find(x => x.id === this.dataset.id);
+      if (p) p.mode = this.value;
+      await loadPaymentCharts();
+      renderPaymentCharts();
+    }));
     tbody.querySelectorAll('.pay-del').forEach(btn => btn.addEventListener('click', async function(){
       if (!window.confirm('Delete this payment?')) return;
       const p = payments.find(x => x.id === this.dataset.id);
