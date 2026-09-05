@@ -3956,16 +3956,27 @@
   $('salEmployee').addEventListener('change', function(){ resetEmpPaymentForm(); loadSalarySummary(); });
   $('salMonth').addEventListener('change', function(){ resetEmpPaymentForm(); loadSalarySummary(); });
 
+  // Both of these used to build the date with plain `.toISOString().slice(0,10)`, which
+  // converts a LOCAL midnight through UTC -- for any timezone ahead of UTC (India included)
+  // that silently rolls the date back to the previous day. So selecting "August" would query
+  // employee_payments/wastage_records from July 31 through August 30 (not the 31st), and any
+  // salary/attendance saved for a month got keyed one day early -- e.g. September's attendance
+  // was actually being stored under 2026-08-31. A payment dated exactly on the last day of a
+  // month would fall out of that month's window and into the next month's instead, which is
+  // exactly the "August advance counted against September's salary" bug. Fixed by reusing
+  // toISODateLocal() (already used elsewhere in this file for the identical class of bug)
+  // instead of the raw UTC conversion. A one-time data migration corrected the already-stored
+  // employee_monthly_attendance.month values to match.
   function monthRange(monthStr){
     const [y,m] = (monthStr || todayISO().slice(0,7)).split('-').map(Number);
     const from = new Date(y, m-1, 1);
     const to = new Date(y, m, 0);
-    return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
+    return { from: toISODateLocal(from), to: toISODateLocal(to) };
   }
 
   function monthFirstDay(monthStr){
     const [y,m] = (monthStr || todayISO().slice(0,7)).split('-').map(Number);
-    return new Date(y, m-1, 1).toISOString().slice(0,10);
+    return toISODateLocal(new Date(y, m-1, 1));
   }
 
   async function loadSalarySummary(){
