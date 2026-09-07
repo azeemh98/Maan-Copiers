@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soulful Events — Print Rate Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root{
+    --ink:#111826; --muted:#5B6B80; --faint:#8996A6;
+    --navy:#0F2540; --accent:#2A5CDB; --accent-dark:#1E45AC; --accent-soft:#EAF0FE;
+    --ok:#1D7A4C; --bg:#F3F5F8; --surface:#FFFFFF; --border:#E2E6EC; --border-strong:#CBD3DE;
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:'Inter', -apple-system, Segoe UI, sans-serif; -webkit-font-smoothing:antialiased; }
+
+  .topbar{ background:var(--navy); color:#fff; padding:0 28px; }
+  .topbar-inner{ max-width:1180px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; padding:16px 0; }
+  .brand{ display:flex; align-items:center; gap:11px; }
+  .brand-mark{ width:34px; height:34px; border-radius:7px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#fff; letter-spacing:-0.02em; flex-shrink:0; }
+  .brand-name{ font-weight:700; font-size:15.5px; letter-spacing:-0.01em; }
+  .brand-tag{ font-size:11.5px; color:rgba(255,255,255,0.55); margin-top:1px; }
+  .topbar-right{ font-size:12.5px; color:rgba(255,255,255,0.6); text-align:right; }
+
+  header.page-head{ max-width:1180px; margin:0 auto; padding:34px 28px 8px; }
+  header.page-head h1{ font-size:26px; font-weight:700; margin:0 0 4px; letter-spacing:-0.01em; }
+  header.page-head p{ margin:0; color:var(--muted); font-size:14.5px; }
+
+  /* Top-level product tabs */
+  .product-tabs{ max-width:1180px; margin:18px auto 0; padding:0 28px; display:flex; gap:10px; }
+  @media (max-width:900px){ .product-tabs{padding:0 16px;} }
+  .ptab{
+    padding:11px 20px; border-radius:9px 9px 0 0; border:1px solid var(--border); border-bottom:none;
+    background:var(--surface); color:var(--muted); font-family:'Inter'; font-weight:700; font-size:13.5px;
+    cursor:pointer; transition:all .12s;
+  }
+  .ptab.active{ background:var(--navy); border-color:var(--navy); color:#fff; }
+
+  main{ max-width:1180px; margin:0 auto; padding:0 28px 90px; display:grid; grid-template-columns: 1.05fr 0.95fr; gap:22px; align-items:start; }
+  @media (max-width: 900px){ main{grid-template-columns:1fr; padding:0 16px 70px;} }
+
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:0 10px 10px 10px; padding:26px 26px 28px; }
+  .panel{ display:none; }
+  .panel.active{ display:block; }
+  .card h2{ font-size:14px; font-weight:700; letter-spacing:0.02em; margin:0 0 20px; color:var(--ink); padding-bottom:14px; border-bottom:1px solid var(--border); }
+
+  .field{margin-bottom:18px;}
+  .field:last-child{margin-bottom:0;}
+  .field label{ display:block; font-size:12.5px; font-weight:600; color:var(--ink); margin-bottom:7px; }
+  .field .hint{ font-size:11.5px; color:var(--faint); margin-top:6px; }
+  input[type=number], input[type=text], select{
+    width:100%; background:var(--surface); border:1px solid var(--border-strong); color:var(--ink);
+    font-family:'Inter'; font-size:14.5px; font-weight:500; padding:10px 12px; border-radius:7px;
+    outline:none; transition:border-color .12s, box-shadow .12s; appearance:none;
+  }
+  select{
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='%235B6B80' stroke-width='1.6' fill='none'/></svg>");
+    background-repeat:no-repeat; background-position:right 13px center; padding-right:34px;
+  }
+  input:focus, select:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .row3{display:grid; grid-template-columns:1fr 1fr 0.7fr; gap:14px;}
+  .custom-size{display:none; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px;}
+  .custom-size.show{display:grid;}
+
+  .tier-badge{ display:inline-block; margin-top:9px; font-size:12px; font-weight:600; padding:5px 10px; border-radius:5px; color:var(--accent-dark); background:var(--accent-soft); }
+
+  .machine-line{ display:flex; align-items:flex-start; gap:11px; margin-top:18px; padding:14px 15px; border-radius:8px; border:1px solid var(--border); background:var(--bg); }
+  .machine-dot{ width:8px;height:8px;border-radius:50%; background:var(--accent); margin-top:5px; flex-shrink:0; }
+  .machine-line .txt{font-size:13px; color:var(--muted); line-height:1.5;}
+  .machine-line b{color:var(--ink); font-weight:700;}
+
+  .moq-warning, .sc-warning{ display:none; margin-top:12px; padding:11px 14px; border-radius:8px; background:#FDF2E9; border:1px solid #F0C48A; color:#8A5A16; font-size:12.5px; font-weight:600; line-height:1.5; }
+  .moq-warning.show, .sc-warning.show{ display:block; }
+
+  /* Inline live-result block, shared style across all three panels */
+  .inline-result{ margin-top:20px; border-radius:9px; background:var(--bg); border:1px solid var(--border); overflow:hidden; }
+  .ir-head{ background:var(--navy); color:#fff; padding:13px 18px; display:flex; justify-content:space-between; align-items:center; }
+  .ir-head .label{ font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:rgba(255,255,255,0.6); }
+  .ir-head .val{ font-size:14.5px; font-weight:700; }
+  .ir-body{ padding:14px 18px; }
+  .ir-line{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:13px; color:var(--muted); padding:7px 0; border-bottom:1px solid var(--border); }
+  .ir-line span:first-child{ flex:1; }
+  .ir-line .amt{ font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .ir-line.discount .amt{ color:var(--ok); }
+  .hidden-for-client{ display:none !important; }
+  .ir-total{ margin-top:12px; display:flex; justify-content:space-between; align-items:center; background:var(--accent-soft); border-radius:8px; padding:12px 15px; }
+  .ir-total .t-label{font-size:12.5px; color:var(--accent-dark); font-weight:600;}
+  .ir-total .t-amt{font-size:19px; font-weight:800; color:var(--accent-dark);}
+
+  .add-btn{
+    width:100%; margin-top:16px; padding:12px; background:var(--accent); border:none; border-radius:7px; color:#fff;
+    font-family:'Inter'; font-weight:700; font-size:13.5px; cursor:pointer; transition:background-color .12s;
+    display:flex; justify-content:space-between; align-items:center; padding-left:16px; padding-right:16px;
+  }
+  .add-btn:hover{ background:var(--accent-dark); }
+
+  /* Quotation sidebar */
+  .estimate{ position:sticky; top:20px; background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .estimate-head{ background:var(--navy); color:#fff; padding:20px 24px; display:flex; justify-content:space-between; align-items:flex-start; }
+  .estimate-head .label{ font-size:11.5px; text-transform:uppercase; letter-spacing:0.06em; color:rgba(255,255,255,0.55); margin-bottom:4px; }
+  .estimate-head h3{ font-size:18px; font-weight:700; margin:0; letter-spacing:-0.01em; }
+  .badge{ padding:6px 11px; border-radius:5px; font-size:11px; font-weight:700; letter-spacing:0.03em; background:var(--accent); color:#fff; white-space:nowrap; }
+
+  .meta-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; padding:14px 24px; background:var(--bg); border-bottom:1px solid var(--border); }
+  .meta-item .m-label{ font-size:10px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--faint); margin-bottom:3px; }
+  .meta-item .m-value{ font-family:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace; font-size:12.5px; font-weight:600; color:var(--ink); letter-spacing:0.01em; }
+  .meta-item input{ padding:6px 8px; font-size:12.5px; }
+
+  .estimate-body{ padding:20px 24px 24px; }
+  .empty-quote{ text-align:center; padding:26px 10px; color:var(--faint); font-size:13px; line-height:1.6; }
+
+  .quote-item{ border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:10px; }
+  .qi-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .qi-label{ font-size:13.5px; font-weight:700; color:var(--ink); }
+  .qi-remove{ background:none; border:none; color:var(--faint); font-size:14px; cursor:pointer; line-height:1; padding:2px 4px; }
+  .qi-remove:hover{ color:#B3261E; }
+  .qi-code{ font-family:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace; font-size:10.5px; font-weight:700; color:var(--accent-dark); background:var(--accent-soft); display:inline-block; padding:2px 6px; border-radius:4px; margin-top:5px; letter-spacing:0.02em; }
+  .qi-meta{ font-size:12px; color:var(--muted); margin-top:4px; line-height:1.5; }
+  .qi-amt{ font-size:16px; font-weight:800; color:var(--ink); margin-top:6px; }
+
+  .grand{ margin-top:14px; padding-top:16px; border-top:1px solid var(--border); }
+  .grand .g-label{ font-size:12.5px; font-weight:600; color:var(--muted); }
+  .gst-tag{
+    display:inline-block; margin-left:6px; padding:2px 7px; border-radius:4px;
+    background:var(--accent-soft); color:var(--accent-dark); font-size:10px; font-weight:700;
+    letter-spacing:0.03em; text-transform:uppercase; vertical-align:middle;
+  }
+  .grand .g-amt{ font-size:32px; font-weight:800; color:var(--ink); line-height:1.2; letter-spacing:-0.02em; }
+  .grand .g-sub{ font-size:12.5px; color:var(--faint); margin-top:2px; }
+
+  .print-btn{ width:100%; margin-top:18px; padding:12px; background:var(--accent); border:none; border-radius:7px; color:#fff; font-family:'Inter'; font-weight:700; font-size:13.5px; cursor:pointer; transition:background-color .12s; }
+  .print-btn:hover{ background:var(--accent-dark); }
+  .foot-note{ text-align:center; font-size:11.5px; color:var(--faint); margin-top:12px; }
+
+  /* Auth gate */
+  #authGate{
+    max-width:400px; margin:70px auto; background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:32px 30px;
+  }
+  #authGate h2{ font-size:18px; font-weight:700; margin:0 0 6px; }
+  #authGate p{ font-size:13px; color:var(--muted); margin:0 0 22px; }
+  #authGate .field{ margin-bottom:14px; }
+  #authGate button{
+    width:100%; padding:12px; background:var(--accent); border:none; border-radius:7px; color:#fff;
+    font-family:'Inter'; font-weight:700; font-size:13.5px; cursor:pointer; margin-top:6px;
+  }
+  #authGate button:disabled{ opacity:0.6; cursor:default; }
+  #authError{ display:none; color:#B3261E; font-size:12.5px; margin-top:12px; line-height:1.5; }
+  #authError.show{ display:block; }
+  #appShell{ display:none; }
+  #userBar{ display:none; align-items:center; gap:10px; font-size:12.5px; color:rgba(255,255,255,0.75); }
+  #userBar button{
+    background:none; border:1px solid rgba(255,255,255,0.3); color:#fff; border-radius:5px;
+    padding:5px 10px; font-family:'Inter'; font-size:11.5px; cursor:pointer;
+  }
+  .calc-loading{ opacity:0.5; pointer-events:none; transition:opacity .15s; }
+  footer{ text-align:center; padding:22px 20px 40px; font-size:12px; color:var(--faint); }
+
+  @media print{
+    body{background:#fff; color:#000;}
+    .topbar, .product-tabs, .print-btn, .panel, .qi-remove{display:none !important;}
+    main{grid-template-columns:1fr; padding:0;}
+    .estimate{position:static; border-color:#000;}
+    .estimate-head{background:#fff; color:#000; border-bottom:2px solid #000;}
+    .meta-row{background:#fff; border-bottom:1px solid #000;}
+    .meta-item .m-label, .meta-item .m-value{color:#000 !important;}
+    .badge{background:#000; color:#fff;}
+    .grand .g-amt, .grand .g-label, .qi-label, .qi-meta, .qi-amt{color:#000 !important; background:transparent !important;}
+    .qi-code{background:transparent !important; color:#000 !important; border:1px solid #000;}
+    .gst-tag{background:transparent !important; color:#000 !important; border:1px solid #000;}
+    .foot-note{color:#000 !important;}
+  }
+</style>
+</head>
+<body>
+
+<div id="authGate">
+  <h2>Sign in</h2>
+  <p>Soulful Events Print Rate Calculator</p>
+  <div class="field">
+    <label for="authEmail">Email</label>
+    <input type="text" id="authEmail" placeholder="you@example.com">
+  </div>
+  <div class="field">
+    <label for="authPassword">Password</label>
+    <input type="password" id="authPassword">
+  </div>
+  <button id="authSubmit">Sign In</button>
+  <div id="authError"></div>
+</div>
+
+<div id="appShell">
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-mark">SE</div>
+      <div>
+        <div class="brand-name">Soulful Events</div>
+        <div class="brand-tag">Print &amp; Production</div>
+      </div>
+    </div>
+    <div id="userBar">
+      <span id="userEmail"></span>
+      <button id="signOutBtn">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<header class="page-head">
+  <h1>Print Rate Calculator</h1>
+  <p>Build a quotation from one or more items — booklets, card sheets, stickers and certificates — priced separately and combined.</p>
+</header>
+
+<div class="product-tabs">
+  <button class="ptab active" data-target="panelBooklet">Booklet</button>
+  <button class="ptab" data-target="panelCard">Card Sheet</button>
+  <button class="ptab" data-target="panelSticker">Stickers</button>
+  <button class="ptab" data-target="panelCert">Certificates</button>
+</div>
+
+<main>
+  <div>
+  <!-- ============ BOOKLET ============ -->
+  <section class="card panel active" id="panelBooklet">
+    <h2>Booklet specification</h2>
+
+    <div class="row2">
+      <div class="field">
+        <label for="gsm">Paper weight (GSM)</label>
+        <input type="number" id="gsm" value="80" min="40" max="400" step="10">
+      </div>
+      <div class="field">
+        <label for="paperType">Paper type</label>
+        <select id="paperType">
+          <option value="normal:1.00" selected>Maplitho</option>
+          <option value="normal:0.95">Bond Paper</option>
+          <option value="normal:1.05">Natural Shade / Eco</option>
+          <option value="art:0.95">Art Paper (Matte)</option>
+          <option value="art:1.05">Art Paper (Glossy)</option>
+        </select>
+        <div class="hint">Offset ream basis: Normal ₹4/sheet · Art ₹6/sheet (18×25", 80gsm)</div>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label for="pageSize">Page size</label>
+        <select id="pageSize">
+          <option value="1.00">A4 (8.27" × 11.69")</option>
+          <option value="0.50" selected>A5 (5.83" × 8.27")</option>
+          <option value="0.25">A6 (4.13" × 5.83")</option>
+          <option value="0.83">B5 (6.93" × 9.84")</option>
+          <option value="custom">Custom size…</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="pages">Pages per book</label>
+        <input type="number" id="pages" value="120" min="8" step="4">
+      </div>
+    </div>
+
+    <div class="custom-size" id="customSizeWrap">
+      <div class="field">
+        <label for="customW">Width (inches)</label>
+        <input type="number" id="customW" value="8.27" step="0.01" min="1">
+      </div>
+      <div class="field">
+        <label for="customH">Height (inches)</label>
+        <input type="number" id="customH" value="11.69" step="0.01" min="1">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="colorMode">Colour option</label>
+      <select id="colorMode">
+        <option value="full" selected>Full Colour (all pages)</option>
+        <option value="cover">Colour Front Page + Black &amp; White Inside</option>
+        <option value="bw">Full Black &amp; White</option>
+      </select>
+      <div class="hint">Digital: colour sheets use Phasma, B&amp;W sheets don't. Offset: colour sides get their own CMYK plate set.</div>
+    </div>
+
+    <div class="field">
+      <label for="qty">Number of books</label>
+      <input type="number" id="qty" value="500" min="1" step="1">
+      <span class="tier-badge" id="tierBadge">—</span>
+    </div>
+
+    <div class="field">
+      <label for="machineMode">Printing machine</label>
+      <select id="machineMode">
+        <option value="auto" selected>Auto (recommended)</option>
+        <option value="digital">Digital — Konica Minolta Phasma</option>
+        <option value="offset">Offset</option>
+      </select>
+      <div class="hint">Auto switches to offset at 600 copies · Digital MOQ 100 · Offset MOQ 600</div>
+    </div>
+
+    <div class="machine-line">
+      <div class="machine-dot"></div>
+      <div class="txt">Printing machine — <b id="machineText">Digital Printing</b> — <span id="machineReason"></span></div>
+    </div>
+    <div class="moq-warning" id="moqWarning"></div>
+
+    <div class="inline-result">
+      <div class="ir-head"><span class="label">Booklet estimate</span><span class="val" id="bkSeal">DIGITAL</span></div>
+      <div class="ir-body">
+        <div class="ir-line hidden-for-client"><span id="lPaperLabel">Paper (per book)</span><span class="amt" id="lPaper">₹0.00</span></div>
+        <div class="ir-line"><span id="lMachineLabel">Machine charge (per book)</span><span class="amt" id="lMachine">₹0.00</span></div>
+        <div class="ir-line"><span id="lBindLabel">Binding, transport &amp; profit (per book)</span><span class="amt" id="lBind">₹0.00</span></div>
+        <div class="ir-line discount"><span id="lTierLabel">Quantity adjustment</span><span class="amt" id="lTier">—</span></div>
+        <div class="ir-line hidden-for-client" id="setupRow"><span id="lSetupLabel">Offset plates (one-time)</span><span class="amt" id="lSetup">₹0.00</span></div>
+        <div class="ir-total"><span class="t-label">Total for this order</span><span class="t-amt" id="bkTotal">₹0</span></div>
+      </div>
+    </div>
+
+    <button class="add-btn" id="addBooklet"><span>Add Booklet to Quotation</span><span id="addBookletAmt">₹0</span></button>
+  </section>
+
+  <!-- ============ CARD SHEET ============ -->
+  <section class="card panel" id="panelCard">
+    <h2>Card Sheet (300–350 GSM)</h2>
+
+    <div class="field">
+      <label for="cardOption">Finishing option</label>
+      <select id="cardOption">
+        <option value="ss">Single side print</option>
+        <option value="bs">Both side print</option>
+        <option value="ss_lam">Single side print with lamination</option>
+        <option value="bs_lam">Both side print with lamination</option>
+        <option value="ss_lam_die">Single side print with lamination, die cut</option>
+        <option value="bs_lam_die">Both side print with lamination, die cut</option>
+        <option value="ss_lam_die_crease">Single side print with lamination, die cut &amp; creasing</option>
+        <option value="bs_lam_die_crease">Both side print with lamination, die cut &amp; creasing</option>
+      </select>
+      <div class="hint">Parent sheet: 12" × 18" (304.8mm × 457.2mm), 300–350 GSM</div>
+    </div>
+
+    <div class="row3">
+      <div class="field">
+        <label for="cardWidth">Width</label>
+        <input type="number" id="cardWidth" value="90" step="0.01" min="0.01">
+      </div>
+      <div class="field">
+        <label for="cardHeight">Height</label>
+        <input type="number" id="cardHeight" value="50" step="0.01" min="0.01">
+      </div>
+      <div class="field">
+        <label for="cardUnit">Unit</label>
+        <select id="cardUnit">
+          <option value="mm" selected>mm</option>
+          <option value="in">inch</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="cardQty">Quantity (pieces)</label>
+      <input type="number" id="cardQty" value="500" min="1" step="1">
+    </div>
+
+    <div class="sc-warning" id="cardWarning"></div>
+
+    <div class="inline-result">
+      <div class="ir-head"><span class="label" id="cardResultLabel">Single side print</span><span class="val" id="cardSizeLabel">90mm × 50mm</span></div>
+      <div class="ir-body">
+        <div class="ir-line"><span>Pieces per parent sheet</span><span class="amt" id="cardPerSheet">—</span></div>
+        <div class="ir-line"><span>Sheets required</span><span class="amt" id="cardSheetsNeeded">—</span></div>
+        <div class="ir-line"><span>Effective rate per piece</span><span class="amt" id="cardRatePerPiece">—</span></div>
+        <div class="ir-total"><span class="t-label">Total for this order</span><span class="t-amt" id="cardTotal">₹0</span></div>
+      </div>
+    </div>
+
+    <button class="add-btn" id="addCard"><span>Add Card Sheet to Quotation</span><span id="addCardAmt">₹0</span></button>
+  </section>
+
+  <!-- ============ STICKERS ============ -->
+  <section class="card panel" id="panelSticker">
+    <h2>Stickers</h2>
+
+    <div class="field">
+      <label for="scMaterial">Sticker material</label>
+      <select id="scMaterial">
+        <option value="gumming">Gumming</option>
+        <option value="transparent">Transparent</option>
+        <option value="plastic">Plastic</option>
+      </select>
+      <div class="hint">Parent sheet: 12" × 18" (304.8mm × 457.2mm), ₹30/sheet base (Gumming)</div>
+    </div>
+
+    <div class="row3">
+      <div class="field">
+        <label for="scWidth">Width</label>
+        <input type="number" id="scWidth" value="50" step="0.01" min="0.01">
+      </div>
+      <div class="field">
+        <label for="scHeight">Height</label>
+        <input type="number" id="scHeight" value="70" step="0.01" min="0.01">
+      </div>
+      <div class="field">
+        <label for="scUnit">Unit</label>
+        <select id="scUnit">
+          <option value="mm" selected>mm</option>
+          <option value="in">inch</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="scQty">Quantity (pieces)</label>
+      <input type="number" id="scQty" value="100" min="1" step="1">
+    </div>
+
+    <div class="sc-warning" id="scWarning"></div>
+
+    <div class="inline-result">
+      <div class="ir-head"><span class="label" id="scResultLabel">Sticker — Gumming</span><span class="val" id="scResultSize">50mm × 70mm</span></div>
+      <div class="ir-body">
+        <div class="ir-line"><span>Pieces per parent sheet</span><span class="amt" id="scPerSheet">—</span></div>
+        <div class="ir-line"><span>Sheets required</span><span class="amt" id="scSheetsNeeded">—</span></div>
+        <div class="ir-line"><span>Effective rate per piece</span><span class="amt" id="scRatePerPiece">—</span></div>
+        <div class="ir-total"><span class="t-label">Total for this order</span><span class="t-amt" id="scTotal">₹0</span></div>
+      </div>
+    </div>
+
+    <button class="add-btn" id="addSticker"><span>Add Stickers to Quotation</span><span id="addStickerAmt">₹0</span></button>
+  </section>
+
+  <!-- ============ CERTIFICATES ============ -->
+  <section class="card panel" id="panelCert">
+    <h2>Certificates</h2>
+
+    <div class="field">
+      <label for="certOption">Finishing option</label>
+      <select id="certOption">
+        <option value="ss">Single side</option>
+        <option value="bs">Both side</option>
+        <option value="ss_2fold">Single side print with two fold</option>
+        <option value="bs_2fold">Both side print with two fold</option>
+        <option value="bs_3fold">Both side print with three fold</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="certSize">Size</label>
+      <select id="certSize">
+        <option value="a5">A5 (5.83" × 8.27")</option>
+        <option value="a4" selected>A4 (8.27" × 11.69")</option>
+        <option value="a3">A3 (11.69" × 16.54")</option>
+        <option value="custom">Custom size…</option>
+      </select>
+    </div>
+
+    <div class="custom-size" id="certCustomWrap">
+      <div class="field">
+        <label for="certCustomW">Width</label>
+        <input type="number" id="certCustomW" value="210" step="0.01" min="0.01">
+      </div>
+      <div class="field">
+        <label for="certCustomH">Height</label>
+        <input type="number" id="certCustomH" value="297" step="0.01" min="0.01">
+      </div>
+      <div class="field">
+        <label for="certCustomUnit">Unit</label>
+        <select id="certCustomUnit">
+          <option value="mm" selected>mm</option>
+          <option value="in">inch</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="certQty">Quantity (pieces)</label>
+      <input type="number" id="certQty" value="100" min="1" step="1">
+    </div>
+
+    <div class="inline-result">
+      <div class="ir-head"><span class="label" id="certResultLabel">Single side</span><span class="val" id="certSizeLabel">A4</span></div>
+      <div class="ir-body">
+        <div class="ir-line"><span>Rate per piece</span><span class="amt" id="certRatePerPiece">—</span></div>
+        <div class="ir-line"><span>Quantity</span><span class="amt" id="certQtyDisplay">—</span></div>
+        <div class="ir-total"><span class="t-label">Total for this order</span><span class="t-amt" id="certTotal">₹0</span></div>
+      </div>
+    </div>
+
+    <button class="add-btn" id="addCert"><span>Add Certificates to Quotation</span><span id="addCertAmt">₹0</span></button>
+  </section>
+  </div>
+
+  <!-- ============ QUOTATION SIDEBAR ============ -->
+  <section class="estimate">
+    <div class="estimate-head">
+      <div>
+        <div class="label">Quotation</div>
+        <h3 id="quoteCount">0 items</h3>
+      </div>
+      <div class="badge">SOULFUL EVENTS</div>
+    </div>
+
+    <div class="meta-row">
+      <div class="meta-item">
+        <div class="m-label">Estimate No.</div>
+        <div class="m-value" id="estimateNo">—</div>
+      </div>
+      <div class="meta-item">
+        <div class="m-label">Date issued</div>
+        <div class="m-value" id="dateIssued">—</div>
+      </div>
+      <div class="meta-item">
+        <div class="m-label">Valid until</div>
+        <div class="m-value" id="dateValid">—</div>
+      </div>
+      <div class="meta-item">
+        <div class="m-label">Prepared for</div>
+        <input type="text" id="clientName" placeholder="Client / company">
+      </div>
+    </div>
+
+    <div class="estimate-body">
+      <div id="quoteList">
+        <div class="empty-quote">No items yet — configure a product on the left and click "Add to Quotation".</div>
+      </div>
+
+      <div class="grand">
+        <div class="g-label">Combined total <span class="gst-tag">excl. GST</span></div>
+        <div class="g-amt" id="combinedTotal">₹0</div>
+        <div class="g-sub" id="combinedSub">0 items in this quotation</div>
+      </div>
+
+      <button class="print-btn" onclick="window.print()">Print Quotation</button>
+      <div class="foot-note" id="footNote">All prices exclude GST. Valid for 3 months from date of issue, subject to paper rate fluctuation — please confirm the final quotation once a purchase order is generated.</div>
+    </div>
+  </section>
+</main>
+
+<footer>Soulful Events — Premium Event &amp; Print Design · Lucknow</footer>
+
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+
+  // ============================ SUPABASE AUTH ============================
+  // Fill these in with your actual project values (Supabase dashboard →
+  // Project Settings → API). The anon key is safe to expose in frontend
+  // code — it's not a secret, RLS is what actually enforces access.
+  const SUPABASE_URL = 'https://xwbyfrvmdncxfozrrgtq.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3YnlmcnZtZG5jeGZvenJyZ3RxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5NTgyNDUsImV4cCI6MjEwMDUzNDI0NX0.lM3KcLhydSLv_ue4_XJObx-8HFyrn55M9ewS6yxC36cY';
+
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let currentOrgId = null;
+
+  async function fetchCurrentOrgId(){
+    const { data, error } = await supabaseClient
+      .from('memberships')
+      .select('org_id')
+      .limit(1)
+      .single();
+    if (error || !data) return null;
+    return data.org_id;
+  }
+
+  function showApp(session){
+    $('authGate').style.display = 'none';
+    $('appShell').style.display = 'block';
+    $('userBar').style.display = 'flex';
+    $('userEmail').textContent = session?.user?.email || '';
+    scheduleRenderBooklet();
+  }
+  function showAuthGate(message){
+    $('appShell').style.display = 'none';
+    $('userBar').style.display = 'none';
+    $('authGate').style.display = 'block';
+    const errEl = $('authError');
+    if (message){
+      errEl.textContent = message;
+      errEl.classList.add('show');
+    } else {
+      errEl.textContent = '';
+      errEl.classList.remove('show');
+    }
+  }
+
+  $('signOutBtn').addEventListener('click', async function(){
+    await supabaseClient.auth.signOut();
+    currentOrgId = null;
+    showAuthGate();
+  });
+
+  async function initAuth(){
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session){
+      showAuthGate();
+      return;
+    }
+    currentOrgId = await fetchCurrentOrgId();
+    if (!currentOrgId){
+      await supabaseClient.auth.signOut();
+      showAuthGate('Your account isn\'t linked to an organization yet — contact your admin.');
+      return;
+    }
+    showApp(session);
+  }
+
+  $('authSubmit').addEventListener('click', async function(){
+    const email = $('authEmail').value.trim();
+    const password = $('authPassword').value;
+    const btn = this;
+    btn.disabled = true;
+    $('authError').classList.remove('show');
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      currentOrgId = await fetchCurrentOrgId();
+      if (!currentOrgId){
+        await supabaseClient.auth.signOut();
+        throw new Error("Your account isn't linked to an organization yet — contact your admin.");
+      }
+      showApp(data.session);
+    } catch (err){
+      const errEl = $('authError');
+      errEl.textContent = err.message || 'Sign in failed';
+      errEl.classList.add('show');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  initAuth();
+  // ==========================================================================
+
+  // ============================ CONFIG ============================
+  // Booklet has NO rate constants here anymore — that's the whole point.
+  // Its numbers come only from calculate-booklet (Supabase Edge Function),
+  // gated behind sign-in below. See fetchBookletCalc().
+
+  // Stickers & Card Sheet — separate product line, shared 12×18" parent sheet
+  const SC_SHEET_W_IN = 12, SC_SHEET_H_IN = 18;
+  const STICKER_RATE_PER_SHEET = 30;
+  const STICKER_MATERIAL_MULT = { gumming: 1.00, transparent: 1.30, plastic: 1.50 };
+
+  // Card Sheet — priced per 12×18" parent sheet (300–350gsm), same imposition model as Stickers.
+  // ⚠ These 8 rates are ESTIMATES scaled up from your earlier A4 pricing — replace with your real
+  // per-sheet costs for each finish before quoting a client.
+  const CARD_OPTIONS = {
+    ss:                  { label: 'Single side print',                                    sheetRate: 19 },
+    bs:                  { label: 'Both side print',                                       sheetRate: 32 },
+    ss_lam:              { label: 'Single side print with lamination',                     sheetRate: 25 },
+    bs_lam:              { label: 'Both side print with lamination',                       sheetRate: 40 },
+    ss_lam_die:          { label: 'Single side print with lamination, die cut',             sheetRate: 30 },
+    bs_lam_die:          { label: 'Both side print with lamination, die cut',               sheetRate: 48 },
+    ss_lam_die_crease:   { label: 'Single side print with lamination, die cut & creasing',  sheetRate: 34 },
+    bs_lam_die_crease:   { label: 'Both side print with lamination, die cut & creasing',    sheetRate: 54 }
+  };
+
+  // Certificates — ⚠ ESTIMATED rates, no real pricing given yet. Replace before quoting a client.
+  const CERT_BASE_RATE_A4 = 1; // ₹ per piece, A4, single side, no fold
+  const CERT_BASE_RATE_A3 = 3; // ₹ per piece, A3, single side, no fold — NOTE: not wired into renderCert() yet, see reply
+  const CERT_SIZE_FACTOR = { a5: 0.5, a4: 1.0, a3: 4.0 }; // area ratio vs A4
+  const CERT_OPTIONS = {
+    ss:       { label: 'Single side',                    mult: 1.0, foldFee: 0   },
+    bs:       { label: 'Both side',                       mult: 1.0, foldFee: 1   },
+    ss_2fold: { label: 'Single side print with two fold',  mult: 1.0, foldFee: 1   },
+    bs_2fold: { label: 'Both side print with two fold',    mult: 1.5, foldFee: 2.5 },
+    bs_3fold: { label: 'Both side print with three fold',  mult: 1.5, foldFee: 5   }
+  };
+
+  // Quotation validity — 3 months, since paper rates fluctuate quarterly.
+  const QUOTE_VALIDITY_MONTHS = 3;
+
+  // Item code prefixes, per product line
+  const ITEM_CODE_PREFIX = { booklet: 'BK', card: 'CS', sticker: 'ST', cert: 'CT' };
+  // ==================================================================
+
+  let quoteItems = [];
+  let nextId = 1;
+  let nextItemSeq = 1; // running counter baked into every item code, for a stable per-quote sequence
+
+  const ESTIMATE_NO = (function(){
+    const d = new Date();
+    const ymd = d.getFullYear().toString().slice(2) + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+    return 'SE-' + ymd + '-' + Math.floor(1000 + Math.random()*9000);
+  })();
+
+  function fmt(n){ return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits:0}); }
+  function fmt2(n){ return '₹' + n.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtDate(d){ return d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}); }
+
+  // ---------------- Tabs ----------------
+  const tabs = document.querySelectorAll('.ptab');
+  tabs.forEach(tab=>{
+    tab.addEventListener('click', function(){
+      tabs.forEach(t=>t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+      this.classList.add('active');
+      $(this.dataset.target).classList.add('active');
+    });
+  });
+
+  // ---------------- Quotation cart ----------------
+  function addItem(itemCode, label, meta, total){
+    quoteItems.push({id: nextId++, itemCode, label, meta, total});
+    renderQuote();
+  }
+  function removeItem(id){
+    quoteItems = quoteItems.filter(i => i.id !== id);
+    renderQuote();
+  }
+  function renderQuote(){
+    const list = $('quoteList');
+    if (quoteItems.length === 0){
+      list.innerHTML = '<div class="empty-quote">No items yet — configure a product on the left and click "Add to Quotation".</div>';
+    } else {
+      list.innerHTML = quoteItems.map(item => (
+        '<div class="quote-item">' +
+          '<div class="qi-top"><div class="qi-label">' + item.label + '</div>' +
+          '<button class="qi-remove" data-id="' + item.id + '">✕</button></div>' +
+          '<div class="qi-code">' + item.itemCode + '</div>' +
+          '<div class="qi-meta">' + item.meta + '</div>' +
+          '<div class="qi-amt">' + fmt(item.total) + '</div>' +
+        '</div>'
+      )).join('');
+      list.querySelectorAll('.qi-remove').forEach(btn=>{
+        btn.addEventListener('click', function(){ removeItem(parseInt(this.dataset.id)); });
+      });
+    }
+    const combined = quoteItems.reduce((s,i)=>s+i.total, 0);
+    $('combinedTotal').textContent = fmt(combined);
+    $('combinedSub').textContent = quoteItems.length + (quoteItems.length === 1 ? ' item' : ' items') + ' in this quotation';
+    $('quoteCount').textContent = quoteItems.length + (quoteItems.length === 1 ? ' item' : ' items');
+  }
+
+  function refreshMeta(){
+    $('estimateNo').textContent = ESTIMATE_NO;
+    const today = new Date();
+    const validTill = new Date(today);
+    validTill.setMonth(validTill.getMonth() + QUOTE_VALIDITY_MONTHS);
+    $('dateIssued').textContent = fmtDate(today);
+    $('dateValid').textContent = fmtDate(validTill);
+  }
+  refreshMeta();
+  renderQuote();
+
+  // ---------------- Item code helpers ----------------
+  function seq(){ return String(nextItemSeq++).padStart(3, '0'); }
+
+  const PAGE_SIZE_CODE = { '1.00':'A4', '0.50':'A5', '0.25':'A6', '0.83':'B5', 'custom':'CUS' };
+  const PAPER_TYPE_CODE = { 'normal:1.00':'MPL', 'normal:0.95':'BND', 'normal:1.05':'ECO', 'art:0.95':'AM', 'art:1.05':'AG' };
+
+  // ================= BOOKLET — priced server-side, not here =================
+  // No paper rates, tiers, or formulas live in this file for Booklet anymore —
+  // calling calculate-booklet (Supabase Edge Function) is the only way this
+  // number gets produced, and that function requires a logged-in session
+  // that belongs to an org with rate_configs RLS grants it.
+  const pageSizeSel = $('pageSize');
+  const customWrap = $('customSizeWrap');
+  let lastMachine = null;
+  let lastBookletResult = null;
+  let bookletDebounce = null;
+
+  async function fetchBookletCalc(){
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session || !currentOrgId){
+      throw new Error('not signed in');
+    }
+    const payload = {
+      orgId: currentOrgId,
+      gsm: parseFloat($('gsm').value) || 80,
+      paperType: $('paperType').value,
+      pageSize: pageSizeSel.value,
+      customW: parseFloat($('customW').value) || 8.27,
+      customH: parseFloat($('customH').value) || 11.69,
+      pages: parseInt($('pages').value) || 1,
+      qty: parseInt($('qty').value) || 1,
+      colorMode: $('colorMode').value,
+      machineMode: $('machineMode').value
+    };
+    const { data, error } = await supabaseClient.functions.invoke('calculate-booklet', { body: payload });
+    if (error) throw error;
+    if (data.error) throw new Error(data.error);
+    return { ...data, colorMode: payload.colorMode, machineMode: payload.machineMode, gsm: payload.gsm, pages: payload.pages };
+  }
+
+  async function renderBooklet(){
+    const resultBox = document.querySelector('#panelBooklet .inline-result');
+    resultBox.classList.add('calc-loading');
+    try {
+      const r = await fetchBookletCalc();
+      lastBookletResult = r;
+
+      $('lPaperLabel').textContent = 'Paper (per book)';
+      $('lPaper').textContent = fmt2(r.paperCostPerBook);
+
+      if (r.isDigital){
+        $('lMachineLabel').textContent = r.colorMode === 'bw' ? 'Phasma digital charge — B&W at half rate (per book)' : 'Phasma digital charge — colour full, B&W half rate (per book)';
+        $('lBindLabel').textContent = 'Transport, binding &amp; profit (per book)';
+      } else {
+        $('lMachineLabel').textContent = 'Offset — ' + r.colorPlates + ' colour + ' + r.bwPlates + ' B&W plate-passes (per book)';
+        $('lBindLabel').textContent = 'Binding &amp; finishing (per book)';
+      }
+      $('lMachine').textContent = fmt2(r.machineCostPerBook);
+      $('lBind').textContent = fmt2(r.bindCostPerBook);
+
+      $('lTierLabel').textContent = 'Quantity adjustment (' + r.tierLabel + ')';
+      const sign = r.tierDelta <= 0 ? '− ' : '+ ';
+      $('lTier').textContent = (r.tierDelta === 0 ? '—' : sign + fmt2(Math.abs(r.tierDelta)) + ' /book');
+
+      if (r.plateCost > 0){
+        $('lSetupLabel').textContent = 'Offset plates — ' + r.platesNeeded + ' (one-time)';
+        $('lSetup').textContent = fmt2(r.plateCost);
+        $('setupRow').style.display = 'flex';
+      } else {
+        $('setupRow').style.display = 'none';
+      }
+
+      $('bkTotal').textContent = fmt(r.total);
+      $('bkSeal').textContent = r.isDigital ? 'DIGITAL' : 'OFFSET';
+      $('tierBadge').textContent = r.pagesPerSide + ' pages/side  ·  ' + r.sheetsPerBook + ' sheets/book';
+
+      $('machineText').textContent = r.isDigital ? 'Digital Printing (Konica Minolta Phasma)' : 'Offset Printing';
+      if (r.machineMode === 'auto'){
+        $('machineReason').textContent = r.isDigital ? 'running on the Phasma digital press.' : 'running on offset — ' + r.platesNeeded + ' plate(s) made once.';
+      } else {
+        $('machineReason').textContent = 'manually set to ' + (r.isDigital ? 'digital' : 'offset') + ' printing.';
+      }
+
+      const moqWarning = $('moqWarning');
+      if (r.belowMOQ){
+        moqWarning.classList.add('show');
+        moqWarning.textContent = '⚠ ' + (r.isDigital ? 'Digital' : 'Offset') + ' printing has a minimum order of ' + r.moqRequired.toLocaleString('en-IN') + ' books. Figures are indicative only below that.';
+      } else {
+        moqWarning.classList.remove('show');
+      }
+
+      $('addBookletAmt').textContent = fmt(r.total);
+    } catch (err){
+      console.error('booklet calc failed', err);
+      $('bkTotal').textContent = '—';
+      $('addBookletAmt').textContent = '—';
+    } finally {
+      resultBox.classList.remove('calc-loading');
+    }
+    return lastBookletResult;
+  }
+
+  function scheduleRenderBooklet(){
+    clearTimeout(bookletDebounce);
+    bookletDebounce = setTimeout(renderBooklet, 350);
+  }
+
+  pageSizeSel.addEventListener('change', function(){
+    customWrap.classList.toggle('show', this.value === 'custom');
+    scheduleRenderBooklet();
+  });
+  ['gsm','paperType','pages','qty','customW','customH','colorMode','machineMode'].forEach(id=>{
+    $(id).addEventListener('input', scheduleRenderBooklet);
+    $(id).addEventListener('change', scheduleRenderBooklet);
+  });
+
+  $('addBooklet').addEventListener('click', function(){
+    const r = lastBookletResult;
+    const sizeCode = PAGE_SIZE_CODE[pageSizeSel.value] || 'CUS';
+    const paperCode = PAPER_TYPE_CODE[$('paperType').value] || 'PPR';
+    const itemCode = ITEM_CODE_PREFIX.booklet + '-' + seq() + '-' + sizeCode + '-' + r.gsm + 'GSM-' + paperCode + '-' + r.pages + 'PG-' + r.colorMode.toUpperCase().slice(0,4) + '-' + (r.isDigital ? 'DIG' : 'OFS');
+    const label = r.pages + 'pg Booklet — ' + (r.isDigital ? 'Digital' : 'Offset') + ' · ' + r.colorMode.toUpperCase();
+    const meta = r.qty.toLocaleString('en-IN') + ' copies · ₹' + r.perBookEffective.toFixed(2) + '/book';
+    addItem(itemCode, label, meta, r.total);
+  });
+
+  // ================= SHEET PRODUCTS (Card Sheet & Stickers share this math) =================
+  function toInches(val, unit){ return unit === 'mm' ? (val / 25.4) : val; }
+  // Tries the piece both ways round against the parent sheet — equivalent to checking
+  // the sheet as both 12"×18" AND 18"×12", whichever lets more pieces fit wins.
+  function piecesPerSheet(sheetW, sheetH, pieceW, pieceH){
+    if (pieceW <= 0 || pieceH <= 0) return 0;
+    const orientA = Math.floor(sheetW / pieceW) * Math.floor(sheetH / pieceH); // sheet as 12×18
+    const orientB = Math.floor(sheetW / pieceH) * Math.floor(sheetH / pieceW); // sheet as 18×12
+    return Math.max(orientA, orientB);
+  }
+
+  function calcSheetProduct(sheetRate, wRaw, hRaw, unit, qty){
+    const pieceW = toInches(wRaw, unit);
+    const pieceH = toInches(hRaw, unit);
+    const perSheet = piecesPerSheet(SC_SHEET_W_IN, SC_SHEET_H_IN, pieceW, pieceH);
+    if (perSheet <= 0) return { perSheet: 0, sheetsNeeded: 0, ratePerPiece: 0, total: 0, fits:false };
+    const sheetsNeeded = Math.ceil(qty / perSheet);
+    const total = sheetsNeeded * sheetRate;      // sheets × rate...
+    const ratePerPiece = total / qty;             // ...divided by qty = effective rate/piece
+    return { perSheet, sheetsNeeded, ratePerPiece, total, fits:true };
+  }
+
+  // ---- Card Sheet panel ----
+  function renderCard(){
+    const unit = $('cardUnit').value;
+    const w = parseFloat($('cardWidth').value) || 0;
+    const h = parseFloat($('cardHeight').value) || 0;
+    const qty = Math.max(1, parseInt($('cardQty').value) || 1);
+    const optionKey = $('cardOption').value;
+    const option = CARD_OPTIONS[optionKey];
+    const r = calcSheetProduct(option.sheetRate, w, h, unit, qty);
+
+    $('cardResultLabel').textContent = option.label;
+    const sizeLabel = unit === 'mm' ? (w + 'mm × ' + h + 'mm') : (w + '" × ' + h + '"');
+    $('cardSizeLabel').textContent = sizeLabel;
+
+    const warn = $('cardWarning');
+    if (!r.fits){
+      $('cardPerSheet').textContent = '—'; $('cardSheetsNeeded').textContent = '—';
+      $('cardRatePerPiece').textContent = '—'; $('cardTotal').textContent = '₹0';
+      warn.classList.add('show');
+      warn.textContent = '⚠ This size is larger than the 12"×18" parent sheet.';
+      $('addCardAmt').textContent = '₹0';
+      return { ...r, option, optionKey, qty };
+    }
+    warn.classList.remove('show');
+    $('cardPerSheet').textContent = r.perSheet.toLocaleString('en-IN');
+    $('cardSheetsNeeded').textContent = r.sheetsNeeded.toLocaleString('en-IN');
+    $('cardRatePerPiece').textContent = fmt2(r.ratePerPiece);
+    $('cardTotal').textContent = fmt(r.total);
+    $('addCardAmt').textContent = fmt(r.total);
+    return { ...r, option, optionKey, qty };
+  }
+  ['cardOption','cardWidth','cardHeight','cardUnit','cardQty'].forEach(id=>{
+    $(id).addEventListener('input', renderCard);
+    $(id).addEventListener('change', renderCard);
+  });
+  renderCard();
+
+  $('addCard').addEventListener('click', function(){
+    const r = renderCard();
+    if (!r.fits) return;
+    const unit = $('cardUnit').value;
+    const w = parseFloat($('cardWidth').value) || 0;
+    const h = parseFloat($('cardHeight').value) || 0;
+    const sizeLabel = unit === 'mm' ? (w + 'mm×' + h + 'mm') : (w + '"×' + h + '"');
+    const sizeCodePart = Math.round(w) + 'X' + Math.round(h) + (unit === 'mm' ? 'MM' : 'IN');
+    const itemCode = ITEM_CODE_PREFIX.card + '-' + seq() + '-' + r.optionKey.toUpperCase() + '-' + sizeCodePart;
+    addItem(itemCode, 'Card Sheet — ' + r.option.label + ' (' + sizeLabel + ')', r.qty.toLocaleString('en-IN') + ' pcs · ₹' + r.ratePerPiece.toFixed(2) + '/pc · ' + r.sheetsNeeded + ' sheets', r.total);
+  });
+
+  // ---- Sticker panel ----
+  function renderSticker(){
+    const unit = $('scUnit').value;
+    const w = parseFloat($('scWidth').value) || 0;
+    const h = parseFloat($('scHeight').value) || 0;
+    const qty = Math.max(1, parseInt($('scQty').value) || 1);
+    const material = $('scMaterial').value;
+    const sheetRate = STICKER_RATE_PER_SHEET * STICKER_MATERIAL_MULT[material];
+    const r = calcSheetProduct(sheetRate, w, h, unit, qty);
+
+    $('scResultLabel').textContent = 'Sticker — ' + material.charAt(0).toUpperCase() + material.slice(1);
+    const sizeLabel = unit === 'mm' ? (w + 'mm × ' + h + 'mm') : (w + '" × ' + h + '"');
+    $('scResultSize').textContent = sizeLabel;
+
+    const warn = $('scWarning');
+    if (!r.fits){
+      $('scPerSheet').textContent = '—'; $('scSheetsNeeded').textContent = '—';
+      $('scRatePerPiece').textContent = '—'; $('scTotal').textContent = '₹0';
+      warn.classList.add('show');
+      warn.textContent = '⚠ This size is larger than the 12"×18" parent sheet.';
+      $('addStickerAmt').textContent = '₹0';
+      return r;
+    }
+    warn.classList.remove('show');
+    $('scPerSheet').textContent = r.perSheet.toLocaleString('en-IN');
+    $('scSheetsNeeded').textContent = r.sheetsNeeded.toLocaleString('en-IN');
+    $('scRatePerPiece').textContent = fmt2(r.ratePerPiece);
+    $('scTotal').textContent = fmt(r.total);
+    $('addStickerAmt').textContent = fmt(r.total);
+    return r;
+  }
+  ['scMaterial','scWidth','scHeight','scUnit','scQty'].forEach(id=>{
+    $(id).addEventListener('input', renderSticker);
+    $(id).addEventListener('change', renderSticker);
+  });
+  renderSticker();
+
+  $('addSticker').addEventListener('click', function(){
+    const unit = $('scUnit').value;
+    const w = parseFloat($('scWidth').value) || 0;
+    const h = parseFloat($('scHeight').value) || 0;
+    const qty = Math.max(1, parseInt($('scQty').value) || 1);
+    const material = $('scMaterial').value;
+    const sheetRate = STICKER_RATE_PER_SHEET * STICKER_MATERIAL_MULT[material];
+    const r = calcSheetProduct(sheetRate, w, h, unit, qty);
+    if (!r.fits) return;
+    const sizeLabel = unit === 'mm' ? (w + 'mm×' + h + 'mm') : (w + '"×' + h + '"');
+    const matLabel = material.charAt(0).toUpperCase() + material.slice(1);
+    const sizeCodePart = Math.round(w) + 'X' + Math.round(h) + (unit === 'mm' ? 'MM' : 'IN');
+    const itemCode = ITEM_CODE_PREFIX.sticker + '-' + seq() + '-' + material.slice(0,3).toUpperCase() + '-' + sizeCodePart;
+    addItem(itemCode, 'Sticker (' + matLabel + ') — ' + sizeLabel, qty.toLocaleString('en-IN') + ' pcs · ₹' + r.ratePerPiece.toFixed(2) + '/pc · ' + r.sheetsNeeded + ' sheets', r.total);
+  });
+
+  // ---- Certificates panel ----
+  const certSizeSel = $('certSize');
+  const certCustomWrap = $('certCustomWrap');
+
+  function certSizeFactor(){
+    if (certSizeSel.value === 'custom'){
+      const w = parseFloat($('certCustomW').value) || 210;
+      const h = parseFloat($('certCustomH').value) || 297;
+      const unit = $('certCustomUnit').value;
+      const wIn = unit === 'mm' ? w / 25.4 : w;
+      const hIn = unit === 'mm' ? h / 25.4 : h;
+      return (wIn * hIn) / (8.27 * 11.69); // vs A4 area
+    }
+    return CERT_SIZE_FACTOR[certSizeSel.value];
+  }
+  function certSizeLabel(){
+    if (certSizeSel.value === 'custom'){
+      const w = $('certCustomW').value, h = $('certCustomH').value, unit = $('certCustomUnit').value;
+      return w + (unit === 'mm' ? 'mm' : '"') + ' × ' + h + (unit === 'mm' ? 'mm' : '"');
+    }
+    return certSizeSel.options[certSizeSel.selectedIndex].text;
+  }
+  function certSizeCode(){
+    if (certSizeSel.value === 'custom'){
+      const w = Math.round(parseFloat($('certCustomW').value) || 0);
+      const h = Math.round(parseFloat($('certCustomH').value) || 0);
+      const unit = $('certCustomUnit').value;
+      return w + 'X' + h + (unit === 'mm' ? 'MM' : 'IN');
+    }
+    return certSizeSel.value.toUpperCase();
+  }
+
+  function renderCert(){
+    const optionKey = $('certOption').value;
+    const option = CERT_OPTIONS[optionKey];
+    const qty = Math.max(1, parseInt($('certQty').value) || 1);
+    const sizeFactor = certSizeFactor();
+    const ratePerPiece = (CERT_BASE_RATE_A4 * sizeFactor * option.mult) + option.foldFee;
+    const total = ratePerPiece * qty;
+
+    $('certResultLabel').textContent = option.label;
+    $('certSizeLabel').textContent = certSizeLabel();
+    $('certRatePerPiece').textContent = fmt2(ratePerPiece);
+    $('certQtyDisplay').textContent = qty.toLocaleString('en-IN');
+    $('certTotal').textContent = fmt(total);
+    $('addCertAmt').textContent = fmt(total);
+    return { option, optionKey, qty, ratePerPiece, total };
+  }
+
+  certSizeSel.addEventListener('change', function(){
+    certCustomWrap.classList.toggle('show', this.value === 'custom');
+    renderCert();
+  });
+  ['certOption','certCustomW','certCustomH','certCustomUnit','certQty'].forEach(id=>{
+    $(id).addEventListener('input', renderCert);
+    $(id).addEventListener('change', renderCert);
+  });
+  renderCert();
+
+  $('addCert').addEventListener('click', function(){
+    const r = renderCert();
+    const itemCode = ITEM_CODE_PREFIX.cert + '-' + seq() + '-' + certSizeCode() + '-' + r.optionKey.toUpperCase();
+    addItem(itemCode, 'Certificate — ' + r.option.label + ' (' + certSizeLabel() + ')', r.qty.toLocaleString('en-IN') + ' pcs · ₹' + r.ratePerPiece.toFixed(2) + '/pc', r.total);
+  });
+
+})();
+</script>
+
+</body>
+</html>
