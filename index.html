@@ -150,6 +150,10 @@
   .show-inactive-wrap input{ width:auto; }
 
   table.data-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  /* Smooths the brief dim-while-fetching state the day navigator uses instead of wiping the
+     tickets table to a "Loading…" placeholder (that swap-to-empty-then-back is what read as a
+     blink) -- this just fades the existing rows down and back up around the swap. */
+  #ticketsTableBody{ transition:opacity .15s ease; }
   table.data-table th{ text-align:left; font-size:10.5px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--faint); padding:0 10px 10px; border-bottom:1px solid var(--border); }
   table.data-table td{ padding:11px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
   table.data-table tr:last-child td{ border-bottom:none; }
@@ -3133,8 +3137,15 @@
       rows = tickets.slice();
     } else {
       const requestedDay = selectedTicketDay;
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Loading…</td></tr>';
+      // Wiping the table to a "Loading…" row and then replacing it is what actually caused the
+      // blink — even a fast fetch reads as a flash of empty content. Today and any day already
+      // fetched once (ticketDayCache) resolve synchronously below, so most day-nav clicks never
+      // touch this at all. Only a genuine first-time fetch of a past day gets here, and instead
+      // of wiping, it just dims what's already on screen (see the CSS transition on
+      // #ticketsTableBody) until the new rows are ready to swap in -- never an empty flash.
+      if (requestedDay !== todayISO() && !ticketDayCache.has(requestedDay)) tbody.style.opacity = '0.4';
       rows = await getTicketsForDay(requestedDay);
+      tbody.style.opacity = '';
       // The day nav or search box may have changed again while this fetch was in flight —
       // drop the now-stale response instead of overwriting what the user's looking at now.
       if (requestedDay !== selectedTicketDay || $('ticketSearch').value.trim().toLowerCase() !== term) return;
