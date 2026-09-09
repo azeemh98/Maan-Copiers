@@ -813,6 +813,7 @@
           <div class="totals-box" style="margin-top:14px;">
             <div class="t-row" id="tkSubtotalRow" style="display:none;"><span>Subtotal</span><span id="tkSubtotalVal">₹0</span></div>
             <div class="t-row" id="tkGstRow" style="display:none;"><span id="tkGstLabel">GST</span><span id="tkGstVal">₹0</span></div>
+            <div class="t-row" id="tkRoundOffRow" style="display:none;"><span>Round off</span><span id="tkRoundOffVal">₹0</span></div>
             <div class="t-row grand"><span>Total</span><span id="tkGrandTotal">₹0</span></div>
           </div>
           <div class="row2" style="margin-top:14px;">
@@ -2819,24 +2820,34 @@
     const pct = parseFloat($('tkGstPct').value) || 0;
     return pct ? Math.round((subtotal ?? computeTicketTotal()) * pct) / 100 : 0;
   }
+  // Rounds the final payable to the nearest rupee (same convention the Sales & Purchases
+  // invoice form already uses) rather than handing a customer change in coins. Whole-rupee
+  // job rates mean this is usually 0 -- it only kicks in once GST or a fractional rate leaves
+  // paise on the total.
+  function computeTicketRoundOff(rawTotal){ return Math.round(rawTotal) - rawTotal; }
   function updateTicketTotal(){
     const subtotal = computeTicketTotal();
     const gstPct = parseFloat($('tkGstPct').value) || 0;
     const gstAmount = computeTicketGstAmount(subtotal);
-    const grand = subtotal + gstAmount;
-    $('tkSubtotalRow').style.display = gstPct ? 'flex' : 'none';
+    const rawTotal = subtotal + gstAmount;
+    const roundOff = computeTicketRoundOff(rawTotal);
+    const grand = rawTotal + roundOff;
+    const showBreakdown = gstPct > 0 || Math.abs(roundOff) > 0.001;
+    $('tkSubtotalRow').style.display = showBreakdown ? 'flex' : 'none';
     $('tkSubtotalVal').textContent = fmtMoney(subtotal);
     $('tkGstRow').style.display = gstPct ? 'flex' : 'none';
     $('tkGstLabel').textContent = 'GST (' + gstPct + '%)';
     $('tkGstVal').textContent = fmtMoney(gstAmount);
+    $('tkRoundOffRow').style.display = Math.abs(roundOff) > 0.001 ? 'flex' : 'none';
+    $('tkRoundOffVal').textContent = fmtMoney(roundOff);
     $('tkGrandTotal').textContent = fmtMoney(grand);
     $('tkTotalPreview').textContent = fmtMoney(grand);
   }
   $('tkGstPct').addEventListener('change', updateTicketTotal);
-  // The amount actually owed/collected includes GST — every place that shows or charges "the
-  // ticket amount" (list rows, Mark Paid, the printed slip, party statements) needs this, not
-  // the bare pre-tax subtotal.
-  function ticketGrandTotal(t){ return Number(t.subtotal) + Number(t.gst_amount || 0); }
+  // The amount actually owed/collected includes GST and round-off — every place that shows or
+  // charges "the ticket amount" (list rows, Mark Paid, the printed slip, party statements)
+  // needs this, not the bare pre-tax subtotal.
+  function ticketGrandTotal(t){ return Number(t.subtotal) + Number(t.gst_amount || 0) + Number(t.round_off || 0); }
   resetTicketForm();
 
   // Confusion about whether Save actually went through (the form clears and the print
@@ -2908,14 +2919,15 @@
       const subtotal = computeTicketTotal();
       const gstPct = parseFloat($('tkGstPct').value) || 0;
       const gstAmount = computeTicketGstAmount(subtotal);
-      const grandTotal = subtotal + gstAmount;
+      const roundOff = computeTicketRoundOff(subtotal + gstAmount);
+      const grandTotal = subtotal + gstAmount + roundOff;
 
       const operatorTyped = $('tkOperator').value.trim();
       const matchedOperator = operatorTyped ? resolveOperatorByName(operatorTyped) : null;
       const { data: tkRow, error: tkErr } = await supabaseClient.from('job_tickets').insert({
         org_id: currentOrgId, ticket_no: ticketNo, party_id: selectedTicketPartyId,
         customer_name: $('tkCustomerName').value.trim() || null, phone: $('tkPhone').value.trim() || null,
-        subtotal, gst_pct: gstPct, gst_amount: gstAmount, notes: $('tkNotes').value.trim() || null,
+        subtotal, gst_pct: gstPct, gst_amount: gstAmount, round_off: roundOff, notes: $('tkNotes').value.trim() || null,
         expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
         machine: $('tkMachine').value.trim() || null,
         assigned_operator_id: matchedOperator ? matchedOperator.id : null,
@@ -2967,7 +2979,7 @@
         const saleInvoiceNo = 'INV-' + String(nextInvNum).padStart(4, '0');
         const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
           org_id: currentOrgId, type:'sale', invoice_no: saleInvoiceNo, party_id: selectedTicketPartyId, invoice_date: todayISO(),
-          subtotal, discount_total: 0, tax_total: gstAmount, round_off: 0, grand_total: grandTotal,
+          subtotal, discount_total: 0, tax_total: gstAmount, round_off: roundOff, grand_total: grandTotal,
           status:'unpaid', amount_paid: 0, notes:'Walk-in job ' + ticketNo, created_by: currentUserId
         }).select().single();
         if (invErr) throw invErr;
@@ -3530,9 +3542,10 @@
       '<div class="t-rule"></div>' +
       '<table>' + lines + '</table>' +
       '<div class="t-rule"></div>' +
-      (Number(ticket.gst_amount) > 0 ?
+      (Number(ticket.gst_amount) > 0 || Number(ticket.round_off || 0) !== 0 ?
         '<div class="t-row"><span>Subtotal</span><span>' + fmtMoney(ticket.subtotal) + '</span></div>' +
-        '<div class="t-row"><span>GST (' + Number(ticket.gst_pct) + '%)</span><span>' + fmtMoney(ticket.gst_amount) + '</span></div>'
+        (Number(ticket.gst_amount) > 0 ? '<div class="t-row"><span>GST (' + Number(ticket.gst_pct) + '%)</span><span>' + fmtMoney(ticket.gst_amount) + '</span></div>' : '') +
+        (Number(ticket.round_off || 0) !== 0 ? '<div class="t-row"><span>Round off</span><span>' + fmtMoney(ticket.round_off) + '</span></div>' : '')
         : '') +
       '<div class="t-row" style="font-weight:800; font-size:18px;"><span>TOTAL</span><span>' + fmtMoney(ticketGrandTotal(ticket)) + '</span></div>' +
       '<div class="t-row"><span>Payment</span><span>' + ticket.payment_status.toUpperCase() + '</span></div>' +
@@ -3599,7 +3612,7 @@
         const grandTotal = ticketGrandTotal(ticket);
         const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
           org_id: currentOrgId, type:'sale', invoice_no: invoiceNo, party_id: partyId, invoice_date: todayISO(),
-          subtotal: ticket.subtotal, discount_total: 0, tax_total: Number(ticket.gst_amount || 0), round_off: 0, grand_total: grandTotal,
+          subtotal: ticket.subtotal, discount_total: 0, tax_total: Number(ticket.gst_amount || 0), round_off: Number(ticket.round_off || 0), grand_total: grandTotal,
           status:'paid', amount_paid: grandTotal, notes:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
         }).select().single();
         if (invErr) throw invErr;
