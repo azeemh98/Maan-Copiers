@@ -1242,6 +1242,22 @@
         </section>
 
         <section class="card">
+          <div class="table-head-row">
+            <h2>Payment Mode Ledger</h2>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="date" id="pmlFrom" title="From">
+              <span style="color:var(--faint); font-size:12px;">to</span>
+              <input type="date" id="pmlTo" title="To">
+            </div>
+          </div>
+          <div class="hint">How much came in and went out through each mode — cash, UPI, bank transfer, cheque, other — for the dates above. "Paid" includes both payments made and expenses logged.</div>
+          <table class="data-table">
+            <thead><tr><th>Mode</th><th>Received</th><th>Paid</th><th>Net</th></tr></thead>
+            <tbody id="pmlBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+          </table>
+        </section>
+
+        <section class="card">
           <h2>Bank Reconciliation <span class="hint" style="font-weight:400;">— match a bank statement against recorded payments</span></h2>
           <div class="field">
             <label for="bankStatementFile">Bank statement (CSV or Excel)</label>
@@ -1914,6 +1930,7 @@
       loadPartiesAndBalances(),
       loadInvoices(),
       loadPayments(),
+      loadPaymentModeLedger(),
       loadExpenses(),
       loadPaymentCharts(),
       loadBankTransactions(),
@@ -4779,8 +4796,12 @@
       }
       showStatus(statusEl, 'Payment of ' + fmtMoney(amount) + ' recorded.', true);
       $('payAmount').value = ''; $('payNote').value = ''; $('payDate').value = todayISO();
-      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts() ]);
+      // recomputeInvoiceStatus() may have just flipped a linked job ticket to paid (this is
+      // also how a ticket's payment gets restored after being mistakenly deleted) -- reload it
+      // too so the Job Tickets tab reflects that without needing an unrelated action first.
+      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts(), loadTickets(), loadPaymentModeLedger() ]);
       renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderPaymentInvoiceOptions(); renderInvoicesTable(); renderPaymentCharts();
+      renderTicketsTable(); renderTicketStats(); renderMachineBoard();
     } catch (err){ showStatus(statusEl, err.message || 'Could not record payment.', false); }
     finally { this.disabled = false; }
   });
@@ -5002,11 +5023,57 @@
     if (paid >= inv.grand_total && inv.grand_total > 0) status = 'paid';
     else if (paid > 0) status = 'partially_paid';
     await supabaseClient.from('invoices').update({ amount_paid: paid, status }).eq('id', invoiceId);
+    // job_tickets.payment_status is a plain paid/unpaid flag mirroring whichever invoice the
+    // ticket is linked to. This is the one place every payment add/edit/delete against an
+    // invoice funnels through, so keep it synced here rather than at each call site -- a
+    // deleted payment was previously leaving its ticket stuck showing PAID with nothing to
+    // back it up (a real ₹200 "paid" job with zero payment records was found this way).
+    await supabaseClient.from('job_tickets').update({ payment_status: status === 'paid' ? 'paid' : 'unpaid' }).eq('invoice_id', invoiceId);
   }
 
   async function loadPayments(){
     const { data, error } = await supabaseClient.from('payments').select('*, parties(name), invoices(invoice_no)').eq('org_id', currentOrgId).order('payment_date', { ascending:false }).limit(100);
     payments = error ? [] : (data || []);
+  }
+
+  // ---- Payment Mode Ledger — how much moved through cash/UPI/bank/etc. in a date range ----
+  $('pmlFrom').value = toISODateLocal(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  $('pmlTo').value = todayISO();
+  $('pmlFrom').addEventListener('change', loadPaymentModeLedger);
+  $('pmlTo').addEventListener('change', loadPaymentModeLedger);
+  async function loadPaymentModeLedger(){
+    const tbody = $('pmlBody');
+    const from = $('pmlFrom').value || todayISO();
+    const to = $('pmlTo').value || todayISO();
+    const [{ data: payRows }, { data: expRows }] = await Promise.all([
+      supabaseClient.from('payments').select('direction, amount, mode').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to),
+      supabaseClient.from('expenses').select('amount, mode').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to)
+    ]);
+    const modes = ['cash','bank','upi','cheque','other'];
+    const inByMode = Object.fromEntries(modes.map(m => [m,0]));
+    const outByMode = Object.fromEntries(modes.map(m => [m,0]));
+    (payRows || []).forEach(p => {
+      const m = modes.includes(p.mode) ? p.mode : 'other';
+      if (p.direction === 'in') inByMode[m] += Number(p.amount); else outByMode[m] += Number(p.amount);
+    });
+    // Expenses count as money going out through whatever mode paid them, same combination
+    // the "Received vs Spent by mode" chart above already uses.
+    (expRows || []).forEach(e => {
+      const m = modes.includes(e.mode) ? e.mode : 'other';
+      outByMode[m] += Number(e.amount);
+    });
+    const totalIn = modes.reduce((s,m) => s + inByMode[m], 0);
+    const totalOut = modes.reduce((s,m) => s + outByMode[m], 0);
+    if (totalIn === 0 && totalOut === 0){
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Nothing recorded in this range.</td></tr>';
+      return;
+    }
+    const netCell = n => '<td style="font-weight:700;' + (n < 0 ? ' color:var(--danger);' : '') + '">' + fmtMoney(n) + '</td>';
+    const rows = modes.map(m =>
+      '<tr><td class="item-name">' + EMP_PAY_MODE_LABEL[m] + '</td><td>' + fmtMoney(inByMode[m]) + '</td><td>' + fmtMoney(outByMode[m]) + '</td>' + netCell(inByMode[m] - outByMode[m]) + '</tr>'
+    ).join('');
+    const totalRow = '<tr style="font-weight:800; border-top:2px solid var(--border-strong);"><td>Total</td><td>' + fmtMoney(totalIn) + '</td><td>' + fmtMoney(totalOut) + '</td>' + netCell(totalIn - totalOut) + '</tr>';
+    tbody.innerHTML = rows + totalRow;
   }
   function renderPaymentsTable(){
     const tbody = $('paymentsTableBody');
@@ -5038,7 +5105,7 @@
       if (error){ alert(error.message); this.value = prevValue; return; }
       const p = payments.find(x => x.id === this.dataset.id);
       if (p) p.mode = this.value;
-      await loadPaymentCharts();
+      await Promise.all([ loadPaymentCharts(), loadPaymentModeLedger() ]);
       renderPaymentCharts();
     }));
     tbody.querySelectorAll('.pay-del').forEach(btn => btn.addEventListener('click', async function(){
@@ -5047,8 +5114,11 @@
       const { error } = await supabaseClient.from('payments').delete().eq('id', this.dataset.id);
       if (error){ alert(error.message); return; }
       if (p?.invoice_id) await recomputeInvoiceStatus(p.invoice_id);
-      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts() ]);
+      // recomputeInvoiceStatus() may have just flipped a linked job ticket back to unpaid —
+      // reload it too so the Job Tickets tab doesn't keep showing PAID with no payment behind it.
+      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts(), loadTickets(), loadPaymentModeLedger() ]);
       renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderInvoicesTable(); renderPaymentCharts();
+      renderTicketsTable(); renderTicketStats(); renderMachineBoard();
     }));
   }
 
