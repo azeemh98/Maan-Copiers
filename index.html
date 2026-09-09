@@ -2090,7 +2090,11 @@
   }
 
   async function refreshStockPanel(){
-    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary(), loadWastageRecords() ]);
+    // loadTicketMaterials() included here too -- a stock item (and its category) added, edited,
+    // or deactivated on this tab is also a selectable line item on a job ticket, and that
+    // picker was never told to refresh, so a brand-new item stayed invisible there until a
+    // full page reload even though it showed up fine in Stock itself.
+    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary(), loadWastageRecords(), loadTicketMaterials() ]);
     const todayCount = await loadTodayCount();
     renderStats(todayCount);
     renderMaterialSelect();
@@ -2101,6 +2105,7 @@
     renderCalMaterialFilter();
     renderCalendar();
     renderWastageMaterialSelect();
+    renderTicketServiceOptions();
     await loadWastageEmployeeOptions();
     await populateEmployeeNameSelect($('movEmployee'));
     renderWastageTable();
@@ -4187,6 +4192,12 @@
     parties = pErr ? [] : (pData || []);
     partyBalances = {};
     if (!bErr) (bData || []).forEach(b => { partyBalances[b.party_id] = b.balance; });
+    // The job-ticket customer search box (and the Tasks party search, which shares the same
+    // datalist) was only ever populated once at initial login -- adding, editing, or
+    // deactivating a party anywhere else in the app left it stale until a full page reload.
+    // Cheap and side-effect-free to rebuild here on every reload rather than patch every one
+    // of the many call sites that load parties.
+    renderTicketPartyDatalist();
   }
 
   // ---- Edit an existing party (fix a wrong entry) — reuses the Add form in-place ----
