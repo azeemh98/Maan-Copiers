@@ -150,10 +150,10 @@
   .show-inactive-wrap input{ width:auto; }
 
   table.data-table{ width:100%; border-collapse:collapse; font-size:13px; }
-  /* Smooths the brief dim-while-fetching state the day navigator uses instead of wiping the
-     tickets table to a "Loading…" placeholder (that swap-to-empty-then-back is what read as a
-     blink) -- this just fades the existing rows down and back up around the swap. */
-  #ticketsTableBody{ transition:opacity .15s ease; }
+  /* Smooths the brief dim-while-fetching state the day navigator uses instead of wiping a
+     day-grouped table to a "Loading…" placeholder (that swap-to-empty-then-back is what read as
+     a blink) -- this just fades the existing rows down and back up around the swap. */
+  #ticketsTableBody, #paymentsTableBody{ transition:opacity .15s ease; }
   table.data-table th{ text-align:left; font-size:10.5px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--faint); padding:0 10px 10px; border-bottom:1px solid var(--border); }
   table.data-table td{ padding:11px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
   table.data-table tr:last-child td{ border-bottom:none; }
@@ -162,18 +162,19 @@
   table.data-table tr.clickable:hover{ background:var(--bg); }
   .item-name{ font-weight:700; color:var(--ink); }
   .item-cat{ font-size:11px; color:var(--faint); margin-top:1px; }
-  /* Job-tickets table grouped into day-by-day sections — this is the heading row for each day. */
-  tr.tk-day-row td{ background:var(--accent-soft); padding:9px 10px; border-bottom:1px solid var(--border); }
-  .tk-day-title{ font-weight:800; font-size:12.5px; color:var(--accent-dark); }
-  .tk-day-stats{ font-size:11px; color:var(--muted); margin-top:2px; }
-  /* Day navigator above the Job Tickets table — page one calendar day at a time. */
-  .ticket-day-nav{ display:flex; align-items:center; gap:10px; margin:2px 0 14px; }
-  .tdn-arrow{ width:30px; height:30px; flex-shrink:0; border-radius:6px; border:1px solid var(--border-strong); background:var(--surface); color:var(--ink); font-size:13px; cursor:pointer; }
-  .tdn-arrow:hover:not(:disabled){ border-color:var(--accent); color:var(--accent-dark); }
-  .tdn-arrow:disabled{ opacity:0.35; cursor:default; }
-  .tdn-label{ font-weight:800; font-size:13.5px; color:var(--ink); min-width:170px; }
-  #tdnPicker{ padding:6px 9px; font-size:12.5px; width:auto; }
-  @media (max-width:640px){ .ticket-day-nav{ flex-wrap:wrap; } .tdn-label{ min-width:0; order:-1; width:100%; } }
+  /* Tables grouped into day-by-day sections (job tickets, payments) — the heading row for each
+     day. Generic so any day-grouped table can reuse it, not just the one it started on. */
+  tr.day-group-row td{ background:var(--accent-soft); padding:9px 10px; border-bottom:1px solid var(--border); }
+  .day-group-title{ font-weight:800; font-size:12.5px; color:var(--accent-dark); }
+  .day-group-stats{ font-size:11px; color:var(--muted); margin-top:2px; }
+  /* Day navigator above a day-grouped table — page one calendar day at a time. */
+  .day-nav{ display:flex; align-items:center; gap:10px; margin:2px 0 14px; }
+  .dnav-arrow{ width:30px; height:30px; flex-shrink:0; border-radius:6px; border:1px solid var(--border-strong); background:var(--surface); color:var(--ink); font-size:13px; cursor:pointer; }
+  .dnav-arrow:hover:not(:disabled){ border-color:var(--accent); color:var(--accent-dark); }
+  .dnav-arrow:disabled{ opacity:0.35; cursor:default; }
+  .dnav-label{ font-weight:800; font-size:13.5px; color:var(--ink); min-width:170px; }
+  .dnav-picker{ padding:6px 9px; font-size:12.5px; width:auto; }
+  @media (max-width:640px){ .day-nav{ flex-wrap:wrap; } .dnav-label{ min-width:0; order:-1; width:100%; } }
   .remaining-val{ font-weight:800; font-size:14px; }
   .status-badge{ display:inline-block; padding:3px 9px; border-radius:5px; font-size:10.5px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .status-badge.ok{ background:var(--ok-soft); color:var(--ok); }
@@ -858,11 +859,11 @@
           <!-- Defaults to showing one day of slips at a time (today) with newest first; use the
                arrows or the date field to page back through earlier days like a calendar. Hidden
                automatically while searching, since a search should look across every day. -->
-          <div class="ticket-day-nav" id="ticketDayNav">
-            <button class="tdn-arrow" id="tdnPrev" title="Previous day">◀</button>
-            <div class="tdn-label" id="tdnLabel">Today</div>
-            <button class="tdn-arrow" id="tdnNext" title="Next day">▶</button>
-            <input type="date" id="tdnPicker" title="Jump to a date">
+          <div class="day-nav" id="ticketDayNav">
+            <button class="dnav-arrow" id="tdnPrev" title="Previous day">◀</button>
+            <div class="dnav-label" id="tdnLabel">Today</div>
+            <button class="dnav-arrow" id="tdnNext" title="Next day">▶</button>
+            <input type="date" class="dnav-picker" id="tdnPicker" title="Jump to a date">
             <button class="btn-sm" id="tdnToday" style="display:none;">Today</button>
           </div>
           <table class="data-table">
@@ -1235,6 +1236,23 @@
 
         <section class="card">
           <h2>Payment History</h2>
+          <div class="cat-tabs" id="paymentModeTabs">
+            <button class="cat-tab active" data-pmode="all">All</button>
+            <button class="cat-tab" data-pmode="cash">Cash</button>
+            <button class="cat-tab" data-pmode="bank">Bank</button>
+            <button class="cat-tab" data-pmode="upi">UPI</button>
+            <button class="cat-tab" data-pmode="cheque">Cheque</button>
+            <button class="cat-tab" data-pmode="other">Other</button>
+          </div>
+          <!-- Same day-by-day pattern as Job Tickets: defaults to today, newest first, page
+               back a day at a time or jump straight to a date. -->
+          <div class="day-nav" id="paymentDayNav">
+            <button class="dnav-arrow" id="pdnPrev" title="Previous day">◀</button>
+            <div class="dnav-label" id="pdnLabel">Today</div>
+            <button class="dnav-arrow" id="pdnNext" title="Next day">▶</button>
+            <input type="date" class="dnav-picker" id="pdnPicker" title="Jump to a date">
+            <button class="btn-sm" id="pdnToday" style="display:none;">Today</button>
+          </div>
           <table class="data-table">
             <thead><tr><th>Date</th><th>Party</th><th>Direction</th><th>Amount</th><th>Mode</th><th>Invoice</th><th></th></tr></thead>
             <tbody id="paymentsTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
@@ -1764,6 +1782,12 @@
   let parties = [], partyBalances = {};
   let invoicesSale = [], invoicesPurchase = [], invoicesEstimate = [];
   let payments = [], expenses = [];
+  // Payment History now shows one calendar day at a time, same as Job Tickets. `payments`
+  // (above, capped at the 100 most recent) covers "today" live; any other day is fetched on
+  // demand and cached here since a finished day's payments don't change.
+  let selectedPaymentDay = todayISO();
+  const paymentDayCache = new Map();
+  let paymentModeFilter = 'all';
   let activeCategory = 'all', searchTerm = '';
   let calYear, calMonth, calSelectedDate = null;
   let invType = 'sale';
@@ -1824,10 +1848,10 @@
     return days + 'd' + (remHrs ? ' ' + remHrs + 'h' : '');
   }
   function yesterdayISO(){ const d = new Date(); d.setDate(d.getDate() - 1); return toISODateLocal(d); }
-  // Day-section heading for the job-tickets table — builds the date from y/m/d parts (not
-  // `new Date(key)`, which parses a bare "YYYY-MM-DD" as UTC midnight and can print the wrong
-  // calendar date once localized — same gotcha toISODateLocal exists to avoid).
-  function tkDayLabel(key){
+  // Day-section heading for any day-grouped table (job tickets, payments) — builds the date
+  // from y/m/d parts (not `new Date(key)`, which parses a bare "YYYY-MM-DD" as UTC midnight and
+  // can print the wrong calendar date once localized — same gotcha toISODateLocal exists to avoid).
+  function dayLabelFor(key){
     const [y, m, d] = key.split('-').map(Number);
     const label = new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
     if (key === todayISO()) return 'Today · ' + label;
@@ -3098,7 +3122,7 @@
   }));
   $('ticketSearch').addEventListener('input', renderTicketsTable);
 
-  // ---- Day navigator for the Job Tickets table (see ticket-day-nav markup) ----
+  // ---- Day navigator for the Job Tickets table (see the .day-nav markup, id="ticketDayNav") ----
   function shiftTicketDay(delta){
     const [y, m, d] = selectedTicketDay.split('-').map(Number);
     const newKey = toISODateLocal(new Date(y, m - 1, d + delta));
@@ -3142,7 +3166,7 @@
     const searching = !!term;
 
     $('ticketDayNav').style.display = searching ? 'none' : 'flex';
-    $('tdnLabel').textContent = tkDayLabel(selectedTicketDay);
+    $('tdnLabel').textContent = dayLabelFor(selectedTicketDay);
     $('tdnNext').disabled = selectedTicketDay >= todayISO();
     $('tdnPicker').value = selectedTicketDay;
     $('tdnPicker').max = todayISO();
@@ -3195,7 +3219,7 @@
       const dayUnpaid = dayTickets.filter(t => t.payment_status !== 'paid').reduce((s,t) => s + ticketGrandTotal(t), 0);
       const statLine = dayTickets.length + ' slip' + (dayTickets.length === 1 ? '' : 's') + ' · ' + fmtMoney(dayTotal) + ' total' +
         (dayUnpaid > 0 ? ' · ' + fmtMoney(dayUnpaid) + ' unpaid' : ' · all paid');
-      html += '<tr class="tk-day-row"><td colspan="7">' + (multiDay ? '<div class="tk-day-title">' + tkDayLabel(key) + '</div>' : '') + '<div class="tk-day-stats">' + statLine + '</div></td></tr>';
+      html += '<tr class="day-group-row"><td colspan="7">' + (multiDay ? '<div class="day-group-title">' + dayLabelFor(key) + '</div>' : '') + '<div class="day-group-stats">' + statLine + '</div></td></tr>';
       dayTickets.forEach((t, i) => {
         const pending = t.approval_status !== 'approved';
         const gapMs = i < dayTickets.length - 1 ? (new Date(t.created_at) - new Date(dayTickets[i+1].created_at)) : null;
@@ -5032,8 +5056,45 @@
   }
 
   async function loadPayments(){
-    const { data, error } = await supabaseClient.from('payments').select('*, parties(name), invoices(invoice_no)').eq('org_id', currentOrgId).order('payment_date', { ascending:false }).limit(100);
+    const { data, error } = await supabaseClient.from('payments').select('*, parties(name), invoices(invoice_no)').eq('org_id', currentOrgId)
+      .order('payment_date', { ascending:false }).order('created_at', { ascending:false }).limit(100);
     payments = error ? [] : (data || []);
+    // Any mutation reaching here could touch a day the cache already holds — see the identical
+    // comment on loadTickets() for why dropping it all is simpler than tracking per-row dirtying.
+    paymentDayCache.clear();
+  }
+
+  // ---- Day navigator for Payment History (same pattern as Job Tickets — see loadTickets/
+  // getTicketsForDay/shiftTicketDay for the fuller write-up of why "today" reads straight from
+  // the already-loaded array while any other day is fetched once and cached). ----
+  function shiftPaymentDay(delta){
+    const [y, m, d] = selectedPaymentDay.split('-').map(Number);
+    const newKey = toISODateLocal(new Date(y, m - 1, d + delta));
+    if (newKey > todayISO()) return;
+    selectedPaymentDay = newKey;
+    renderPaymentsTable();
+  }
+  $('pdnPrev').addEventListener('click', () => shiftPaymentDay(-1));
+  $('pdnNext').addEventListener('click', () => shiftPaymentDay(1));
+  $('pdnToday').addEventListener('click', () => { selectedPaymentDay = todayISO(); renderPaymentsTable(); });
+  $('pdnPicker').addEventListener('change', function(){ if (this.value){ selectedPaymentDay = this.value; renderPaymentsTable(); } });
+  document.querySelectorAll('#paymentModeTabs .cat-tab').forEach(btn => btn.addEventListener('click', function(){
+    document.querySelectorAll('#paymentModeTabs .cat-tab').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    paymentModeFilter = this.dataset.pmode;
+    renderPaymentsTable();
+  }));
+
+  // payment_date is a plain date column (no time-of-day), so unlike job_tickets this is a
+  // simple equality filter rather than a UTC-range query.
+  async function getPaymentsForDay(dayKey){
+    if (dayKey === todayISO()) return payments.filter(p => p.payment_date === dayKey);
+    if (paymentDayCache.has(dayKey)) return paymentDayCache.get(dayKey);
+    const { data, error } = await supabaseClient.from('payments').select('*, parties(name), invoices(invoice_no)').eq('org_id', currentOrgId)
+      .eq('payment_date', dayKey).order('created_at', { ascending:false }).limit(500);
+    const result = error ? [] : (data || []);
+    paymentDayCache.set(dayKey, result);
+    return result;
   }
 
   // ---- Payment Mode Ledger — how much moved through cash/UPI/bank/etc. in a date range ----
@@ -5075,10 +5136,37 @@
     const totalRow = '<tr style="font-weight:800; border-top:2px solid var(--border-strong);"><td>Total</td><td>' + fmtMoney(totalIn) + '</td><td>' + fmtMoney(totalOut) + '</td>' + netCell(totalIn - totalOut) + '</tr>';
     tbody.innerHTML = rows + totalRow;
   }
-  function renderPaymentsTable(){
+  // Tracks whatever payments are on screen right now (today, or a past day fetched via
+  // getPaymentsForDay) so the row-action listeners below can look one up even when it isn't in
+  // the `payments` array (which only ever holds the 100 most recent).
+  let currentlyRenderedPayments = new Map();
+
+  async function renderPaymentsTable(){
     const tbody = $('paymentsTableBody');
-    if (payments.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No payments recorded yet.</td></tr>'; return; }
-    tbody.innerHTML = payments.map(p => {
+    $('pdnLabel').textContent = dayLabelFor(selectedPaymentDay);
+    $('pdnNext').disabled = selectedPaymentDay >= todayISO();
+    $('pdnPicker').value = selectedPaymentDay;
+    $('pdnPicker').max = todayISO();
+    $('pdnToday').style.display = selectedPaymentDay === todayISO() ? 'none' : 'inline-block';
+
+    const requestedDay = selectedPaymentDay;
+    // See renderTicketsTable() for why this dims instead of wiping to a "Loading…" row.
+    if (requestedDay !== todayISO() && !paymentDayCache.has(requestedDay)) tbody.style.opacity = '0.4';
+    let rows = await getPaymentsForDay(requestedDay);
+    tbody.style.opacity = '';
+    if (requestedDay !== selectedPaymentDay) return; // stale response — day changed again mid-fetch
+
+    if (paymentModeFilter !== 'all') rows = rows.filter(p => p.mode === paymentModeFilter);
+    currentlyRenderedPayments = new Map(rows.map(p => [p.id, p]));
+
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No ' + (paymentModeFilter !== 'all' ? EMP_PAY_MODE_LABEL[paymentModeFilter].toLowerCase() + ' ' : '') + 'transactions on this day.</td></tr>'; return; }
+
+    const dayIn = rows.filter(p => p.direction === 'in').reduce((s,p) => s + Number(p.amount), 0);
+    const dayOut = rows.filter(p => p.direction === 'out').reduce((s,p) => s + Number(p.amount), 0);
+    const statLine = rows.length + ' transaction' + (rows.length === 1 ? '' : 's') + ' · ' + fmtMoney(dayIn) + ' received' + (dayOut > 0 ? ' · ' + fmtMoney(dayOut) + ' paid out' : '');
+    let html = '<tr class="day-group-row"><td colspan="7"><div class="day-group-stats">' + statLine + '</div></td></tr>';
+
+    html += rows.map(p => {
       const delBtn = isAdmin ? '<button class="pay-del danger" data-id="' + p.id + '" title="Delete">✕</button>' : '';
       const invoiceCell = p.invoice_id && p.invoices?.invoice_no
         ? '<button class="inv-link" data-id="' + p.invoice_id + '" title="View / print this invoice">' + p.invoices.invoice_no + '</button>'
@@ -5096,21 +5184,25 @@
         '<td>' + fmtMoney(p.amount) + '</td><td>' + modeCell + '</td><td>' + invoiceCell + '</td>' +
         '<td><div class="row-actions">' + delBtn + '</div></td></tr>';
     }).join('');
+
+    tbody.innerHTML = html;
     tbody.querySelectorAll('.inv-link').forEach(btn => btn.addEventListener('click', function(){ viewInvoice(this.dataset.id); }));
     tbody.querySelectorAll('.pay-mode-select').forEach(sel => sel.addEventListener('change', async function(){
-      const prevValue = payments.find(x => x.id === this.dataset.id)?.mode || 'cash';
+      const prevValue = currentlyRenderedPayments.get(this.dataset.id)?.mode || 'cash';
       this.disabled = true;
       const { error } = await supabaseClient.from('payments').update({ mode: this.value }).eq('id', this.dataset.id);
       this.disabled = false;
       if (error){ alert(error.message); this.value = prevValue; return; }
       const p = payments.find(x => x.id === this.dataset.id);
       if (p) p.mode = this.value;
+      const cachedRow = currentlyRenderedPayments.get(this.dataset.id);
+      if (cachedRow) cachedRow.mode = this.value; // keep the day-cache entry (if any) from going stale
       await Promise.all([ loadPaymentCharts(), loadPaymentModeLedger() ]);
       renderPaymentCharts();
     }));
     tbody.querySelectorAll('.pay-del').forEach(btn => btn.addEventListener('click', async function(){
       if (!window.confirm('Delete this payment?')) return;
-      const p = payments.find(x => x.id === this.dataset.id);
+      const p = currentlyRenderedPayments.get(this.dataset.id);
       const { error } = await supabaseClient.from('payments').delete().eq('id', this.dataset.id);
       if (error){ alert(error.message); return; }
       if (p?.invoice_id) await recomputeInvoiceStatus(p.invoice_id);
