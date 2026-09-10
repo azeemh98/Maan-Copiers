@@ -1031,6 +1031,7 @@
 
             <div style="display:flex; gap:8px; margin-top:12px;">
               <button class="btn-sm" id="closeLedgerBtn">Close</button>
+              <button class="btn-sm" id="exportPartyLedgerBtn" title="Balance ledger + every job, slip by slip, as an Excel file">⭳ Export to Excel</button>
               <button class="btn-sm primary" id="printBalanceSlipBtn">🖨 Print Balance Slip</button>
             </div>
           </div>
@@ -1469,6 +1470,21 @@
         <thead><tr><th>Party</th><th>Type</th><th>Balance</th></tr></thead>
         <tbody id="reportOutstandingBody"><tr class="empty-row"><td colspan="3">—</td></tr></tbody>
       </table>
+    </section>
+
+    <section class="card">
+      <h2>Daily Cash Flow &amp; Bank Ledger <span class="hint" style="font-weight:400;">— for the period above</span></h2>
+      <div class="hint">"Cash" is every cash-mode payment and expense; "Bank" groups everything else — bank transfer, UPI, cheque, other — as one non-cash bucket, the way money actually sits in hand vs in the account.</div>
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>Cash In</th><th>Cash Out</th><th>Bank In</th><th>Bank Out</th><th>Day Net</th></tr></thead>
+        <tbody id="dailyCashLedgerBody"><tr class="empty-row"><td colspan="6">Run a report to see the daily breakdown.</td></tr></tbody>
+      </table>
+      <h4 style="margin:20px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Totals by Category (money out)</h4>
+      <table class="data-table">
+        <thead><tr><th>Category</th><th>Cash</th><th>Bank</th><th>Total</th></tr></thead>
+        <tbody id="cashLedgerCategoryBody"><tr class="empty-row"><td colspan="4">—</td></tr></tbody>
+      </table>
+      <button class="btn-sm" id="exportCashLedgerBtn" style="margin-top:12px;">⭳ Export to Excel</button>
     </section>
 
     <section class="card">
@@ -4448,6 +4464,62 @@
   $('closeBalanceSlipPreview').addEventListener('click', () => $('balanceSlipPreview').classList.remove('show'));
   $('printBalanceSlipDocBtn').addEventListener('click', () => window.print());
 
+  // ---- Excel export for a party: balance summary + debit/credit ledger + every job,
+  // slip by slip (one row per line item, same expansion buildPartyJobsRows uses on screen). ----
+  $('exportPartyLedgerBtn').addEventListener('click', function(){
+    if (!currentLedgerParty) return;
+    const p = currentLedgerParty;
+    const bal = partyBalances[p.id] || 0;
+
+    const summaryRows = [
+      { Field:'Party', Value: p.name },
+      { Field:'Type', Value: p.type },
+      { Field:'Phone', Value: p.phone || '' },
+      { Field:'GSTIN', Value: p.gstin || '' },
+      { Field:'Opening Balance', Value: Number(p.opening_balance) || 0 },
+      { Field: bal > 0 ? 'Receivable (they owe us)' : (bal < 0 ? 'Payable (we owe them)' : 'Balance'), Value: Math.abs(bal) },
+      { Field:'As of', Value: fmtDate(todayISO()) }
+    ];
+
+    const ledgerRows = currentLedgerEntries.length ? currentLedgerEntries.map(e => ({
+      Date: e.date, Type: e.type, Reference: e.ref, Debit: e.debit || 0, Credit: e.credit || 0, 'Running Balance': e.balance
+    })) : [{ Date:'—', Type:'—', Reference:'No transactions yet', Debit:0, Credit:0, 'Running Balance':0 }];
+
+    const jobRows = [];
+    currentLedgerTickets.forEach(t => {
+      const items = (t.job_ticket_items && t.job_ticket_items.length)
+        ? t.job_ticket_items
+        : [{ description: t.notes || 'Job', quantity: 1, unit: '', rate: Number(t.subtotal), amount: Number(t.subtotal) }];
+      const gstPct = Number(t.gst_pct) || 0;
+      items.forEach(li => {
+        const lineAmount = Number(li.amount);
+        const lineGst = gstPct ? Math.round(lineAmount * gstPct) / 100 : 0;
+        jobRows.push({
+          Date: fmtDate(t.created_at), Ticket: t.ticket_no, 'Item / Material': li.description,
+          Qty: Number(li.quantity), Unit: li.unit || '', Rate: Number(li.rate),
+          GST: lineGst, Amount: lineAmount + lineGst, Status: t.payment_status.toUpperCase()
+        });
+      });
+    });
+    if (jobRows.length === 0) jobRows.push({ Date:'—', Ticket:'—', 'Item / Material':'No jobs recorded yet', Qty:0, Unit:'', Rate:0, GST:0, Amount:0, Status:'' });
+
+    const wb = XLSX.utils.book_new();
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows, { skipHeader: true });
+    wsSummary['!cols'] = [{wch:26},{wch:22}];
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+
+    const wsLedger = XLSX.utils.json_to_sheet(ledgerRows);
+    wsLedger['!cols'] = [{wch:12},{wch:18},{wch:16},{wch:12},{wch:12},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, wsLedger, 'Ledger');
+
+    const wsJobs = XLSX.utils.json_to_sheet(jobRows);
+    wsJobs['!cols'] = [{wch:12},{wch:10},{wch:30},{wch:8},{wch:8},{wch:10},{wch:10},{wch:12},{wch:10}];
+    XLSX.utils.book_append_sheet(wb, wsJobs, 'Jobs (slip by slip)');
+
+    const safeName = (p.name || 'Party').replace(/[^\w\- ]/g, '').trim().replace(/\s+/g, '-') || 'Party';
+    XLSX.writeFile(wb, safeName + '-Statement-' + todayISO() + '.xlsx');
+  });
+
   // ======================================================================
   // INVOICES (SALES & PURCHASES)
   // ======================================================================
@@ -5421,16 +5493,22 @@
     else if (reportPreset === 'quarter'){ const q = Math.floor(now.getMonth()/3); from = new Date(now.getFullYear(), q*3, 1); to = new Date(now.getFullYear(), q*3+3, 0); }
     else if (reportPreset === 'year'){ from = new Date(now.getFullYear(), 0, 1); to = new Date(now.getFullYear(), 11, 31); }
     else { from = new Date($('repFrom').value || todayISO()); to = new Date($('repTo').value || todayISO()); }
-    return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
+    // toISODateLocal(), not a raw .toISOString().slice(0,10) -- the same UTC-conversion gotcha
+    // fixed elsewhere in this file (monthRange/monthFirstDay, getTicketsForDay) applies here
+    // too: a preset built with new Date(y,m,d) rolls back a day for any timezone ahead of UTC.
+    // Safe to apply to the custom-range branch as well (new Date(dateString) parses as UTC
+    // midnight already, and shifting forward by the local offset never crosses a day boundary).
+    return { from: toISODateLocal(from), to: toISODateLocal(to) };
   }
 
   $('runReportBtn').addEventListener('click', runReport);
   async function runReport(){
     const { from, to } = reportRange();
-    const [{ data: saleInv }, { data: purInv }, { data: expRows }] = await Promise.all([
+    const [{ data: saleInv }, { data: purInv }, { data: expRows }, { data: payRows }] = await Promise.all([
       supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to),
       supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to),
-      supabaseClient.from('expenses').select('*').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to)
+      supabaseClient.from('expenses').select('*').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to),
+      supabaseClient.from('payments').select('payment_date, direction, amount, mode').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to)
     ]);
     const salesTaxable = (saleInv||[]).reduce((s,i) => s + Number(i.subtotal - i.discount_total), 0);
     const purchTaxable = (purInv||[]).reduce((s,i) => s + Number(i.subtotal - i.discount_total), 0);
@@ -5472,7 +5550,106 @@
     const outBody = $('reportOutstandingBody');
     outBody.innerHTML = outRows.length ? outRows.map(p => { const bal = partyBalances[p.id]||0; return '<tr><td>' + p.name + '</td><td>' + p.type + '</td><td class="' + (bal>0?'amt-pos':'amt-neg') + '">' + fmtMoney(bal) + '</td></tr>'; }).join('')
       : '<tr class="empty-row"><td colspan="3">No outstanding balances.</td></tr>';
+
+    renderDailyCashLedger(payRows || [], expRows || [], from, to);
   }
+
+  // ======================================================================
+  // DAILY CASH FLOW & BANK LEDGER — every day in the report period (not just days with
+  // activity, so a quiet stretch is visible as a gap), split Cash vs Bank, plus a by-category
+  // breakdown of where the money went. "Bank" bundles every non-cash mode (bank/UPI/cheque/
+  // other) together, matching how a shop owner actually thinks about it -- in hand vs in the
+  // account -- rather than showing five near-empty columns.
+  // ======================================================================
+  let dailyCashLedgerRows = [];
+  let cashLedgerCategoryRows = [];
+
+  function enumerateDays(from, to){
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    const cur = new Date(fy, fm - 1, fd);
+    const end = new Date(ty, tm - 1, td);
+    const days = [];
+    let guard = 0; // a reversed or huge range shouldn't be able to loop forever
+    while (cur <= end && guard < 3660){
+      days.push(toISODateLocal(cur));
+      cur.setDate(cur.getDate() + 1);
+      guard++;
+    }
+    return days;
+  }
+
+  function renderDailyCashLedger(payRows, expRows, from, to){
+    const days = enumerateDays(from, to);
+    const dayTotals = new Map(days.map(d => [d, { cashIn:0, cashOut:0, bankIn:0, bankOut:0 }]));
+    payRows.forEach(p => {
+      const bucket = dayTotals.get(p.payment_date);
+      if (!bucket) return;
+      const isCash = p.mode === 'cash';
+      if (p.direction === 'in'){ if (isCash) bucket.cashIn += Number(p.amount); else bucket.bankIn += Number(p.amount); }
+      else { if (isCash) bucket.cashOut += Number(p.amount); else bucket.bankOut += Number(p.amount); }
+    });
+    expRows.forEach(e => {
+      const bucket = dayTotals.get(e.expense_date);
+      if (!bucket) return;
+      if (e.mode === 'cash' || !e.mode) bucket.cashOut += Number(e.amount); else bucket.bankOut += Number(e.amount);
+    });
+    dailyCashLedgerRows = days.map(d => { const b = dayTotals.get(d); return { date: d, ...b, net: (b.cashIn + b.bankIn) - (b.cashOut + b.bankOut) }; });
+
+    const activeDays = dailyCashLedgerRows.filter(r => r.cashIn || r.cashOut || r.bankIn || r.bankOut);
+    const tbody = $('dailyCashLedgerBody');
+    if (activeDays.length === 0){
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No cash or bank activity in this period.</td></tr>';
+    } else {
+      const totals = { cashIn:0, cashOut:0, bankIn:0, bankOut:0 };
+      activeDays.forEach(r => { totals.cashIn += r.cashIn; totals.cashOut += r.cashOut; totals.bankIn += r.bankIn; totals.bankOut += r.bankOut; });
+      const totalNet = (totals.cashIn + totals.bankIn) - (totals.cashOut + totals.bankOut);
+      tbody.innerHTML = activeDays.slice().reverse().map(r => '<tr><td>' + fmtDate(r.date) + '</td>' +
+        '<td>' + (r.cashIn ? fmtMoney(r.cashIn) : '—') + '</td><td>' + (r.cashOut ? fmtMoney(r.cashOut) : '—') + '</td>' +
+        '<td>' + (r.bankIn ? fmtMoney(r.bankIn) : '—') + '</td><td>' + (r.bankOut ? fmtMoney(r.bankOut) : '—') + '</td>' +
+        '<td class="' + (r.net >= 0 ? 'amt-pos' : 'amt-neg') + '">' + fmtMoney(r.net) + '</td></tr>'
+      ).join('') + '<tr style="font-weight:800; border-top:2px solid var(--border-strong);"><td>Total</td>' +
+        '<td>' + fmtMoney(totals.cashIn) + '</td><td>' + fmtMoney(totals.cashOut) + '</td>' +
+        '<td>' + fmtMoney(totals.bankIn) + '</td><td>' + fmtMoney(totals.bankOut) + '</td>' +
+        '<td class="' + (totalNet >= 0 ? 'amt-pos' : 'amt-neg') + '">' + fmtMoney(totalNet) + '</td></tr>';
+    }
+
+    // By-category breakdown — expenses are the only thing in this app that actually carry a
+    // category; party payments are already broken down by mode/party elsewhere (Payment Mode
+    // Ledger, Party Outstanding), so folding them into a "category" here would just relabel
+    // the same numbers rather than add anything.
+    const catMap = {};
+    expRows.forEach(e => {
+      if (!catMap[e.category]) catMap[e.category] = { cash:0, bank:0 };
+      if (e.mode === 'cash' || !e.mode) catMap[e.category].cash += Number(e.amount); else catMap[e.category].bank += Number(e.amount);
+    });
+    cashLedgerCategoryRows = Object.entries(catMap).map(([category, v]) => ({ category, cash:v.cash, bank:v.bank, total:v.cash+v.bank })).sort((a,b) => b.total - a.total);
+    const catBody = $('cashLedgerCategoryBody');
+    catBody.innerHTML = cashLedgerCategoryRows.length
+      ? cashLedgerCategoryRows.map(r => '<tr><td class="item-name">' + r.category + '</td><td>' + fmtMoney(r.cash) + '</td><td>' + fmtMoney(r.bank) + '</td><td style="font-weight:700;">' + fmtMoney(r.total) + '</td></tr>').join('')
+      : '<tr class="empty-row"><td colspan="4">No categorized expenses in this period.</td></tr>';
+  }
+
+  $('exportCashLedgerBtn').addEventListener('click', function(){
+    if (!dailyCashLedgerRows.length){ alert('Run a report first.'); return; }
+    const dayRowsOut = dailyCashLedgerRows.filter(r => r.cashIn || r.cashOut || r.bankIn || r.bankOut).map(r => ({
+      Date: fmtDate(r.date), 'Cash In': r.cashIn, 'Cash Out': r.cashOut, 'Bank In': r.bankIn, 'Bank Out': r.bankOut, 'Day Net': r.net
+    }));
+    if (dayRowsOut.length === 0) dayRowsOut.push({ Date:'—', 'Cash In':0, 'Cash Out':0, 'Bank In':0, 'Bank Out':0, 'Day Net':0 });
+    const catRowsOut = cashLedgerCategoryRows.length
+      ? cashLedgerCategoryRows.map(r => ({ Category: r.category, Cash: r.cash, Bank: r.bank, Total: r.total }))
+      : [{ Category:'—', Cash:0, Bank:0, Total:0 }];
+
+    const wb = XLSX.utils.book_new();
+    const wsDay = XLSX.utils.json_to_sheet(dayRowsOut);
+    wsDay['!cols'] = [{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, wsDay, 'Daily Cash & Bank');
+    const wsCat = XLSX.utils.json_to_sheet(catRowsOut);
+    wsCat['!cols'] = [{wch:22},{wch:12},{wch:12},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, wsCat, 'By Category');
+    const { from, to } = reportRange();
+    XLSX.writeFile(wb, 'Cash-Bank-Ledger-' + from + '-to-' + to + '.xlsx');
+  });
 
   // ======================================================================
   // BALANCE SHEET (SNAPSHOT) — Cash & Bank + Receivable − Payable as of a chosen date. Not a
