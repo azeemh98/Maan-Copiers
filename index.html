@@ -557,11 +557,12 @@
       <div class="stat-card"><svg class="s-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-8.59-8.59A2 2 0 0 1 3 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.41.59l8.59 8.59a2 2 0 0 1 0 2.82Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg><div class="s-label">Categories</div><div class="s-val" id="statCats">—</div></div>
     </div>
 
-    <!-- Current Stock is the 3rd card down the page (after the entry form) -- this jumps
-         straight past both forms to it, for whenever what's actually wanted is just to check
-         remaining quantities, not to record a movement. -->
-    <div style="display:flex; justify-content:flex-end; margin:-8px 0 6px;">
+    <!-- Current Stock and Record Wastage sit further down the page (after the entry form, and
+         after Current Stock + Wastage Log respectively) -- these jump straight to each,
+         skipping everything in between. -->
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin:-8px 0 6px;">
       <button class="btn-sm" id="jumpToStockBtn">↓ Jump to Current Stock</button>
+      <button class="btn-sm" id="jumpToWastageBtn">↓ Jump to Record Wastage</button>
     </div>
 
     <div class="content-grid">
@@ -709,7 +710,7 @@
           </table>
         </section>
 
-        <section class="card">
+        <section class="card" id="recordWastageSection">
           <h2>Record Wastage</h2>
           <div class="row2">
             <div class="field">
@@ -2443,6 +2444,7 @@
   }
 
   $('jumpToStockBtn').addEventListener('click', () => $('currentStockSection').scrollIntoView({ behavior:'smooth', block:'start' }));
+  $('jumpToWastageBtn').addEventListener('click', () => $('recordWastageSection').scrollIntoView({ behavior:'smooth', block:'start' }));
 
   // ---- Monthly calendar ----
   toggleCollapsible($('monthlyToggle'), $('monthlyBody'));
