@@ -1002,7 +1002,7 @@
             </div>
             <h4 style="margin:16px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Jobs Done — every item, itemized</h4>
             <table class="data-table">
-              <thead><tr><th>Date</th><th>Ticket</th><th>Item / Material</th><th>Qty × Rate</th><th>GST</th><th>Amount</th><th>Status</th></tr></thead>
+              <thead><tr><th>Date</th><th>Ticket / Invoice</th><th>Item / Material</th><th>Qty × Rate</th><th>GST</th><th>Amount</th><th>Status</th></tr></thead>
               <tbody id="partyJobsBody"><tr class="empty-row"><td colspan="7">—</td></tr></tbody>
               <tfoot><tr><td colspan="5" style="text-align:right; font-weight:700;">Total work done</td><td id="partyJobsTotal" style="font-weight:700;">₹0</td><td></td></tr></tfoot>
             </table>
@@ -1031,7 +1031,7 @@
 
             <div style="display:flex; gap:8px; margin-top:12px;">
               <button class="btn-sm" id="closeLedgerBtn">Close</button>
-              <button class="btn-sm" id="exportPartyLedgerBtn" title="Balance ledger + every job, slip by slip, as an Excel file">⭳ Export to Excel</button>
+              <button class="btn-sm" id="exportPartyLedgerBtn" title="Balance ledger + every job/invoice item, slip by slip, as an Excel file">⭳ Export to Excel</button>
               <button class="btn-sm primary" id="printBalanceSlipBtn">🖨 Print Balance Slip</button>
             </div>
           </div>
@@ -1063,7 +1063,7 @@
           </div>
           <h3 style="margin:22px 0 8px; font-size:14px;">Jobs Done — every item, itemized</h3>
           <table class="li-table" style="font-size:12.5px;">
-            <thead><tr><th>Date</th><th>Ticket</th><th>Item / Material</th><th>Qty × Rate</th><th style="text-align:right;">GST</th><th style="text-align:right;">Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Ticket / Invoice</th><th>Item / Material</th><th>Qty × Rate</th><th style="text-align:right;">GST</th><th style="text-align:right;">Amount</th><th>Status</th></tr></thead>
             <tbody id="bsJobsRows"></tbody>
             <tfoot><tr><td colspan="5" style="text-align:right; font-weight:700;">Total work done</td><td id="bsJobsTotal" class="li-amt"></td><td></td></tr></tfoot>
           </table>
@@ -4327,39 +4327,72 @@
   let currentLedgerEntries = [];
   let currentLedgerParty = null;
   let currentLedgerTickets = [];
+  let currentLedgerInvoices = [];
 
   // "What jobs did we actually do for this client, and for how much" — separate from the
   // debit/credit ledger below, which shows money movement but not the work itself.
-  // One row per LINE ITEM, not per ticket — a client (or Azeem) reading this should be able
+  // One row per LINE ITEM, not per job — a client (or Azeem) reading this should be able
   // to see exactly which material/service (FRC, FLEX, lamination, whatever) went into every
-  // job and what it cost, not a squashed "3 items" summary. Ticket/date/status only print
-  // once per job, on its first item row, so a multi-item job doesn't repeat itself.
-  function buildPartyJobsRows(tickets){
-    if (!tickets.length) return '<tr class="empty-row"><td colspan="7">No jobs recorded yet.</td></tr>';
+  // job and what it cost, not a squashed "3 items" summary.
+  //
+  // Covers BOTH ways a party's work can end up recorded: walk-in job tickets
+  // (job_ticket_items) and formal Sales/Purchase invoices (invoice_items). A party billed
+  // only through invoices previously had nothing here at all — this showed up as "item by
+  // item" exports/statements for them containing just the invoice totals, nothing itemized.
+  function collectPartyLineItems(tickets, invoices){
     const rows = [];
-    tickets.forEach(t => {
+    (tickets || []).forEach(t => {
       const items = (t.job_ticket_items && t.job_ticket_items.length)
         ? t.job_ticket_items
         : [{ description: t.notes || 'Job', quantity: 1, unit: '', rate: Number(t.subtotal), amount: Number(t.subtotal) }];
       const gstPct = Number(t.gst_pct) || 0;
-      const statusBadge = '<span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span>';
-      items.forEach((li, idx) => {
+      items.forEach(li => {
         const lineAmount = Number(li.amount);
         const lineGst = gstPct ? Math.round(lineAmount * gstPct) / 100 : 0;
-        rows.push(
-          '<tr>' +
-            '<td>' + (idx === 0 ? fmtDate(t.created_at) : '') + '</td>' +
-            '<td>' + (idx === 0 ? t.ticket_no : '') + '</td>' +
-            '<td>' + li.description + '</td>' +
-            '<td>' + fmtQty(li.quantity) + (li.unit ? ' ' + li.unit : '') + ' × ' + fmtMoney(li.rate) + '</td>' +
-            '<td class="li-amt">' + (lineGst > 0 ? fmtMoney(lineGst) : '—') + '</td>' +
-            '<td class="li-amt">' + fmtMoney(lineAmount + lineGst) + '</td>' +
-            '<td>' + (idx === 0 ? statusBadge : '') + '</td>' +
-          '</tr>'
-        );
+        rows.push({
+          sortKey: t.created_at, date: fmtDate(t.created_at), source:'Job Ticket', ref: t.ticket_no,
+          description: li.description, qty: Number(li.quantity), unit: li.unit || '', rate: Number(li.rate),
+          gst: lineGst, amount: lineAmount + lineGst, status: t.payment_status.toUpperCase()
+        });
       });
     });
-    return rows.join('');
+    (invoices || []).forEach(inv => {
+      const items = (inv.invoice_items && inv.invoice_items.length)
+        ? inv.invoice_items
+        : [{ description: inv.notes || (inv.type === 'sale' ? 'Sale' : 'Purchase'), quantity:1, unit:'', rate: Number(inv.subtotal), tax_amount:0, line_total: Number(inv.grand_total) }];
+      items.forEach(li => {
+        rows.push({
+          sortKey: inv.invoice_date, date: fmtDate(inv.invoice_date), source: inv.type === 'sale' ? 'Sale' : 'Purchase', ref: inv.invoice_no,
+          description: li.description, qty: Number(li.quantity), unit: li.unit || '', rate: Number(li.rate),
+          gst: Number(li.tax_amount || 0), amount: Number(li.line_total), status: (inv.status || '').toUpperCase()
+        });
+      });
+    });
+    rows.sort((a,b) => String(a.sortKey).localeCompare(String(b.sortKey)));
+    return rows;
+  }
+
+  // Ref/date/status only print once per job/invoice, on the first item row of that group, so a
+  // multi-item job doesn't repeat itself down the column.
+  function buildPartyJobsRows(items){
+    if (!items.length) return '<tr class="empty-row"><td colspan="7">No jobs recorded yet.</td></tr>';
+    let lastRef = null;
+    return items.map(r => {
+      const firstOfGroup = r.ref !== lastRef;
+      lastRef = r.ref;
+      const statusBadge = firstOfGroup
+        ? '<span class="status-badge ' + (r.status === 'PAID' ? 'paid' : 'unpaid') + '">' + r.status.replace(/_/g,' ') + '</span>'
+        : '';
+      return '<tr>' +
+        '<td>' + (firstOfGroup ? r.date : '') + '</td>' +
+        '<td>' + (firstOfGroup ? r.ref : '') + '</td>' +
+        '<td>' + r.description + '</td>' +
+        '<td>' + fmtQty(r.qty) + (r.unit ? ' ' + r.unit : '') + ' × ' + fmtMoney(r.rate) + '</td>' +
+        '<td class="li-amt">' + (r.gst > 0 ? fmtMoney(r.gst) : '—') + '</td>' +
+        '<td class="li-amt">' + fmtMoney(r.amount) + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+      '</tr>';
+    }).join('');
   }
 
   async function openLedger(partyId){
@@ -4373,14 +4406,20 @@
     chip.textContent = fmtMoney(Math.abs(bal)) + (bal > 0 ? ' receivable' : (bal < 0 ? ' payable' : ''));
     chip.className = 'balance-chip ' + (bal > 0 ? 'pos' : (bal < 0 ? 'neg' : 'zero'));
 
+    // invoice_items(*) embedded here too -- a party billed through formal Sales/Purchase
+    // invoices (not job tickets) had NO item-level data fetched anywhere in this function, so
+    // "item by item" export/print for them fell back to just the invoice totals. Now every
+    // party's actual line items are available regardless of which of the two ways their work
+    // got recorded.
     const [{ data: inv }, { data: pay }, { data: tix }] = await Promise.all([
-      supabaseClient.from('invoices').select('*').eq('party_id', partyId).neq('status','cancelled').neq('type','estimate').order('invoice_date'),
+      supabaseClient.from('invoices').select('*, invoice_items(*)').eq('party_id', partyId).neq('status','cancelled').neq('type','estimate').order('invoice_date'),
       supabaseClient.from('payments').select('*').eq('party_id', partyId).order('payment_date'),
       supabaseClient.from('job_tickets').select('*, job_ticket_items(*)').eq('party_id', partyId).neq('status','cancelled').order('created_at')
     ]);
     currentLedgerTickets = tix || [];
-    const jobsTotal = currentLedgerTickets.reduce((s,t) => s + ticketGrandTotal(t), 0);
-    $('partyJobsBody').innerHTML = buildPartyJobsRows(currentLedgerTickets);
+    currentLedgerInvoices = inv || [];
+    const jobsTotal = currentLedgerTickets.reduce((s,t) => s + ticketGrandTotal(t), 0) + currentLedgerInvoices.reduce((s,i) => s + Number(i.grand_total), 0);
+    $('partyJobsBody').innerHTML = buildPartyJobsRows(collectPartyLineItems(currentLedgerTickets, currentLedgerInvoices));
     $('partyJobsTotal').textContent = fmtMoney(jobsTotal);
     await loadPartyCommLog(partyId);
 
@@ -4452,8 +4491,8 @@
     $('bsClosingBalance').textContent = fmtMoney(Math.abs(bal));
     $('bsClosingBalance').className = 'nm ' + (bal > 0 ? 'amt-pos' : (bal < 0 ? 'amt-neg' : ''));
     $('bsClosingLabel').textContent = bal > 0 ? 'Receivable from party' : (bal < 0 ? 'Payable to party' : 'Settled');
-    $('bsJobsRows').innerHTML = buildPartyJobsRows(currentLedgerTickets);
-    $('bsJobsTotal').textContent = fmtMoney(currentLedgerTickets.reduce((s,t) => s + ticketGrandTotal(t), 0));
+    $('bsJobsRows').innerHTML = buildPartyJobsRows(collectPartyLineItems(currentLedgerTickets, currentLedgerInvoices));
+    $('bsJobsTotal').textContent = fmtMoney(currentLedgerTickets.reduce((s,t) => s + ticketGrandTotal(t), 0) + currentLedgerInvoices.reduce((s,i) => s + Number(i.grand_total), 0));
     $('bsRows').innerHTML = currentLedgerEntries.length ? currentLedgerEntries.map(e => '<tr><td>' + e.date + '</td><td>' + e.type + '</td><td>' + e.ref + '</td>' +
       '<td style="text-align:right;">' + (e.debit ? fmtMoney(e.debit) : '—') + '</td><td style="text-align:right;">' + (e.credit ? fmtMoney(e.credit) : '—') + '</td>' +
       '<td class="li-amt">' + fmtMoney(e.balance) + '</td></tr>').join('')
@@ -4464,8 +4503,9 @@
   $('closeBalanceSlipPreview').addEventListener('click', () => $('balanceSlipPreview').classList.remove('show'));
   $('printBalanceSlipDocBtn').addEventListener('click', () => window.print());
 
-  // ---- Excel export for a party: balance summary + debit/credit ledger + every job,
-  // slip by slip (one row per line item, same expansion buildPartyJobsRows uses on screen). ----
+  // ---- Excel export for a party: balance summary + debit/credit ledger + every item, slip by
+  // slip -- collectPartyLineItems() covers both job tickets and formal invoices, so this is a
+  // genuinely complete item-level export regardless of which way the party's work got billed. ----
   $('exportPartyLedgerBtn').addEventListener('click', function(){
     if (!currentLedgerParty) return;
     const p = currentLedgerParty;
@@ -4485,23 +4525,11 @@
       Date: e.date, Type: e.type, Reference: e.ref, Debit: e.debit || 0, Credit: e.credit || 0, 'Running Balance': e.balance
     })) : [{ Date:'—', Type:'—', Reference:'No transactions yet', Debit:0, Credit:0, 'Running Balance':0 }];
 
-    const jobRows = [];
-    currentLedgerTickets.forEach(t => {
-      const items = (t.job_ticket_items && t.job_ticket_items.length)
-        ? t.job_ticket_items
-        : [{ description: t.notes || 'Job', quantity: 1, unit: '', rate: Number(t.subtotal), amount: Number(t.subtotal) }];
-      const gstPct = Number(t.gst_pct) || 0;
-      items.forEach(li => {
-        const lineAmount = Number(li.amount);
-        const lineGst = gstPct ? Math.round(lineAmount * gstPct) / 100 : 0;
-        jobRows.push({
-          Date: fmtDate(t.created_at), Ticket: t.ticket_no, 'Item / Material': li.description,
-          Qty: Number(li.quantity), Unit: li.unit || '', Rate: Number(li.rate),
-          GST: lineGst, Amount: lineAmount + lineGst, Status: t.payment_status.toUpperCase()
-        });
-      });
-    });
-    if (jobRows.length === 0) jobRows.push({ Date:'—', Ticket:'—', 'Item / Material':'No jobs recorded yet', Qty:0, Unit:'', Rate:0, GST:0, Amount:0, Status:'' });
+    const lineItems = collectPartyLineItems(currentLedgerTickets, currentLedgerInvoices);
+    const itemRows = lineItems.length ? lineItems.map(r => ({
+      Date: r.date, Source: r.source, Ref: r.ref, 'Item / Material': r.description,
+      Qty: r.qty, Unit: r.unit, Rate: r.rate, GST: r.gst, Amount: r.amount, Status: r.status.replace(/_/g,' ')
+    })) : [{ Date:'—', Source:'—', Ref:'—', 'Item / Material':'No itemized work recorded yet', Qty:0, Unit:'', Rate:0, GST:0, Amount:0, Status:'' }];
 
     const wb = XLSX.utils.book_new();
     const wsSummary = XLSX.utils.json_to_sheet(summaryRows, { skipHeader: true });
@@ -4512,9 +4540,9 @@
     wsLedger['!cols'] = [{wch:12},{wch:18},{wch:16},{wch:12},{wch:12},{wch:14}];
     XLSX.utils.book_append_sheet(wb, wsLedger, 'Ledger');
 
-    const wsJobs = XLSX.utils.json_to_sheet(jobRows);
-    wsJobs['!cols'] = [{wch:12},{wch:10},{wch:30},{wch:8},{wch:8},{wch:10},{wch:10},{wch:12},{wch:10}];
-    XLSX.utils.book_append_sheet(wb, wsJobs, 'Jobs (slip by slip)');
+    const wsItems = XLSX.utils.json_to_sheet(itemRows);
+    wsItems['!cols'] = [{wch:12},{wch:11},{wch:10},{wch:30},{wch:8},{wch:8},{wch:10},{wch:10},{wch:12},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, wsItems, 'Items (slip by slip)');
 
     const safeName = (p.name || 'Party').replace(/[^\w\- ]/g, '').trim().replace(/\s+/g, '-') || 'Party';
     XLSX.writeFile(wb, safeName + '-Statement-' + todayISO() + '.xlsx');
