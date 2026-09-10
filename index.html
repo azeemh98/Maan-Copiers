@@ -2997,9 +2997,6 @@
         return;
       }
 
-      const { data: nextNum, error: numErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'ticket' });
-      if (numErr) throw numErr;
-      const ticketNo = 'JT-' + String(nextNum).padStart(4, '0');
       const subtotal = computeTicketTotal();
       const gstPct = parseFloat($('tkGstPct').value) || 0;
       const gstAmount = computeTicketGstAmount(subtotal);
@@ -3008,21 +3005,27 @@
 
       const operatorTyped = $('tkOperator').value.trim();
       const matchedOperator = operatorTyped ? resolveOperatorByName(operatorTyped) : null;
-      const { data: tkRow, error: tkErr } = await supabaseClient.from('job_tickets').insert({
-        org_id: currentOrgId, ticket_no: ticketNo, party_id: selectedTicketPartyId,
-        customer_name: $('tkCustomerName').value.trim() || null, phone: $('tkPhone').value.trim() || null,
-        subtotal, gst_pct: gstPct, gst_amount: gstAmount, round_off: roundOff, notes: $('tkNotes').value.trim() || null,
-        expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
-        machine: $('tkMachine').value.trim() || null,
-        assigned_operator_id: matchedOperator ? matchedOperator.id : null,
-        operator_name: operatorTyped || null,
+      // Ticket-number generation and the ticket row itself used to be two separate round trips
+      // (next_invoice_number() RPC, then a plain insert) -- if the insert failed for any
+      // reason, the number had already been consumed with nothing to show for it. Traced a real
+      // gap to exactly this (JT-0257 jumped to JT-0262 after four failed saves). create_job_ticket()
+      // does both in one transaction: either the ticket exists with that number, or the number
+      // was never touched.
+      const { data: tkRow, error: tkErr } = await supabaseClient.rpc('create_job_ticket', {
+        p_org_id: currentOrgId, p_party_id: selectedTicketPartyId,
+        p_customer_name: $('tkCustomerName').value.trim() || null, p_phone: $('tkPhone').value.trim() || null,
+        p_subtotal: subtotal, p_gst_pct: gstPct, p_gst_amount: gstAmount, p_round_off: roundOff,
+        p_notes: $('tkNotes').value.trim() || null,
+        p_expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
+        p_machine: $('tkMachine').value.trim() || null,
+        p_assigned_operator_id: matchedOperator ? matchedOperator.id : null,
+        p_operator_name: operatorTyped || null,
         // A ticket Azad or an admin creates themselves doesn't need to go back to them for
         // approval — everyone else's tickets need that verification before production.
-        approval_status: isTicketApprover ? 'approved' : 'pending',
-        approved_by: isTicketApprover ? currentUserId : null,
-        created_by: currentUserId
-      }).select().single();
+        p_is_approved: isTicketApprover
+      });
       if (tkErr) throw tkErr;
+      const ticketNo = tkRow.ticket_no;
 
       // Fire the "yes, that worked" signal the instant the ticket itself exists, rather than
       // waiting on everything else below (items, stock, invoice, full panel refresh) — that
