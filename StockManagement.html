@@ -5040,7 +5040,12 @@
   function renderPaymentInvoiceOptions(){
     const partyId = $('payParty').value;
     const sel = $('payInvoice');
-    const relevant = [...invoicesSale, ...invoicesPurchase].filter(i => i.party_id === partyId && i.status !== 'cancelled' && i.status !== 'paid');
+    // Match the invoice pool to the payment's direction: money going OUT should only ever
+    // settle what we owe a supplier (Purchase invoices), money coming IN should only ever
+    // settle what a customer owes us (Sale invoices) -- pooling both let a payment get linked
+    // to the wrong kind of invoice for a party who is both a customer and a supplier.
+    const pool = payDirection === 'out' ? invoicesPurchase : invoicesSale;
+    const relevant = pool.filter(i => i.party_id === partyId && i.status !== 'cancelled' && i.status !== 'paid');
     sel.innerHTML = '<option value="">On account (no specific invoice)</option>' + relevant.map(i => '<option value="' + i.id + '">' + i.invoice_no + ' — due ' + fmtMoney(i.grand_total - i.amount_paid) + '</option>').join('');
   }
 
