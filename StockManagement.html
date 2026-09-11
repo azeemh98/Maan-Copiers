@@ -1165,6 +1165,12 @@
         <h2 id="invListTitle">Sale Invoices</h2>
         <div class="search-wrap"><input type="text" id="invSearch" placeholder="Search invoice # or party…"></div>
       </div>
+      <div class="ticket-status-tabs" id="invStatusTabs">
+        <button class="cat-tab active" data-istatus="all">All</button>
+        <button class="cat-tab" data-istatus="unpaid">Unpaid</button>
+        <button class="cat-tab" data-istatus="partially_paid">Partially Paid</button>
+        <button class="cat-tab" data-istatus="paid">Paid</button>
+      </div>
       <table class="data-table">
         <thead><tr><th>Invoice #</th><th>Party</th><th>Date</th><th>Total</th><th>Paid</th><th>Status</th><th></th></tr></thead>
         <tbody id="invoicesTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
@@ -1826,6 +1832,7 @@
   let activeCategory = 'all', searchTerm = '';
   let calYear, calMonth, calSelectedDate = null;
   let invType = 'sale';
+  let invStatusFilter = 'all';
   let lineItems = [];
   let openLedgerPartyId = null;
   let services = [], tickets = [], ticketMaterials = [], operators = [];
@@ -4604,9 +4611,17 @@
     $('invFormTitle').textContent = 'New ' + INV_TYPE_LABEL[t] + (t === 'estimate' ? '' : ' Invoice');
     $('saveInvoiceLabel').textContent = 'Save ' + INV_TYPE_LABEL[t] + (t === 'estimate' ? '' : ' Invoice');
     $('invListTitle').textContent = INV_TYPE_LABEL[t] + (t === 'estimate' ? 's' : ' Invoices');
+    invStatusFilter = 'all';
+    document.querySelectorAll('#invStatusTabs .cat-tab').forEach(b => b.classList.toggle('active', b.dataset.istatus === 'all'));
     renderInvoicePartyOptions();
     renderInvoicesTable();
   }
+  document.querySelectorAll('#invStatusTabs .cat-tab').forEach(btn => btn.addEventListener('click', function(){
+    document.querySelectorAll('#invStatusTabs .cat-tab').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    invStatusFilter = this.dataset.istatus;
+    renderInvoicesTable();
+  }));
 
   function renderInvoicePartyOptions(){
     const sel = $('invParty');
@@ -4637,7 +4652,7 @@
     $('saveInvoiceLabel').textContent = 'Save ' + INV_TYPE_LABEL[invType] + (invType === 'estimate' ? '' : ' Invoice');
   }
   async function startEditInvoice(i){
-    if (!requireAdmin()) return;
+    if (!requireTicketApprover()) return;
     editingInvoiceId = i.id;
     setInvType(i.type); // switches the pill/party-list/title to match, then overridden below for edit mode
     $('invParty').value = i.party_id;
@@ -4859,9 +4874,14 @@
   function renderInvoicesTable(){
     const term = $('invSearch').value.trim().toLowerCase();
     let rows = invoicesForCurrentType().slice();
+    if (invStatusFilter !== 'all') rows = rows.filter(i => i.status === invStatusFilter);
     if (term) rows = rows.filter(i => i.invoice_no.toLowerCase().includes(term) || (i.parties?.name || '').toLowerCase().includes(term));
     const tbody = $('invoicesTableBody');
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No ' + (invType === 'estimate' ? 'estimates' : 'invoices') + ' yet.</td></tr>'; return; }
+    if (rows.length === 0){
+      const noun = invType === 'estimate' ? 'estimates' : 'invoices';
+      const msg = invStatusFilter !== 'all' ? 'No ' + noun + ' match this filter.' : 'No ' + noun + ' yet.';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + msg + '</td></tr>'; return;
+    }
     tbody.innerHTML = rows.map(i => {
       const isEst = i.type === 'estimate';
       return '<tr class="clickable" data-id="' + i.id + '"><td class="item-name">' + i.invoice_no + '</td><td>' + (i.parties?.name || '—') + '</td><td>' + fmtDate(i.invoice_date) + '</td>' +
@@ -4873,7 +4893,7 @@
           // admin_update_invoice() recomputes paid/partially_paid/unpaid from the actual
           // payments on record afterward, so a total that changes on a paid invoice never
           // leaves a stale PAID badge behind.
-          (isAdmin && i.status !== 'cancelled' ? '<button class="inv-edit" data-id="' + i.id + '" title="Fix a typo — edit this ' + (isEst ? 'estimate' : 'invoice') + '">✎</button>' : '') +
+          (isTicketApprover && i.status !== 'cancelled' ? '<button class="inv-edit" data-id="' + i.id + '" title="Fix a typo — edit this ' + (isEst ? 'estimate' : 'invoice') + '">✎</button>' : '') +
           (isEst && i.status === 'draft' ? '<button class="inv-convert" data-id="' + i.id + '" title="Convert to Sale Invoice">➜</button>' : '') +
           (!isEst && i.status !== 'cancelled' && isAdmin ? '<button class="inv-cancel danger" data-id="' + i.id + '" title="Cancel &amp; reverse stock">⦸</button>' : '') +
           (isEst && i.status === 'draft' && isAdmin ? '<button class="inv-cancel danger" data-id="' + i.id + '" title="Cancel estimate">⦸</button>' : '') +
