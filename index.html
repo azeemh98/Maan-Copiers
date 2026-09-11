@@ -4621,8 +4621,9 @@
 
   function newLineRow(){ return { material_id:'', description:'', hsn:'', qty:1, unit:'', rate:0, discount_pct:0, tax_pct:0 }; }
   // ---- Edit an existing invoice/estimate (fix a typo — same in-place-edit pattern as Job
-  // Tickets/Parties/Employees), admin-only since it rewrites a financial document. Blocked once
-  // paid/cancelled -- see admin_update_invoice(), which enforces the same thing server-side. ----
+  // Tickets/Parties/Employees), admin-only since it rewrites a financial document. Blocked only
+  // once cancelled -- editing a paid invoice is allowed too, and admin_update_invoice()
+  // recomputes paid/partially_paid/unpaid from the actual payments afterward, server-side. ----
   let editingInvoiceId = null;
   function resetInvoiceForm(){
     editingInvoiceId = null;
@@ -4868,9 +4869,11 @@
         '<td><span class="status-badge ' + i.status + '">' + i.status.replace('_',' ').toUpperCase() + '</span></td>' +
         '<td><div class="row-actions">' +
           '<button class="inv-view" data-id="' + i.id + '" title="View / Print">👁</button>' +
-          // Editing a paid/cancelled invoice would leave it out of step with payments already
-          // recorded against its old total, so it's only offered while that can't happen yet.
-          (isAdmin && i.status !== 'paid' && i.status !== 'cancelled' ? '<button class="inv-edit" data-id="' + i.id + '" title="Fix a typo — edit this ' + (isEst ? 'estimate' : 'invoice') + '">✎</button>' : '') +
+          // A cancelled invoice stays voided — everything else (including paid) can be edited;
+          // admin_update_invoice() recomputes paid/partially_paid/unpaid from the actual
+          // payments on record afterward, so a total that changes on a paid invoice never
+          // leaves a stale PAID badge behind.
+          (isAdmin && i.status !== 'cancelled' ? '<button class="inv-edit" data-id="' + i.id + '" title="Fix a typo — edit this ' + (isEst ? 'estimate' : 'invoice') + '">✎</button>' : '') +
           (isEst && i.status === 'draft' ? '<button class="inv-convert" data-id="' + i.id + '" title="Convert to Sale Invoice">➜</button>' : '') +
           (!isEst && i.status !== 'cancelled' && isAdmin ? '<button class="inv-cancel danger" data-id="' + i.id + '" title="Cancel &amp; reverse stock">⦸</button>' : '') +
           (isEst && i.status === 'draft' && isAdmin ? '<button class="inv-cancel danger" data-id="' + i.id + '" title="Cancel estimate">⦸</button>' : '') +
