@@ -1131,6 +1131,7 @@
         <div class="hint" id="invGstHint">Set your business state under Settings to auto-split CGST/SGST vs IGST.</div>
       </div>
 
+      <datalist id="invMaterialDatalist"></datalist>
       <table class="li-table">
         <thead><tr><th style="width:22%">Item</th><th>Description</th><th>Qty</th><th>Rate</th><th>Disc %</th><th>Tax %</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
         <tbody id="invLineItems"></tbody>
@@ -2137,6 +2138,7 @@
     renderCalendar();
     renderWastageMaterialSelect();
     renderTicketServiceOptions();
+    renderInvMaterialDatalist();
     await loadWastageEmployeeOptions();
     await populateEmployeeNameSelect($('movEmployee'));
     renderWastageTable();
@@ -4624,10 +4626,25 @@
   }
   $('addLineBtn').addEventListener('click', () => { lineItems.push(newLineRow()); renderLineItems(); });
 
-  function materialOptionsHtml(selectedId){
-    let html = '<option value="">— free text —</option>';
-    materials.filter(m => m.is_active).forEach(m => html += '<option value="' + m.material_id + '"' + (m.material_id === selectedId ? ' selected' : '') + '>' + m.name + '</option>');
-    return html;
+  // "Item" on a Sales & Purchases line used to be a plain <select> -- opening it dumped the
+  // whole stock catalog to scroll through. Same type-to-search pattern the ticket form's
+  // Service/Stock Item box already uses: one shared datalist, type a few letters to narrow it
+  // down instead of hunting through every item.
+  let invMaterialLookupByLabel = {};
+  function invMaterialLabelFor(materialId){
+    if (!materialId) return '';
+    const m = materials.find(x => x.material_id === materialId);
+    return m ? m.name + ' — ' + m.category : '';
+  }
+  function renderInvMaterialDatalist(){
+    invMaterialLookupByLabel = {};
+    let html = '';
+    materials.filter(m => m.is_active).forEach(m => {
+      const label = m.name + ' — ' + m.category;
+      invMaterialLookupByLabel[label] = m;
+      html += '<option value="' + label.replace(/"/g,'&quot;') + '"></option>';
+    });
+    $('invMaterialDatalist').innerHTML = html;
   }
   function taxOptionsHtml(selected){
     return TAX_RATES.map(r => '<option value="' + r + '"' + (r === selected ? ' selected' : '') + '>' + r + '%</option>').join('');
@@ -4639,7 +4656,7 @@
       const taxable = li.qty * li.rate * (1 - li.discount_pct/100);
       const taxAmt = taxable * li.tax_pct/100;
       return '<tr data-idx="' + idx + '">' +
-        '<td><select class="li-material">' + materialOptionsHtml(li.material_id) + '</select></td>' +
+        '<td><input type="text" class="li-material" list="invMaterialDatalist" value="' + invMaterialLabelFor(li.material_id).replace(/"/g,'&quot;') + '" placeholder="Search item or leave blank for free text…" autocomplete="off"></td>' +
         '<td><input type="text" class="li-desc" value="' + (li.description || '').replace(/"/g,'&quot;') + '" placeholder="Description"></td>' +
         '<td><input type="number" class="li-qty" value="' + li.qty + '" min="0.01" step="0.01" style="width:70px;"></td>' +
         '<td><input type="number" class="li-rate" value="' + li.rate + '" min="0" step="0.01" style="width:85px;"></td>' +
@@ -4651,10 +4668,12 @@
 
     tbody.querySelectorAll('tr').forEach(tr => {
       const idx = parseInt(tr.dataset.idx);
-      tr.querySelector('.li-material').addEventListener('change', function(){
-        const m = materials.find(x => x.material_id === this.value);
-        lineItems[idx].material_id = this.value;
-        if (m){ lineItems[idx].description = m.name; lineItems[idx].unit = m.unit; }
+      tr.querySelector('.li-material').addEventListener('input', function(){
+        const m = invMaterialLookupByLabel[this.value];
+        if (!m){ lineItems[idx].material_id = ''; return; } // typed free text, or still typing — not a match yet
+        lineItems[idx].material_id = m.material_id;
+        lineItems[idx].description = m.name;
+        lineItems[idx].unit = m.unit;
         renderLineItems(); updateTotals();
       });
       tr.querySelector('.li-desc').addEventListener('input', function(){ lineItems[idx].description = this.value; });
