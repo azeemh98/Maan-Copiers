@@ -1153,7 +1153,10 @@
         <input type="text" id="invNotes" placeholder="Terms, delivery notes, etc.">
       </div>
 
-      <button class="add-btn save-btn" id="saveInvoiceBtn"><span id="saveInvoiceLabel">Save Sale Invoice</span><span></span></button>
+      <div style="display:flex; gap:10px;">
+        <button class="add-btn save-btn" id="saveInvoiceBtn" style="margin-top:16px;"><span id="saveInvoiceLabel">Save Sale Invoice</span><span></span></button>
+        <button class="btn-sm" id="cancelInvoiceEditBtn" style="display:none; margin-top:16px;">Cancel Edit</button>
+      </div>
       <div class="status-msg" id="invoiceStatus"></div>
     </section>
 
@@ -4617,13 +4620,44 @@
   });
 
   function newLineRow(){ return { material_id:'', description:'', hsn:'', qty:1, unit:'', rate:0, discount_pct:0, tax_pct:0 }; }
+  // ---- Edit an existing invoice/estimate (fix a typo — same in-place-edit pattern as Job
+  // Tickets/Parties/Employees), admin-only since it rewrites a financial document. Blocked once
+  // paid/cancelled -- see admin_update_invoice(), which enforces the same thing server-side. ----
+  let editingInvoiceId = null;
   function resetInvoiceForm(){
+    editingInvoiceId = null;
     lineItems = [newLineRow()];
     renderLineItems();
     $('invNotes').value = '';
     $('invDate').value = todayISO(); $('invDueDate').value = '';
     $('invPlaceOfSupply').value = '';
+    $('cancelInvoiceEditBtn').style.display = 'none';
+    $('invFormTitle').textContent = 'New ' + INV_TYPE_LABEL[invType] + (invType === 'estimate' ? '' : ' Invoice');
+    $('saveInvoiceLabel').textContent = 'Save ' + INV_TYPE_LABEL[invType] + (invType === 'estimate' ? '' : ' Invoice');
   }
+  async function startEditInvoice(i){
+    if (!requireAdmin()) return;
+    editingInvoiceId = i.id;
+    setInvType(i.type); // switches the pill/party-list/title to match, then overridden below for edit mode
+    $('invParty').value = i.party_id;
+    $('invDate').value = i.invoice_date;
+    $('invDueDate').value = i.due_date || '';
+    $('invPlaceOfSupply').value = i.place_of_supply || '';
+    $('invNotes').value = i.notes || '';
+    const { data: items } = await supabaseClient.from('invoice_items').select('*').eq('invoice_id', i.id);
+    lineItems = (items && items.length) ? items.map(li => ({
+      material_id: li.material_id || '', description: li.description || '', hsn: li.hsn_code || '',
+      qty: Number(li.quantity), unit: li.unit || '', rate: Number(li.rate),
+      discount_pct: Number(li.discount_pct) || 0, tax_pct: Number(li.tax_pct) || 0
+    })) : [newLineRow()];
+    renderLineItems();
+    const typeLabel = INV_TYPE_LABEL[i.type] + (i.type === 'estimate' ? '' : ' Invoice');
+    $('invFormTitle').textContent = '✎ Edit ' + typeLabel + ' — ' + i.invoice_no;
+    $('saveInvoiceLabel').textContent = 'Update ' + typeLabel;
+    $('cancelInvoiceEditBtn').style.display = 'inline-flex';
+    $('invParty').closest('section').scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+  $('cancelInvoiceEditBtn').addEventListener('click', resetInvoiceForm);
   $('addLineBtn').addEventListener('click', () => { lineItems.push(newLineRow()); renderLineItems(); });
 
   // "Item" on a Sales & Purchases line used to be a plain <select> -- opening it dumped the
@@ -4734,6 +4768,26 @@
     if (validLines.length === 0){ showStatus(statusEl, 'Add at least one line item.', false); return; }
     this.disabled = true;
     try {
+      if (editingInvoiceId){
+        const itemsPayload = validLines.map(li => ({
+          material_id: li.material_id || '',
+          description: li.description.trim() || (materials.find(m => m.material_id === li.material_id)?.name) || 'Item',
+          hsn_code: li.hsn || '', quantity: li.qty, unit: li.unit || '', rate: li.rate,
+          discount_pct: li.discount_pct, tax_pct: li.tax_pct
+        }));
+        const { error } = await supabaseClient.rpc('admin_update_invoice', {
+          p_invoice_id: editingInvoiceId, p_party_id: partyId, p_invoice_date: $('invDate').value || todayISO(),
+          p_due_date: $('invDueDate').value || null, p_place_of_supply: $('invPlaceOfSupply').value.trim() || null,
+          p_notes: $('invNotes').value.trim() || null, p_items: itemsPayload
+        });
+        if (error) throw error;
+        showStatus(statusEl, 'Updated.', true);
+        resetInvoiceForm();
+        await Promise.all([ refreshStockPanel(), loadInvoices(), loadPartiesAndBalances() ]);
+        renderInvoicesTable(); renderPartiesTable(); renderOutstandingSummary(); renderPaymentPartyOptions();
+        return;
+      }
+
       const { data: nextNum, error: numErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: invType });
       if (numErr) throw numErr;
       const prefix = invType === 'sale' ? 'INV' : (invType === 'purchase' ? 'PUR' : 'EST');
@@ -4814,12 +4868,20 @@
         '<td><span class="status-badge ' + i.status + '">' + i.status.replace('_',' ').toUpperCase() + '</span></td>' +
         '<td><div class="row-actions">' +
           '<button class="inv-view" data-id="' + i.id + '" title="View / Print">👁</button>' +
+          // Editing a paid/cancelled invoice would leave it out of step with payments already
+          // recorded against its old total, so it's only offered while that can't happen yet.
+          (isAdmin && i.status !== 'paid' && i.status !== 'cancelled' ? '<button class="inv-edit" data-id="' + i.id + '" title="Fix a typo — edit this ' + (isEst ? 'estimate' : 'invoice') + '">✎</button>' : '') +
           (isEst && i.status === 'draft' ? '<button class="inv-convert" data-id="' + i.id + '" title="Convert to Sale Invoice">➜</button>' : '') +
           (!isEst && i.status !== 'cancelled' && isAdmin ? '<button class="inv-cancel danger" data-id="' + i.id + '" title="Cancel &amp; reverse stock">⦸</button>' : '') +
           (isEst && i.status === 'draft' && isAdmin ? '<button class="inv-cancel danger" data-id="' + i.id + '" title="Cancel estimate">⦸</button>' : '') +
         '</div></td></tr>';
     }).join('');
     tbody.querySelectorAll('.inv-view').forEach(btn => btn.addEventListener('click', function(e){ e.stopPropagation(); viewInvoice(this.dataset.id); }));
+    tbody.querySelectorAll('.inv-edit').forEach(btn => btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const i = rows.find(x => x.id === this.dataset.id);
+      if (i) startEditInvoice(i);
+    }));
     tbody.querySelectorAll('.inv-convert').forEach(btn => btn.addEventListener('click', async function(e){
       e.stopPropagation();
       const est = rows.find(x => x.id === this.dataset.id);
