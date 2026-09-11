@@ -885,6 +885,36 @@
           </table>
         </section>
 
+        <!-- Job Costs — logs what a specific job actually cost (paper from one supplier,
+             printing outsourced to another, etc.) against that ticket, so it's possible to see
+             Billed vs Cost vs Profit per job instead of the supplier bills and the client bill
+             being three separate, unlinked records. Hidden until the 💰 button on a ticket row
+             opens it for that ticket. -->
+        <section class="card" id="ticketCostsPanel" style="display:none;">
+          <div class="table-head-row">
+            <h2 id="tcpTitle">Job Costs</h2>
+            <button class="btn-sm" id="closeTicketCosts">Close</button>
+          </div>
+          <div class="hint" id="tcpSubtitle"></div>
+          <div style="display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;">
+            <div class="stat-card" style="flex:1; min-width:140px;"><div class="s-label">Billed</div><div class="s-val" id="tcpBilled">—</div></div>
+            <div class="stat-card" style="flex:1; min-width:140px;"><div class="s-label">Total Cost</div><div class="s-val" id="tcpCost">—</div></div>
+            <div class="stat-card ok" style="flex:1; min-width:140px;" id="tcpProfitCard"><div class="s-label">Profit</div><div class="s-val" id="tcpProfit">—</div></div>
+          </div>
+          <div class="row3">
+            <div class="field"><label for="tcDescription">What was it for</label><input type="text" id="tcDescription" placeholder="e.g. Paper from Shop A, Printing at Shop B"></div>
+            <div class="field"><label for="tcParty">Supplier (optional)</label><select id="tcParty"><option value="">— not linked to a saved party —</option></select></div>
+            <div class="field"><label for="tcAmount">Amount (₹)</label><input type="number" id="tcAmount" min="0.01" step="0.01"></div>
+          </div>
+          <div class="field" style="max-width:220px;"><label for="tcDate">Date</label><input type="date" id="tcDate"></div>
+          <button class="add-btn save-btn" id="addTicketCostBtn"><span>Add Cost</span><span></span></button>
+          <div class="status-msg" id="ticketCostStatus"></div>
+          <table class="data-table" style="margin-top:16px;">
+            <thead><tr><th>Date</th><th>Description</th><th>Supplier</th><th>Amount</th><th></th></tr></thead>
+            <tbody id="ticketCostsTableBody"><tr class="empty-row"><td colspan="5">No costs logged yet.</td></tr></tbody>
+          </table>
+        </section>
+
       </div>
 
       <!-- The print preview lives here (not in main-col below the table) and the whole sidebar
@@ -3290,6 +3320,7 @@
             '<button class="tk-view" data-id="' + t.id + '" title="View / Print">🖨</button>' +
             (isTicketApprover && pending ? '<button class="tk-approve" data-id="' + t.id + '" title="Approve as-is">✓</button>' : '') +
             (isTicketApprover ? '<button class="tk-edit" data-id="' + t.id + '" title="Verify / edit ticket">✎</button>' : '') +
+            (!isWalkinOnly ? '<button class="tk-costs" data-id="' + t.id + '" title="Log costs (materials/outsourcing) against this job">💰</button>' : '') +
             (t.payment_status !== 'paid' && !isWalkinOnly ? '<button class="tk-pay" data-id="' + t.id + '" title="Mark paid">₹</button>' : '') +
             (isTicketApprover ? '<button class="tk-delete danger" data-id="' + t.id + '" title="Delete ticket">✕</button>' : '') +
           '</div></td></tr>';
@@ -3318,6 +3349,10 @@
       const t = currentlyRenderedTickets.get(this.dataset.id);
       if (t) startEditTicket(t);
     }));
+    tbody.querySelectorAll('.tk-costs').forEach(btn => btn.addEventListener('click', function(){
+      const t = currentlyRenderedTickets.get(this.dataset.id);
+      if (t) openTicketCosts(t);
+    }));
     tbody.querySelectorAll('.tk-pay').forEach(btn => btn.addEventListener('click', async function(){
       const t = currentlyRenderedTickets.get(this.dataset.id);
       await markTicketPaid(t);
@@ -3336,6 +3371,83 @@
       await refreshStockPanel(); // deleting reverses any stock this ticket's items had deducted
     }));
   }
+
+  // ---- Job Costs — see the id="ticketCostsPanel" markup for why this exists: it's the link
+  // between what a job was billed for and what it actually cost (materials bought from one
+  // supplier, printing outsourced to another), which nothing else in the app ties together. ----
+  let activeCostTicketId = null;
+  function renderTicketCostPartyOptions(){
+    const sel = $('tcParty');
+    const relevant = parties.filter(p => p.is_active && (p.type === 'supplier' || p.type === 'both'));
+    sel.innerHTML = '<option value="">— not linked to a saved party —</option>' + relevant.map(p => '<option value="' + p.id + '">' + p.name + '</option>').join('');
+  }
+  async function openTicketCosts(ticket){
+    if (isWalkinOnly){ alert('You are not authorized for this.'); return; }
+    activeCostTicketId = ticket.id;
+    $('tcpTitle').textContent = 'Job Costs — ' + ticket.ticket_no;
+    $('tcpSubtitle').textContent = (ticket.customer_name || 'Walk-in') + ' · billed ' + fmtMoney(ticketGrandTotal(ticket));
+    $('tcDescription').value = ''; $('tcAmount').value = ''; $('tcDate').value = todayISO();
+    renderTicketCostPartyOptions();
+    $('tcParty').value = '';
+    $('ticketCostsPanel').style.display = 'block';
+    await refreshTicketCostsView(ticket);
+    $('ticketCostsPanel').scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+  $('closeTicketCosts').addEventListener('click', function(){
+    $('ticketCostsPanel').style.display = 'none';
+    activeCostTicketId = null;
+  });
+  async function refreshTicketCostsView(ticket){
+    const { data, error } = await supabaseClient.from('job_ticket_costs').select('*, parties(name)')
+      .eq('ticket_id', ticket.id).order('cost_date', { ascending:false }).order('created_at', { ascending:false });
+    renderTicketCostsTable(error ? [] : (data || []), ticket);
+  }
+  function renderTicketCostsTable(costRows, ticket){
+    const tbody = $('ticketCostsTableBody');
+    if (costRows.length === 0){
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No costs logged yet.</td></tr>';
+    } else {
+      tbody.innerHTML = costRows.map(c => '<tr><td>' + fmtDate(c.cost_date) + '</td><td>' + c.description + '</td><td>' + (c.parties?.name || '—') + '</td><td>' + fmtMoney(c.amount) + '</td>' +
+        '<td>' + (isAdmin ? '<button class="tc-delete danger" data-id="' + c.id + '" title="Remove">✕</button>' : '') + '</td></tr>').join('');
+      tbody.querySelectorAll('.tc-delete').forEach(btn => btn.addEventListener('click', async function(){
+        if (!window.confirm('Remove this cost entry?')) return;
+        this.disabled = true;
+        const { error } = await supabaseClient.from('job_ticket_costs').delete().eq('id', this.dataset.id);
+        if (error){ alert(error.message); this.disabled = false; return; }
+        await refreshTicketCostsView(ticket);
+      }));
+    }
+    const totalCost = costRows.reduce((s,c) => s + Number(c.amount), 0);
+    // Billed uses the same grand total (incl. GST) shown everywhere else on a ticket, for
+    // consistency with the Amount column, Machine Board, and thermal slip.
+    const billed = ticketGrandTotal(ticket);
+    const profit = billed - totalCost;
+    $('tcpBilled').textContent = fmtMoney(billed);
+    $('tcpCost').textContent = fmtMoney(totalCost);
+    $('tcpProfit').textContent = fmtMoney(profit);
+    $('tcpProfitCard').className = 'stat-card ' + (profit >= 0 ? 'ok' : 'danger');
+  }
+  $('addTicketCostBtn').addEventListener('click', async function(){
+    const statusEl = $('ticketCostStatus');
+    if (!activeCostTicketId) return;
+    const description = $('tcDescription').value.trim();
+    const amount = parseFloat($('tcAmount').value);
+    if (!description){ showStatus(statusEl, 'Describe what this cost was for.', false); return; }
+    if (!amount || amount <= 0){ showStatus(statusEl, 'Enter an amount greater than 0.', false); return; }
+    this.disabled = true;
+    try {
+      const { error } = await supabaseClient.from('job_ticket_costs').insert({
+        org_id: currentOrgId, ticket_id: activeCostTicketId, party_id: $('tcParty').value || null,
+        description, amount, cost_date: $('tcDate').value || todayISO(), created_by: currentUserId
+      });
+      if (error) throw error;
+      showStatus(statusEl, 'Cost added.', true);
+      $('tcDescription').value = ''; $('tcAmount').value = ''; $('tcParty').value = '';
+      const ticket = currentlyRenderedTickets.get(activeCostTicketId);
+      if (ticket) await refreshTicketCostsView(ticket);
+    } catch (err){ showStatus(statusEl, err.message || 'Could not add cost.', false); }
+    finally { this.disabled = false; }
+  });
 
   function renderTicketStats(){
     const start = new Date(); start.setHours(0,0,0,0);
