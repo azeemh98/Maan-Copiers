@@ -935,6 +935,17 @@
           <div class="stat-card ok" style="margin-bottom:10px;"><div class="s-label">Jobs Today</div><div class="s-val" id="tkStatToday">—</div></div>
           <div class="stat-card"><div class="s-label">Cash Collected Today</div><div class="s-val" id="tkStatCashToday">—</div></div>
         </section>
+        <section class="card">
+          <label class="hint" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="autoPrintOnPay" style="width:auto;">
+            🖨 Auto-print slip when marking a ticket paid
+          </label>
+          <div class="hint" style="margin-top:6px;">
+            Needs this PC's browser set to skip the print dialog (Chrome kiosk-printing), otherwise
+            this just opens the normal print dialog automatically. A per-device setting — turn it
+            off here on any PC where you don't want it.
+          </div>
+        </section>
       </aside>
     </div>
   </section>
@@ -3787,6 +3798,15 @@
   $('closeTicketPreview').addEventListener('click', () => $('ticketPreview').classList.remove('show'));
   $('printTicketBtn').addEventListener('click', () => window.print());
 
+  // Per-device setting (not per-org — a PC without kiosk-printing set up shouldn't be forced
+  // into a surprise print dialog every time a ticket gets marked paid), see the checkbox's own
+  // hint text for what kiosk-printing means. Defaults on since that's what was asked for.
+  const autoPrintCheckbox = $('autoPrintOnPay');
+  autoPrintCheckbox.checked = localStorage.getItem('mc_autoprint_on_pay') !== 'off';
+  autoPrintCheckbox.addEventListener('change', function(){
+    localStorage.setItem('mc_autoprint_on_pay', this.checked ? 'on' : 'off');
+  });
+
   // ---- Mark paid: creates a Sale invoice + Payment against a shared Walk-in party ----
   async function ensureWalkInParty(){
     if (walkInPartyId) return walkInPartyId;
@@ -3852,6 +3872,15 @@
 
         const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode, invoice_id: invRow.id }).eq('id', ticket.id);
         if (tkErr) throw tkErr;
+      }
+      // Auto-print, if this device has it turned on: the whole point of "Mark Paid" firing
+      // print is that the payment moment (QR scanned, cash handed over) is also naturally the
+      // moment the slip should come out. window.print() still opens the OS dialog unless this
+      // PC's browser is set to kiosk-printing -- see the checkbox's own hint text.
+      if ($('autoPrintOnPay').checked){
+        const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticket.id);
+        openTicketPrintPreview({ ...ticket, payment_status:'paid', payment_mode: mode }, items || []);
+        window.print();
       }
       await Promise.all([ refreshTicketsPanel(), loadPartiesAndBalances() ]);
       renderPartiesTable(); renderOutstandingSummary();
