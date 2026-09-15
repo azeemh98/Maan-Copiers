@@ -150,6 +150,14 @@
   .show-inactive-wrap input{ width:auto; }
 
   table.data-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  /* Mobile: a table row with several row-actions icon buttons (view/edit/pay/delete/etc, up to
+     6 on some tables) refuses to shrink below their combined width because .row-actions is
+     white-space:nowrap flex with no wrap allowed. With nothing here to contain that overflow,
+     the WHOLE PAGE quietly became wider than a phone's screen -- which is exactly what makes a
+     mobile browser zoom everything out to fit, reported as "it looks very small". Every
+     .data-table gets wrapped (see the JS right after the $ helper) in a scrollable box instead,
+     so only the table itself scrolls sideways and the rest of the page stays full-size. */
+  .table-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
   /* Smooths the brief dim-while-fetching state the day navigator uses instead of wiping a
      day-grouped table to a "Loading…" placeholder (that swap-to-empty-then-back is what read as
      a blink) -- this just fades the existing rows down and back up around the swap. */
@@ -1683,6 +1691,16 @@
 <script>
 (function(){
   const $ = id => document.getElementById(id);
+
+  // Wraps every data table (all of them are static <table> markup in the HTML -- only their
+  // <tbody> rows get filled in by JS later, so this one pass at load time catches all of them)
+  // in a horizontally-scrollable box. See the .table-scroll CSS rule for why this exists.
+  document.querySelectorAll('table.data-table').forEach(t => {
+    const wrap = document.createElement('div');
+    wrap.className = 'table-scroll';
+    t.parentNode.insertBefore(wrap, t);
+    wrap.appendChild(t);
+  });
 
   // ============================ SUPABASE ============================
   const SUPABASE_URL = 'https://yymwifdmuwmhlfwgcjrj.supabase.co';
