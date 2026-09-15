@@ -794,7 +794,10 @@
         <section class="card">
           <div class="table-head-row">
             <h2>Daily Print Counter Log</h2>
-            <div class="search-wrap"><input type="text" id="mcSearch" placeholder="Search machine…"></div>
+            <div class="search-wrap">
+              <input type="text" id="mcSearch" placeholder="Search machine…">
+              <button class="export-btn" id="exportMachineCounterBtn">⭳ Export to Excel</button>
+            </div>
           </div>
           <table class="data-table">
             <thead><tr><th>Date</th><th>Machine</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
@@ -4299,6 +4302,17 @@
       .sort((a,b) => b.reading_date.localeCompare(a.reading_date))[0] || null;
   }
 
+  // Shared by the table render and the Excel export so the two can never drift apart on what
+  // "today's count" actually means.
+  function machineCounterDeltasFor(r){
+    const prev = prevMachineReadingFor(r.machine, r.reading_date);
+    const printsToday = prev ? (Number(r.total_counter) - Number(prev.total_counter)) : null;
+    const duplexDelta = prev ? Math.max(0, Number(r.duplex_counter) - Number(prev.duplex_counter)) : null;
+    const singleDelta = prev ? Math.max(0, Number(r.single_counter) - Number(prev.single_counter)) : null;
+    const sheetsDeducted = r.material_id && duplexDelta !== null ? duplexDelta + singleDelta : null;
+    return { printsToday, duplexDelta, singleDelta, sheetsDeducted };
+  }
+
   $('mcSearch').addEventListener('input', renderMachineCounterTable);
   function renderMachineCounterTable(){
     const term = $('mcSearch').value.trim().toLowerCase();
@@ -4307,11 +4321,7 @@
     const tbody = $('machineCounterTableBody');
     if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No readings logged yet.</td></tr>'; return; }
     tbody.innerHTML = rows.map(r => {
-      const prev = prevMachineReadingFor(r.machine, r.reading_date);
-      const printsToday = prev ? (Number(r.total_counter) - Number(prev.total_counter)) : null;
-      const duplexDelta = prev ? Math.max(0, Number(r.duplex_counter) - Number(prev.duplex_counter)) : null;
-      const singleDelta = prev ? Math.max(0, Number(r.single_counter) - Number(prev.single_counter)) : null;
-      const sheetsDeducted = r.material_id && duplexDelta !== null ? duplexDelta + singleDelta : null;
+      const { printsToday, duplexDelta, singleDelta, sheetsDeducted } = machineCounterDeltasFor(r);
       return '<tr><td>' + fmtDate(r.reading_date) + '</td><td class="item-name">' + r.machine + '</td><td>' + fmtQty(r.total_counter) + '</td>' +
         '<td>' + (printsToday === null ? '<span class="item-cat">first reading</span>' : fmtQty(printsToday)) + '</td>' +
         '<td>' + (duplexDelta === null ? '—' : fmtQty(duplexDelta)) + '</td>' +
@@ -4334,6 +4344,34 @@
     renderMachineCounterMaterialOptions();
     renderMachineCounterTable();
   }
+
+  $('exportMachineCounterBtn').addEventListener('click', function(){
+    const term = $('mcSearch').value.trim().toLowerCase();
+    let rows = machineCounterReadings.slice();
+    if (term) rows = rows.filter(r => r.machine.toLowerCase().includes(term));
+    // Oldest first in the export, since a day-by-day sheet reads naturally top-to-bottom --
+    // the on-screen table is newest-first for quick glancing, but a spreadsheet someone will
+    // scroll through and hand to an accountant reads better in date order.
+    rows = rows.slice().sort((a,b) => a.reading_date.localeCompare(b.reading_date) || a.machine.localeCompare(b.machine));
+    if (rows.length === 0){ alert('Nothing to export yet — log at least one reading first.'); return; }
+    const excelRows = rows.map(r => {
+      const { printsToday, duplexDelta, singleDelta, sheetsDeducted } = machineCounterDeltasFor(r);
+      const linkedMaterial = r.material_id ? (materials.find(m => m.material_id === r.material_id)?.name || '—') : '—';
+      return {
+        Date: r.reading_date, Machine: r.machine, 'Total Counter': Number(r.total_counter),
+        'Prints Today': printsToday === null ? 'first reading' : printsToday,
+        'Duplex Counter': Number(r.duplex_counter), 'Duplex Today': duplexDelta === null ? '' : duplexDelta,
+        'Single Counter': Number(r.single_counter), 'Single Today': singleDelta === null ? '' : singleDelta,
+        'Sheets Deducted': sheetsDeducted === null ? '' : sheetsDeducted,
+        'Linked Stock Item': linkedMaterial
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(excelRows);
+    ws['!cols'] = [{wch:12},{wch:18},{wch:13},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:20}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Machine Counter');
+    XLSX.writeFile(wb, 'Machine-Print-Counter-' + todayISO() + '.xlsx');
+  });
 
   $('saveMachineCounterBtn').addEventListener('click', async function(){
     const statusEl = $('machineCounterStatus');
