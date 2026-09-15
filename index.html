@@ -47,7 +47,7 @@
      the Job Status Board) -- but logging/editing a counter reading is still staff-with-
      business-data-access only, same as Mark Paid and Job Costs. Hide the two cards for them
      here rather than leave a panel they'd only hit an RLS rejection on. */
-  body.is-walkin-only #machineCounterStats, body.is-walkin-only #machineCounterSection, body.is-walkin-only #machineCounterLogSection{ display:none !important; }
+  body.is-walkin-only #machineCounterStats, body.is-walkin-only #mcCalWrap, body.is-walkin-only #machineCounterSection, body.is-walkin-only #machineCounterLogSection{ display:none !important; }
   body.is-operator .nav-tab:not([data-nav="machine"]):not([data-nav="tasks"]){ display:none !important; }
 
   /* Printing-shop graphics */
@@ -977,6 +977,24 @@
     <!-- One Total Counter / Today's Counter stat pair per machine -- same at-a-glance style as
          Today's Walk-in Jobs, so the headline numbers don't need digging through the log below. -->
     <div id="machineCounterStats" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
+
+    <!-- Same calendar widget as Stock's Monthly Record — reused wholesale (.cal-head/.cal-grid/
+         .cal-day CSS) for date-wise browsing instead of only a flat scrolling log. -->
+    <section class="card" id="mcCalWrap">
+      <h2 class="collapsible" id="mcCalToggle"><span>Calendar — KONIKA MINOLTA</span><span class="chev">▶</span></h2>
+      <div id="mcCalBody" style="display:none; margin-top:18px;">
+        <div class="cal-head">
+          <div class="cal-nav">
+            <button id="mcCalPrev">‹</button>
+            <div class="cal-month" id="mcCalMonthLabel">—</div>
+            <button id="mcCalNext">›</button>
+          </div>
+          <button class="btn-sm" id="mcCalTodayBtn">This month</button>
+        </div>
+        <div class="cal-grid" id="mcCalGrid"></div>
+        <div id="mcCalDayDetail"></div>
+      </div>
+    </section>
 
     <!-- Machine Print Counter — a daily reading off a machine's own Utility/Counter screen
          (Total, Duplex, Single). The app diffs each reading against the previous day's for
@@ -2253,6 +2271,7 @@
     renderInvMaterialDatalist();
     renderMachineCounterMaterialOptions();
     renderMachineCounterStats();
+    renderMachineCounterCalendar();
     renderMachineCounterTable();
     await loadWastageEmployeeOptions();
     await populateEmployeeNameSelect($('movEmployee'));
@@ -4388,6 +4407,66 @@
       '<div class="stat-card ok" style="flex:1; min-width:170px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Today\'s Counter</div><div class="s-val">' + todaysLabel + '</div></div>';
   }
 
+  // ---- Calendar — reuses the exact .cal-head/.cal-grid/.cal-day widget Stock's Monthly
+  // Record uses, for the same date-wise browsing instead of only a flat scrolling log. ----
+  let mcCalYear, mcCalMonth, mcCalSelectedDate = null;
+  toggleCollapsible($('mcCalToggle'), $('mcCalBody'));
+  (function(){ const n = new Date(); mcCalYear = n.getFullYear(); mcCalMonth = n.getMonth(); })();
+  $('mcCalPrev').addEventListener('click', () => { mcCalMonth--; if (mcCalMonth < 0){ mcCalMonth = 11; mcCalYear--; } mcCalSelectedDate = null; renderMachineCounterCalendar(); });
+  $('mcCalNext').addEventListener('click', () => { mcCalMonth++; if (mcCalMonth > 11){ mcCalMonth = 0; mcCalYear++; } mcCalSelectedDate = null; renderMachineCounterCalendar(); });
+  $('mcCalTodayBtn').addEventListener('click', () => { const n = new Date(); mcCalYear = n.getFullYear(); mcCalMonth = n.getMonth(); mcCalSelectedDate = null; renderMachineCounterCalendar(); });
+
+  function renderMachineCounterCalendar(){
+    $('mcCalMonthLabel').textContent = MONTH_NAMES[mcCalMonth] + ' ' + mcCalYear;
+    const monthStart = new Date(mcCalYear, mcCalMonth, 1);
+    const daysInMonth = new Date(mcCalYear, mcCalMonth + 1, 0).getDate();
+    const firstDow = monthStart.getDay();
+    const todayStr = todayISO();
+    const rowsByDate = new Map(combinedMachineCounterRows().map(r => [r.reading_date, r]));
+
+    let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => '<div class="cal-dow">' + d + '</div>').join('');
+    for (let i = 0; i < firstDow; i++) html += '<div class="cal-day empty"></div>';
+    for (let d = 1; d <= daysInMonth; d++){
+      const dateStr = mcCalYear + '-' + String(mcCalMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+      const r = rowsByDate.get(dateStr);
+      const isToday = dateStr === todayStr;
+      const isSel = dateStr === mcCalSelectedDate;
+      let indicator = '';
+      if (r){
+        const hasReading = r.total_counter !== null && r.total_counter !== undefined;
+        const { printsToday, estSheets, slipCount } = machineCounterDeltasFor(r);
+        if (hasReading && printsToday !== null) indicator = '<div class="din">' + fmtQty(printsToday) + '</div>';
+        else if (hasReading) indicator = '<div class="din">read</div>';
+        else if (slipCount > 0) indicator = '<div class="dout">~' + fmtQty(estSheets) + '</div>';
+      }
+      html += '<div class="cal-day' + (isToday ? ' today' : '') + (isSel ? ' selected' : '') + '" data-date="' + dateStr + '"><div class="dnum">' + d + '</div>' + indicator + '</div>';
+    }
+    $('mcCalGrid').innerHTML = html;
+    $('mcCalGrid').querySelectorAll('.cal-day[data-date]').forEach(cell => cell.addEventListener('click', function(){
+      mcCalSelectedDate = this.dataset.date;
+      renderMachineCounterCalendar();
+    }));
+    if (mcCalSelectedDate) renderMachineCounterCalDayDetail(rowsByDate.get(mcCalSelectedDate), mcCalSelectedDate);
+    else $('mcCalDayDetail').innerHTML = '';
+  }
+
+  function renderMachineCounterCalDayDetail(r, dateStr){
+    const wrap = $('mcCalDayDetail');
+    if (!r){ wrap.innerHTML = '<div class="hint" style="margin:14px 0;">No reading or slips on ' + fmtDate(dateStr) + '.</div>'; return; }
+    const hasReading = r.total_counter !== null && r.total_counter !== undefined;
+    const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
+    const rowHtml = (label, val) => '<div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px;">' +
+      '<span style="color:var(--muted);">' + label + '</span><span style="font-weight:700; color:var(--ink);">' + val + '</span></div>';
+    wrap.innerHTML = '<div class="hint" style="margin:14px 0 8px; font-weight:700;">' + fmtDate(dateStr) + '</div>' +
+      rowHtml('Slips', slipCount || '—') +
+      rowHtml('Est. Sheets (from tickets)', slipCount ? fmtQty(estSheets) : '—') +
+      rowHtml('Total Counter', hasReading ? fmtQty(r.total_counter) : 'not read') +
+      rowHtml('Prints Today', printsToday === null ? (hasReading ? 'first reading' : '—') : fmtQty(printsToday)) +
+      rowHtml('Duplex', duplexDelta === null ? '—' : fmtQty(duplexDelta)) +
+      rowHtml('Single', singleDelta === null ? '—' : fmtQty(singleDelta)) +
+      rowHtml('Sheets Deducted', sheetsDeducted === null ? '—' : fmtQty(sheetsDeducted));
+  }
+
   // Grouped by day (newest first) -- same day-group-row pattern Job Tickets uses.
   function renderMachineCounterTable(){
     const rows = combinedMachineCounterRows();
@@ -4426,6 +4505,7 @@
     await Promise.all([ loadMachineCounterReadings(), loadMachineTicketStats() ]);
     renderMachineCounterMaterialOptions();
     renderMachineCounterStats();
+    renderMachineCounterCalendar();
     renderMachineCounterTable();
   }
 
