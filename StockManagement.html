@@ -43,6 +43,11 @@
   .nav-tab.active svg{ opacity:1; }
   body:not(.is-admin) .nav-tab[data-nav="employees"]{ display:none !important; }
   body.is-walkin-only .nav-tab:not([data-nav="tickets"]):not([data-nav="machine"]):not([data-nav="tasks"]){ display:none !important; }
+  /* Machine Print Counter now lives on the Machine tab (which walk-in-only staff CAN open, for
+     the Job Status Board) -- but logging/editing a counter reading is still staff-with-
+     business-data-access only, same as Mark Paid and Job Costs. Hide the two cards for them
+     here rather than leave a panel they'd only hit an RLS rejection on. */
+  body.is-walkin-only #machineCounterSection, body.is-walkin-only #machineCounterLogSection{ display:none !important; }
   body.is-operator .nav-tab:not([data-nav="machine"]):not([data-nav="tasks"]){ display:none !important; }
 
   /* Printing-shop graphics */
@@ -768,44 +773,6 @@
           </table>
         </section>
 
-        <!-- Machine Print Counter — a daily reading off a machine's own Utility/Counter screen
-             (Total, Duplex, Single). The app diffs each reading against the previous day's for
-             the same machine to get that day's print count, and -- if a paper stock item is
-             linked -- auto-deducts the sheets used so it doesn't also need a manual stock entry. -->
-        <section class="card" id="machineCounterSection">
-          <h2 class="collapsible" id="machineCounterToggle"><span>+ Machine Print Counter (Konica etc.)</span><span class="chev">▶</span></h2>
-          <div id="machineCounterBody" style="display:none; margin-top:18px;">
-            <div class="hint">Read Total/Duplex/Single Counter straight off the machine's Utility screen and enter today's numbers. Sheets used = today's Duplex + Single reading minus yesterday's.</div>
-            <div class="row3">
-              <div class="field"><label for="mcMachine">Machine</label><input type="text" id="mcMachine" list="tkMachineDatalist" placeholder="e.g. KONIKA MINOLTA" autocomplete="off"></div>
-              <div class="field"><label for="mcDate">Date</label><input type="date" id="mcDate"></div>
-              <div class="field"><label for="mcLinkedMaterial">Deduct sheets from</label><select id="mcLinkedMaterial"><option value="">— don't auto-deduct stock —</option></select></div>
-            </div>
-            <div class="row3">
-              <div class="field"><label for="mcTotal">Total Counter</label><input type="number" id="mcTotal" min="0" step="1"></div>
-              <div class="field"><label for="mcDuplex">Total Duplex Counter</label><input type="number" id="mcDuplex" min="0" step="1" value="0"></div>
-              <div class="field"><label for="mcSingle">Total Single Counter</label><input type="number" id="mcSingle" min="0" step="1" value="0"></div>
-            </div>
-            <button class="add-btn save-btn" id="saveMachineCounterBtn"><span>Save Today's Reading</span><span></span></button>
-            <div class="status-msg" id="machineCounterStatus"></div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="table-head-row">
-            <h2>Daily Print Counter Log</h2>
-            <div class="search-wrap">
-              <input type="text" id="mcSearch" placeholder="Search machine…">
-              <button class="export-btn" id="exportMachineCounterBtn">⭳ Export to Excel</button>
-            </div>
-          </div>
-          <div class="hint" style="margin-bottom:10px;">Slips and Est. Sheets fill in automatically from job tickets the moment they're created on that machine — no manual reading needed for those two. Total Counter onward only fills in on days someone reads the physical machine.</div>
-          <table class="data-table">
-            <thead><tr><th>Date</th><th>Machine</th><th>Slips</th><th>Est. Sheets</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
-            <tbody id="machineCounterTableBody"><tr class="empty-row"><td colspan="10">Loading…</td></tr></tbody>
-          </table>
-        </section>
-
       </div>
 
       <aside class="side-col">
@@ -1005,6 +972,44 @@
       </div>
       <div class="hint" style="margin-bottom:16px;">Tap a job to move it to the next stage. Delivered jobs drop off after a day.</div>
       <div class="board-grid" id="machineBoard"></div>
+    </section>
+
+    <!-- Machine Print Counter — a daily reading off a machine's own Utility/Counter screen
+         (Total, Duplex, Single). The app diffs each reading against the previous day's for
+         the same machine to get that day's print count, and -- if a paper stock item is
+         linked -- auto-deducts the sheets used so it doesn't also need a manual stock entry. -->
+    <section class="card" id="machineCounterSection">
+      <h2 class="collapsible" id="machineCounterToggle"><span>+ Machine Print Counter (Konica etc.)</span><span class="chev">▶</span></h2>
+      <div id="machineCounterBody" style="display:none; margin-top:18px;">
+        <div class="hint">Read Total/Duplex/Single Counter straight off the machine's Utility screen and enter today's numbers. Sheets used = today's Duplex + Single reading minus yesterday's.</div>
+        <div class="row3">
+          <div class="field"><label for="mcMachine">Machine</label><input type="text" id="mcMachine" list="tkMachineDatalist" placeholder="e.g. KONIKA MINOLTA" autocomplete="off"></div>
+          <div class="field"><label for="mcDate">Date</label><input type="date" id="mcDate"></div>
+          <div class="field"><label for="mcLinkedMaterial">Deduct sheets from</label><select id="mcLinkedMaterial"><option value="">— don't auto-deduct stock —</option></select></div>
+        </div>
+        <div class="row3">
+          <div class="field"><label for="mcTotal">Total Counter</label><input type="number" id="mcTotal" min="0" step="1"></div>
+          <div class="field"><label for="mcDuplex">Total Duplex Counter</label><input type="number" id="mcDuplex" min="0" step="1" value="0"></div>
+          <div class="field"><label for="mcSingle">Total Single Counter</label><input type="number" id="mcSingle" min="0" step="1" value="0"></div>
+        </div>
+        <button class="add-btn save-btn" id="saveMachineCounterBtn"><span>Save Today's Reading</span><span></span></button>
+        <div class="status-msg" id="machineCounterStatus"></div>
+      </div>
+    </section>
+
+    <section class="card" id="machineCounterLogSection">
+      <div class="table-head-row">
+        <h2>Daily Print Counter Log</h2>
+        <div class="search-wrap">
+          <input type="text" id="mcSearch" placeholder="Search machine…">
+          <button class="export-btn" id="exportMachineCounterBtn">⭳ Export to Excel</button>
+        </div>
+      </div>
+      <div class="hint" style="margin-bottom:10px;">Slips and Est. Sheets fill in automatically from job tickets the moment they're created on that machine — no manual reading needed for those two. Total Counter onward only fills in on days someone reads the physical machine.</div>
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>Machine</th><th>Slips</th><th>Est. Sheets</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
+        <tbody id="machineCounterTableBody"><tr class="empty-row"><td colspan="10">Loading…</td></tr></tbody>
+      </table>
     </section>
   </section>
 
@@ -4427,6 +4432,7 @@
 
   $('saveMachineCounterBtn').addEventListener('click', async function(){
     const statusEl = $('machineCounterStatus');
+    if (isWalkinOnly){ showStatus(statusEl, 'You are not authorized for this.', false); return; }
     const machine = $('mcMachine').value.trim();
     const dateStr = $('mcDate').value || todayISO();
     const total = parseFloat($('mcTotal').value);
