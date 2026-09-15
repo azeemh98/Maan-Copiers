@@ -760,6 +760,40 @@
           </table>
         </section>
 
+        <!-- Machine Print Counter — a daily reading off a machine's own Utility/Counter screen
+             (Total, Duplex, Single). The app diffs each reading against the previous day's for
+             the same machine to get that day's print count, and -- if a paper stock item is
+             linked -- auto-deducts the sheets used so it doesn't also need a manual stock entry. -->
+        <section class="card" id="machineCounterSection">
+          <h2 class="collapsible" id="machineCounterToggle"><span>+ Machine Print Counter (Konica etc.)</span><span class="chev">▶</span></h2>
+          <div id="machineCounterBody" style="display:none; margin-top:18px;">
+            <div class="hint">Read Total/Duplex/Single Counter straight off the machine's Utility screen and enter today's numbers. Sheets used = today's Duplex + Single reading minus yesterday's.</div>
+            <div class="row3">
+              <div class="field"><label for="mcMachine">Machine</label><input type="text" id="mcMachine" list="tkMachineDatalist" placeholder="e.g. KONIKA MINOLTA" autocomplete="off"></div>
+              <div class="field"><label for="mcDate">Date</label><input type="date" id="mcDate"></div>
+              <div class="field"><label for="mcLinkedMaterial">Deduct sheets from</label><select id="mcLinkedMaterial"><option value="">— don't auto-deduct stock —</option></select></div>
+            </div>
+            <div class="row3">
+              <div class="field"><label for="mcTotal">Total Counter</label><input type="number" id="mcTotal" min="0" step="1"></div>
+              <div class="field"><label for="mcDuplex">Total Duplex Counter</label><input type="number" id="mcDuplex" min="0" step="1" value="0"></div>
+              <div class="field"><label for="mcSingle">Total Single Counter</label><input type="number" id="mcSingle" min="0" step="1" value="0"></div>
+            </div>
+            <button class="add-btn save-btn" id="saveMachineCounterBtn"><span>Save Today's Reading</span><span></span></button>
+            <div class="status-msg" id="machineCounterStatus"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="table-head-row">
+            <h2>Daily Print Counter Log</h2>
+            <div class="search-wrap"><input type="text" id="mcSearch" placeholder="Search machine…"></div>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>Machine</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
+            <tbody id="machineCounterTableBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
+          </table>
+        </section>
+
       </div>
 
       <aside class="side-col">
@@ -2177,7 +2211,7 @@
     // or deactivated on this tab is also a selectable line item on a job ticket, and that
     // picker was never told to refresh, so a brand-new item stayed invisible there until a
     // full page reload even though it showed up fine in Stock itself.
-    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary(), loadWastageRecords(), loadTicketMaterials() ]);
+    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary(), loadWastageRecords(), loadTicketMaterials(), loadMachineCounterReadings() ]);
     const todayCount = await loadTodayCount();
     renderStats(todayCount);
     renderMaterialSelect();
@@ -2190,6 +2224,8 @@
     renderWastageMaterialSelect();
     renderTicketServiceOptions();
     renderInvMaterialDatalist();
+    renderMachineCounterMaterialOptions();
+    renderMachineCounterTable();
     await loadWastageEmployeeOptions();
     await populateEmployeeNameSelect($('movEmployee'));
     renderWastageTable();
@@ -4211,6 +4247,121 @@
     $('wsStatTotal').textContent = thisMonth.length;
     $('wsStatEmployee').textContent = fmtMoney0(totalEmp);
   }
+
+  // ======================================================================
+  // MACHINE PRINT COUNTER — daily Total/Duplex/Single readings off a machine's own Utility
+  // screen (see id="machineCounterSection"). Diffs each reading against the previous one for
+  // the same machine to get that day's print count, and (if a paper stock item is linked)
+  // auto-deducts the sheets used via a linked stock_movements row (reading_id FK) so deleting a
+  // reading later cleanly reverses its deduction too, instead of leaving it stranded.
+  // ======================================================================
+  let machineCounterReadings = [];
+  toggleCollapsible($('machineCounterToggle'), $('machineCounterBody'));
+  $('mcDate').value = todayISO();
+
+  function renderMachineCounterMaterialOptions(){
+    const sel = $('mcLinkedMaterial');
+    const prevVal = sel.value;
+    sel.innerHTML = '<option value="">— don\'t auto-deduct stock —</option>' +
+      materials.filter(m => m.is_active).map(m => '<option value="' + m.material_id + '">' + m.name + ' — ' + m.category + '</option>').join('');
+    if (prevVal) sel.value = prevVal;
+  }
+
+  async function loadMachineCounterReadings(){
+    const { data, error } = await supabaseClient.from('machine_counter_readings').select('*')
+      .eq('org_id', currentOrgId).order('reading_date', { ascending:false }).limit(400);
+    machineCounterReadings = error ? [] : (data || []);
+  }
+
+  // Most recent reading strictly before the given date, for the same machine -- the baseline
+  // a new reading's delta is computed against.
+  function prevMachineReadingFor(machine, dateStr){
+    return machineCounterReadings
+      .filter(r => r.machine === machine && r.reading_date < dateStr)
+      .sort((a,b) => b.reading_date.localeCompare(a.reading_date))[0] || null;
+  }
+
+  $('mcSearch').addEventListener('input', renderMachineCounterTable);
+  function renderMachineCounterTable(){
+    const term = $('mcSearch').value.trim().toLowerCase();
+    let rows = machineCounterReadings.slice();
+    if (term) rows = rows.filter(r => r.machine.toLowerCase().includes(term));
+    const tbody = $('machineCounterTableBody');
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No readings logged yet.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(r => {
+      const prev = prevMachineReadingFor(r.machine, r.reading_date);
+      const printsToday = prev ? (Number(r.total_counter) - Number(prev.total_counter)) : null;
+      const duplexDelta = prev ? Math.max(0, Number(r.duplex_counter) - Number(prev.duplex_counter)) : null;
+      const singleDelta = prev ? Math.max(0, Number(r.single_counter) - Number(prev.single_counter)) : null;
+      const sheetsDeducted = r.material_id && duplexDelta !== null ? duplexDelta + singleDelta : null;
+      return '<tr><td>' + fmtDate(r.reading_date) + '</td><td class="item-name">' + r.machine + '</td><td>' + fmtQty(r.total_counter) + '</td>' +
+        '<td>' + (printsToday === null ? '<span class="item-cat">first reading</span>' : fmtQty(printsToday)) + '</td>' +
+        '<td>' + (duplexDelta === null ? '—' : fmtQty(duplexDelta)) + '</td>' +
+        '<td>' + (singleDelta === null ? '—' : fmtQty(singleDelta)) + '</td>' +
+        '<td>' + (sheetsDeducted === null ? '—' : fmtQty(sheetsDeducted)) + '</td>' +
+        '<td>' + (isAdmin ? '<button class="mc-delete danger" data-id="' + r.id + '" title="Delete reading (also reverses its stock deduction)">✕</button>' : '') + '</td></tr>';
+    }).join('');
+    tbody.querySelectorAll('.mc-delete').forEach(btn => btn.addEventListener('click', async function(){
+      if (!window.confirm('Delete this reading? Any stock it auto-deducted will be reversed too.')) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.from('machine_counter_readings').delete().eq('id', this.dataset.id);
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await refreshMachineCounterPanel();
+      await refreshStockPanel();
+    }));
+  }
+
+  async function refreshMachineCounterPanel(){
+    await loadMachineCounterReadings();
+    renderMachineCounterMaterialOptions();
+    renderMachineCounterTable();
+  }
+
+  $('saveMachineCounterBtn').addEventListener('click', async function(){
+    const statusEl = $('machineCounterStatus');
+    const machine = $('mcMachine').value.trim();
+    const dateStr = $('mcDate').value || todayISO();
+    const total = parseFloat($('mcTotal').value);
+    const duplex = parseFloat($('mcDuplex').value) || 0;
+    const single = parseFloat($('mcSingle').value) || 0;
+    const materialId = $('mcLinkedMaterial').value || null;
+    if (!machine){ showStatus(statusEl, 'Enter which machine this reading is for.', false); return; }
+    if (isNaN(total)){ showStatus(statusEl, 'Enter the Total Counter reading.', false); return; }
+    this.disabled = true;
+    try {
+      const prev = prevMachineReadingFor(machine, dateStr);
+      const { data: newRow, error } = await supabaseClient.from('machine_counter_readings').insert({
+        org_id: currentOrgId, machine, reading_date: dateStr,
+        total_counter: total, duplex_counter: duplex, single_counter: single,
+        material_id: materialId, created_by: currentUserId
+      }).select().single();
+      if (error) throw error;
+
+      let sheetsUsed = 0;
+      if (materialId && prev){
+        const duplexDelta = Math.max(0, duplex - Number(prev.duplex_counter));
+        const singleDelta = Math.max(0, single - Number(prev.single_counter));
+        sheetsUsed = duplexDelta + singleDelta;
+        if (sheetsUsed > 0){
+          const { error: mvErr } = await supabaseClient.from('stock_movements').insert({
+            org_id: currentOrgId, material_id: materialId, type:'exit', quantity: sheetsUsed,
+            transaction_date: dateStr, note: 'Machine counter — ' + machine, source:'machine_counter',
+            reading_id: newRow.id, created_by: currentUserId
+          });
+          if (mvErr) throw mvErr;
+        }
+      }
+      showStatus(statusEl, prev
+        ? (sheetsUsed > 0 ? fmtQty(sheetsUsed) + ' sheets deducted from stock.' : 'Reading saved.')
+        : 'First reading saved for ' + machine + ' — tomorrow\'s reading will show the daily count.', true);
+      $('mcTotal').value = ''; $('mcDuplex').value = '0'; $('mcSingle').value = '0';
+      await refreshMachineCounterPanel();
+      if (sheetsUsed > 0) await refreshStockPanel();
+    } catch (err){
+      if (err.message && err.message.indexOf('duplicate key') !== -1) showStatus(statusEl, 'A reading for ' + machine + ' on ' + dateStr + ' already exists — an admin needs to delete it below before re-entering.', false);
+      else showStatus(statusEl, err.message || 'Could not save reading.', false);
+    } finally { this.disabled = false; }
+  });
 
   // ---- Month-end salary ----
   $('salEmployee').addEventListener('change', function(){ resetEmpPaymentForm(); loadSalarySummary(); });
