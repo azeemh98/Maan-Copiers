@@ -799,9 +799,10 @@
               <button class="export-btn" id="exportMachineCounterBtn">⭳ Export to Excel</button>
             </div>
           </div>
+          <div class="hint" style="margin-bottom:10px;">Slips and Est. Sheets fill in automatically from job tickets the moment they're created on that machine — no manual reading needed for those two. Total Counter onward only fills in on days someone reads the physical machine.</div>
           <table class="data-table">
-            <thead><tr><th>Date</th><th>Machine</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
-            <tbody id="machineCounterTableBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Machine</th><th>Slips</th><th>Est. Sheets</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
+            <tbody id="machineCounterTableBody"><tr class="empty-row"><td colspan="10">Loading…</td></tr></tbody>
           </table>
         </section>
 
@@ -2232,7 +2233,7 @@
     // or deactivated on this tab is also a selectable line item on a job ticket, and that
     // picker was never told to refresh, so a brand-new item stayed invisible there until a
     // full page reload even though it showed up fine in Stock itself.
-    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary(), loadWastageRecords(), loadTicketMaterials(), loadMachineCounterReadings() ]);
+    await Promise.all([ loadMaterials(), loadProfiles(), loadMovements(), loadWastageSummary(), loadWastageRecords(), loadTicketMaterials(), loadMachineCounterReadings(), loadMachineTicketStats() ]);
     const todayCount = await loadTodayCount();
     renderStats(todayCount);
     renderMaterialSelect();
@@ -4294,6 +4295,43 @@
     machineCounterReadings = error ? [] : (data || []);
   }
 
+  // Auto-computed counter: sums the quantity on every job ticket item, per machine per day, so
+  // the log has a real figure the moment slips get generated -- no one has to walk over and
+  // read the machine first. This is an ESTIMATE (sums whatever was billed on that machine,
+  // whatever the unit -- pages, pieces, sq.ft. -- so it's not a substitute for the manual
+  // physical reading above, which is the only thing tied to actual stock deduction).
+  let machineTicketDailyStats = {};
+  async function loadMachineTicketStats(){
+    const { data, error } = await supabaseClient.from('job_ticket_items')
+      .select('quantity, job_tickets!inner(id, machine, created_at)')
+      .eq('org_id', currentOrgId).not('job_tickets.machine', 'is', null).limit(3000);
+    machineTicketDailyStats = {};
+    if (error || !data) return;
+    data.forEach(row => {
+      const jt = row.job_tickets;
+      if (!jt || !jt.machine) return;
+      const day = toISODateLocal(jt.created_at);
+      const key = jt.machine + '|' + day;
+      if (!machineTicketDailyStats[key]) machineTicketDailyStats[key] = { slipIds: new Set(), sheets: 0 };
+      machineTicketDailyStats[key].slipIds.add(jt.id);
+      machineTicketDailyStats[key].sheets += Number(row.quantity) || 0;
+    });
+  }
+
+  // The table shows one row per (machine, date) that has EITHER a manual reading or ticket
+  // activity -- a day nobody manually read the machine still shows up, driven purely by
+  // whatever slips were generated that day.
+  function combinedMachineCounterRows(){
+    const byKey = new Map();
+    machineCounterReadings.forEach(r => byKey.set(r.machine + '|' + r.reading_date, r));
+    Object.keys(machineTicketDailyStats).forEach(key => {
+      if (byKey.has(key)) return;
+      const sep = key.lastIndexOf('|');
+      byKey.set(key, { machine: key.slice(0, sep), reading_date: key.slice(sep + 1), total_counter:null, duplex_counter:null, single_counter:null, material_id:null, hasManualReading:false });
+    });
+    return Array.from(byKey.values());
+  }
+
   // Most recent reading strictly before the given date, for the same machine -- the baseline
   // a new reading's delta is computed against.
   function prevMachineReadingFor(machine, dateStr){
@@ -4305,29 +4343,40 @@
   // Shared by the table render and the Excel export so the two can never drift apart on what
   // "today's count" actually means.
   function machineCounterDeltasFor(r){
-    const prev = prevMachineReadingFor(r.machine, r.reading_date);
+    // A row with no manual reading that day (r.total_counter === null, added purely because
+    // tickets were generated) has nothing to diff -- only the ticket-derived figures apply.
+    const hasReading = r.total_counter !== null && r.total_counter !== undefined;
+    const prev = hasReading ? prevMachineReadingFor(r.machine, r.reading_date) : null;
     const printsToday = prev ? (Number(r.total_counter) - Number(prev.total_counter)) : null;
     const duplexDelta = prev ? Math.max(0, Number(r.duplex_counter) - Number(prev.duplex_counter)) : null;
     const singleDelta = prev ? Math.max(0, Number(r.single_counter) - Number(prev.single_counter)) : null;
     const sheetsDeducted = r.material_id && duplexDelta !== null ? duplexDelta + singleDelta : null;
-    return { printsToday, duplexDelta, singleDelta, sheetsDeducted };
+    const ticketStats = machineTicketDailyStats[r.machine + '|' + r.reading_date];
+    const slipCount = ticketStats ? ticketStats.slipIds.size : 0;
+    const estSheets = ticketStats ? ticketStats.sheets : 0;
+    return { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets };
   }
 
   $('mcSearch').addEventListener('input', renderMachineCounterTable);
   function renderMachineCounterTable(){
     const term = $('mcSearch').value.trim().toLowerCase();
-    let rows = machineCounterReadings.slice();
+    let rows = combinedMachineCounterRows();
     if (term) rows = rows.filter(r => r.machine.toLowerCase().includes(term));
+    rows.sort((a,b) => b.reading_date.localeCompare(a.reading_date) || a.machine.localeCompare(b.machine));
     const tbody = $('machineCounterTableBody');
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No readings logged yet.</td></tr>'; return; }
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="10">No readings or slips logged yet.</td></tr>'; return; }
     tbody.innerHTML = rows.map(r => {
-      const { printsToday, duplexDelta, singleDelta, sheetsDeducted } = machineCounterDeltasFor(r);
-      return '<tr><td>' + fmtDate(r.reading_date) + '</td><td class="item-name">' + r.machine + '</td><td>' + fmtQty(r.total_counter) + '</td>' +
-        '<td>' + (printsToday === null ? '<span class="item-cat">first reading</span>' : fmtQty(printsToday)) + '</td>' +
+      const hasReading = r.total_counter !== null && r.total_counter !== undefined;
+      const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
+      return '<tr><td>' + fmtDate(r.reading_date) + '</td><td class="item-name">' + r.machine + '</td>' +
+        '<td>' + (slipCount > 0 ? slipCount : '—') + '</td>' +
+        '<td>' + (slipCount > 0 ? fmtQty(estSheets) : '—') + '</td>' +
+        '<td>' + (hasReading ? fmtQty(r.total_counter) : '<span class="item-cat">not read</span>') + '</td>' +
+        '<td>' + (printsToday === null ? (hasReading ? '<span class="item-cat">first reading</span>' : '—') : fmtQty(printsToday)) + '</td>' +
         '<td>' + (duplexDelta === null ? '—' : fmtQty(duplexDelta)) + '</td>' +
         '<td>' + (singleDelta === null ? '—' : fmtQty(singleDelta)) + '</td>' +
         '<td>' + (sheetsDeducted === null ? '—' : fmtQty(sheetsDeducted)) + '</td>' +
-        '<td>' + (isAdmin ? '<button class="mc-delete danger" data-id="' + r.id + '" title="Delete reading (also reverses its stock deduction)">✕</button>' : '') + '</td></tr>';
+        '<td>' + (isAdmin && r.id ? '<button class="mc-delete danger" data-id="' + r.id + '" title="Delete reading (also reverses its stock deduction)">✕</button>' : '') + '</td></tr>';
     }).join('');
     tbody.querySelectorAll('.mc-delete').forEach(btn => btn.addEventListener('click', async function(){
       if (!window.confirm('Delete this reading? Any stock it auto-deducted will be reversed too.')) return;
@@ -4340,34 +4389,37 @@
   }
 
   async function refreshMachineCounterPanel(){
-    await loadMachineCounterReadings();
+    await Promise.all([ loadMachineCounterReadings(), loadMachineTicketStats() ]);
     renderMachineCounterMaterialOptions();
     renderMachineCounterTable();
   }
 
   $('exportMachineCounterBtn').addEventListener('click', function(){
     const term = $('mcSearch').value.trim().toLowerCase();
-    let rows = machineCounterReadings.slice();
+    let rows = combinedMachineCounterRows();
     if (term) rows = rows.filter(r => r.machine.toLowerCase().includes(term));
     // Oldest first in the export, since a day-by-day sheet reads naturally top-to-bottom --
     // the on-screen table is newest-first for quick glancing, but a spreadsheet someone will
     // scroll through and hand to an accountant reads better in date order.
     rows = rows.slice().sort((a,b) => a.reading_date.localeCompare(b.reading_date) || a.machine.localeCompare(b.machine));
-    if (rows.length === 0){ alert('Nothing to export yet — log at least one reading first.'); return; }
+    if (rows.length === 0){ alert('Nothing to export yet — log at least one reading, or create a ticket on a named machine, first.'); return; }
     const excelRows = rows.map(r => {
-      const { printsToday, duplexDelta, singleDelta, sheetsDeducted } = machineCounterDeltasFor(r);
+      const hasReading = r.total_counter !== null && r.total_counter !== undefined;
+      const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
       const linkedMaterial = r.material_id ? (materials.find(m => m.material_id === r.material_id)?.name || '—') : '—';
       return {
-        Date: r.reading_date, Machine: r.machine, 'Total Counter': Number(r.total_counter),
-        'Prints Today': printsToday === null ? 'first reading' : printsToday,
-        'Duplex Counter': Number(r.duplex_counter), 'Duplex Today': duplexDelta === null ? '' : duplexDelta,
-        'Single Counter': Number(r.single_counter), 'Single Today': singleDelta === null ? '' : singleDelta,
+        Date: r.reading_date, Machine: r.machine,
+        Slips: slipCount || '', 'Est. Sheets (from tickets)': slipCount ? estSheets : '',
+        'Total Counter': hasReading ? Number(r.total_counter) : '',
+        'Prints Today': printsToday === null ? (hasReading ? 'first reading' : '') : printsToday,
+        'Duplex Counter': hasReading ? Number(r.duplex_counter) : '', 'Duplex Today': duplexDelta === null ? '' : duplexDelta,
+        'Single Counter': hasReading ? Number(r.single_counter) : '', 'Single Today': singleDelta === null ? '' : singleDelta,
         'Sheets Deducted': sheetsDeducted === null ? '' : sheetsDeducted,
         'Linked Stock Item': linkedMaterial
       };
     });
     const ws = XLSX.utils.json_to_sheet(excelRows);
-    ws['!cols'] = [{wch:12},{wch:18},{wch:13},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:20}];
+    ws['!cols'] = [{wch:12},{wch:18},{wch:8},{wch:20},{wch:13},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:20}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Machine Counter');
     XLSX.writeFile(wb, 'Machine-Print-Counter-' + todayISO() + '.xlsx');
