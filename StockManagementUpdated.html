@@ -974,6 +974,10 @@
       <div class="board-grid" id="machineBoard"></div>
     </section>
 
+    <!-- One Total Counter / Today's Counter stat pair per machine -- same at-a-glance style as
+         Today's Walk-in Jobs, so the headline numbers don't need digging through the log below. -->
+    <div id="machineCounterStats" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
+
     <!-- Machine Print Counter — a daily reading off a machine's own Utility/Counter screen
          (Total, Duplex, Single). The app diffs each reading against the previous day's for
          the same machine to get that day's print count, and -- if a paper stock item is
@@ -1007,8 +1011,8 @@
       </div>
       <div class="hint" style="margin-bottom:10px;">Slips and Est. Sheets fill in automatically from job tickets the moment they're created on that machine — no manual reading needed for those two. Total Counter onward only fills in on days someone reads the physical machine.</div>
       <table class="data-table">
-        <thead><tr><th>Date</th><th>Machine</th><th>Slips</th><th>Est. Sheets</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
-        <tbody id="machineCounterTableBody"><tr class="empty-row"><td colspan="10">Loading…</td></tr></tbody>
+        <thead><tr><th>Machine</th><th>Slips</th><th>Est. Sheets</th><th>Total Counter</th><th>Prints Today</th><th>Duplex</th><th>Single</th><th>Sheets Deducted</th><th></th></tr></thead>
+        <tbody id="machineCounterTableBody"><tr class="empty-row"><td colspan="9">Loading…</td></tr></tbody>
       </table>
     </section>
   </section>
@@ -2252,6 +2256,7 @@
     renderTicketServiceOptions();
     renderInvMaterialDatalist();
     renderMachineCounterMaterialOptions();
+    renderMachineCounterStats();
     renderMachineCounterTable();
     await loadWastageEmployeeOptions();
     await populateEmployeeNameSelect($('movEmployee'));
@@ -4362,27 +4367,71 @@
     return { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets };
   }
 
+  // Total Counter / Today's Counter headline stat pair, one per machine that has ever had a
+  // manual reading -- Total Counter is the latest reading on record, Today's Counter is that
+  // machine's delta for today specifically (falling back to the ticket-derived estimate on a
+  // day nobody's read the machine yet).
+  function renderMachineCounterStats(){
+    const wrap = $('machineCounterStats');
+    const machines = Array.from(new Set(machineCounterReadings.map(r => r.machine))).sort();
+    if (machines.length === 0){ wrap.innerHTML = ''; return; }
+    const today = todayISO();
+    wrap.innerHTML = machines.map(m => {
+      const latest = machineCounterReadings.filter(r => r.machine === m).sort((a,b) => b.reading_date.localeCompare(a.reading_date))[0];
+      const todaysRow = machineCounterReadings.find(r => r.machine === m && r.reading_date === today);
+      let todaysLabel = 'not read today';
+      if (todaysRow){
+        const { printsToday } = machineCounterDeltasFor(todaysRow);
+        todaysLabel = printsToday === null ? 'first reading' : fmtQty(printsToday);
+      } else {
+        const stats = machineTicketDailyStats[m + '|' + today];
+        if (stats && stats.sheets > 0) todaysLabel = '~' + fmtQty(stats.sheets) + ' est.';
+      }
+      return '<div class="stat-card" style="flex:1; min-width:170px;"><div class="s-label">' + m + ' — Total Counter</div><div class="s-val">' + fmtQty(latest.total_counter) + '</div></div>' +
+        '<div class="stat-card ok" style="flex:1; min-width:170px;"><div class="s-label">' + m + ' — Today\'s Counter</div><div class="s-val">' + todaysLabel + '</div></div>';
+    }).join('');
+  }
+
   $('mcSearch').addEventListener('input', renderMachineCounterTable);
+  // Grouped by day (newest first), then by machine within each day -- same day-group-row
+  // pattern Job Tickets uses, since a flat list mixing every machine and date together was
+  // reported as hard to read.
   function renderMachineCounterTable(){
     const term = $('mcSearch').value.trim().toLowerCase();
     let rows = combinedMachineCounterRows();
     if (term) rows = rows.filter(r => r.machine.toLowerCase().includes(term));
-    rows.sort((a,b) => b.reading_date.localeCompare(a.reading_date) || a.machine.localeCompare(b.machine));
     const tbody = $('machineCounterTableBody');
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="10">No readings or slips logged yet.</td></tr>'; return; }
-    tbody.innerHTML = rows.map(r => {
-      const hasReading = r.total_counter !== null && r.total_counter !== undefined;
-      const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
-      return '<tr><td>' + fmtDate(r.reading_date) + '</td><td class="item-name">' + r.machine + '</td>' +
-        '<td>' + (slipCount > 0 ? slipCount : '—') + '</td>' +
-        '<td>' + (slipCount > 0 ? fmtQty(estSheets) : '—') + '</td>' +
-        '<td>' + (hasReading ? fmtQty(r.total_counter) : '<span class="item-cat">not read</span>') + '</td>' +
-        '<td>' + (printsToday === null ? (hasReading ? '<span class="item-cat">first reading</span>' : '—') : fmtQty(printsToday)) + '</td>' +
-        '<td>' + (duplexDelta === null ? '—' : fmtQty(duplexDelta)) + '</td>' +
-        '<td>' + (singleDelta === null ? '—' : fmtQty(singleDelta)) + '</td>' +
-        '<td>' + (sheetsDeducted === null ? '—' : fmtQty(sheetsDeducted)) + '</td>' +
-        '<td>' + (isAdmin && r.id ? '<button class="mc-delete danger" data-id="' + r.id + '" title="Delete reading (also reverses its stock deduction)">✕</button>' : '') + '</td></tr>';
-    }).join('');
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No readings or slips logged yet.</td></tr>'; return; }
+
+    const dayMap = new Map();
+    rows.forEach(r => {
+      if (!dayMap.has(r.reading_date)) dayMap.set(r.reading_date, []);
+      dayMap.get(r.reading_date).push(r);
+    });
+    const sortedDays = Array.from(dayMap.keys()).sort((a,b) => b.localeCompare(a));
+
+    let html = '';
+    sortedDays.forEach(day => {
+      const dayRows = dayMap.get(day).sort((a,b) => a.machine.localeCompare(b.machine));
+      const dayEstSheets = dayRows.reduce((s,r) => s + machineCounterDeltasFor(r).estSheets, 0);
+      const statLine = dayRows.length + ' machine' + (dayRows.length === 1 ? '' : 's') +
+        (dayEstSheets > 0 ? ' · ' + fmtQty(dayEstSheets) + ' est. sheets from tickets' : '');
+      html += '<tr class="day-group-row"><td colspan="9"><div class="day-group-title">' + dayLabelFor(day) + '</div><div class="day-group-stats">' + statLine + '</div></td></tr>';
+      dayRows.forEach(r => {
+        const hasReading = r.total_counter !== null && r.total_counter !== undefined;
+        const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
+        html += '<tr><td class="item-name">' + r.machine + '</td>' +
+          '<td>' + (slipCount > 0 ? slipCount : '—') + '</td>' +
+          '<td>' + (slipCount > 0 ? fmtQty(estSheets) : '—') + '</td>' +
+          '<td>' + (hasReading ? fmtQty(r.total_counter) : '<span class="item-cat">not read</span>') + '</td>' +
+          '<td>' + (printsToday === null ? (hasReading ? '<span class="item-cat">first reading</span>' : '—') : fmtQty(printsToday)) + '</td>' +
+          '<td>' + (duplexDelta === null ? '—' : fmtQty(duplexDelta)) + '</td>' +
+          '<td>' + (singleDelta === null ? '—' : fmtQty(singleDelta)) + '</td>' +
+          '<td>' + (sheetsDeducted === null ? '—' : fmtQty(sheetsDeducted)) + '</td>' +
+          '<td>' + (isAdmin && r.id ? '<button class="mc-delete danger" data-id="' + r.id + '" title="Delete reading (also reverses its stock deduction)">✕</button>' : '') + '</td></tr>';
+      });
+    });
+    tbody.innerHTML = html;
     tbody.querySelectorAll('.mc-delete').forEach(btn => btn.addEventListener('click', async function(){
       if (!window.confirm('Delete this reading? Any stock it auto-deducted will be reversed too.')) return;
       this.disabled = true;
@@ -4396,6 +4445,7 @@
   async function refreshMachineCounterPanel(){
     await Promise.all([ loadMachineCounterReadings(), loadMachineTicketStats() ]);
     renderMachineCounterMaterialOptions();
+    renderMachineCounterStats();
     renderMachineCounterTable();
   }
 
