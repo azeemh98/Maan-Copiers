@@ -3012,6 +3012,17 @@
       tr.querySelector('.tk-desc').addEventListener('input', function(){
         const li = ticketLineItems[idx];
         li.description = this.value;
+        // "F&B" (Front & Back) is already the shop's own shorthand for a duplex job, typed
+        // into the description on habit -- catch it there and flip Sides automatically instead
+        // of also requiring a separate manual dropdown pick every time. Never fights an
+        // explicit manual choice on this line (sidesManual), and only flips forward to double,
+        // never back to single on its own (so deleting the "F&B" text later doesn't silently
+        // undo a choice that may have been confirmed some other way by then).
+        if (!li.sidesManual && /f\s*&\s*b/i.test(this.value) && li.sides !== 'double'){
+          li.sides = 'double';
+          const sidesSel = tr.querySelector('.tk-sides');
+          if (sidesSel) sidesSel.value = 'double';
+        }
         if (li.service_id && !li.autoLinked) return;
         const match = ticketAutoMatchByName[this.value.trim().toLowerCase()];
         if (match){
@@ -3030,7 +3041,7 @@
         if (hintEl) hintEl.innerHTML = ticketStockHintFor(li);
       });
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
-      tr.querySelector('.tk-sides').addEventListener('change', function(){ ticketLineItems[idx].sides = this.value; });
+      tr.querySelector('.tk-sides').addEventListener('change', function(){ ticketLineItems[idx].sides = this.value; ticketLineItems[idx].sidesManual = true; });
       tr.querySelector('.tk-rate').addEventListener('input', function(){ ticketLineItems[idx].rate = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.li-remove').addEventListener('click', function(){ ticketLineItems.splice(idx, 1); if (ticketLineItems.length === 0) ticketLineItems.push(newTicketLineRow()); renderTicketLineItems(); updateTicketTotal(); });
     });
