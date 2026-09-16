@@ -4443,8 +4443,21 @@
       const stats = machineTicketDailyStats[today];
       if (stats && stats.sheets > 0) todaysLabel = '~' + fmtQty(stats.sheets) + ' est.';
     }
+    // Total Counter used to just show the last physical reading verbatim (94575 forever, until
+    // someone next walks over and reads the machine) -- reported as "not moving" even though
+    // real jobs kept happening on it. Project it forward with everything tickets have
+    // estimated since that reading, so it reads as a live running total instead of a frozen
+    // number, while still being clearly anchored to the last real reading as ground truth.
+    let projected = 0;
+    Object.keys(machineTicketDailyStats).forEach(day => {
+      if (day > latest.reading_date) projected += machineTicketDailyStats[day].sheets;
+    });
+    const totalVal = Number(latest.total_counter) + projected;
+    const totalSub = projected > 0
+      ? fmtQty(latest.total_counter) + ' as of ' + fmtDate(latest.reading_date) + ' + ~' + fmtQty(projected) + ' est. from tickets since'
+      : 'as of ' + fmtDate(latest.reading_date);
     wrap.innerHTML =
-      '<div class="stat-card" style="flex:1; min-width:170px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Total Counter</div><div class="s-val">' + fmtQty(latest.total_counter) + '</div></div>' +
+      '<div class="stat-card" style="flex:1; min-width:220px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Total Counter</div><div class="s-val">' + fmtQty(totalVal) + '</div><div class="item-cat">' + totalSub + '</div></div>' +
       '<div class="stat-card ok" style="flex:1; min-width:170px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Today\'s Counter</div><div class="s-val">' + todaysLabel + '</div></div>';
   }
 
