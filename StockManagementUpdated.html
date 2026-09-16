@@ -316,6 +316,14 @@
     transition:right .25s ease; display:flex; flex-direction:column;
   }
   .floating-tickets-panel.open{ right:0; }
+  /* Was a plain overlay with nothing behind it -- reported as "overlapping" because it just sat
+     on top of whatever the page underneath was showing (e.g. the ticket form's own sidebar
+     cards) with no visual separation and no click-outside-to-close. A dimming backdrop, same
+     pattern as the Change Password modal (.cpw-backdrop), makes it read as an intentional
+     overlay instead of a layout glitch, and gives an easy way to dismiss it. */
+  .ft-backdrop{ position:fixed; inset:0; background:rgba(15,37,64,0.35); z-index:598; display:none; }
+  .ft-backdrop.show{ display:block; }
+  @media print{ .ft-backdrop{ display:none !important; } }
   .ft-head{ padding:16px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:14px; flex-shrink:0; }
   .ft-head button{ background:none; border:none; font-size:16px; cursor:pointer; color:var(--muted); line-height:1; padding:4px; }
   .ft-head button:hover{ color:var(--danger); }
@@ -1703,6 +1711,7 @@
 
 <!-- Floating tasks + tickets panel — visible on every tab, opens automatically at login -->
 <button class="no-print floating-tickets-btn" id="floatingTicketsBtn" title="Your tasks & active tickets">🎫<span class="ft-badge" id="floatingTicketsBadge" style="display:none;">0</span></button>
+<div class="no-print ft-backdrop" id="ftBackdrop"></div>
 <div class="no-print floating-tickets-panel" id="floatingTicketsPanel">
   <div class="ft-head"><span>Your Tasks &amp; Active Tickets</span><button id="closeFloatingTickets">✕</button></div>
   <div class="ft-body">
@@ -1823,7 +1832,7 @@
     await loadEverything();
     setupRealtime();
     // Surface tasks/tickets the moment someone signs in, instead of making them go find it.
-    $('floatingTicketsPanel').classList.add('open');
+    openFloatingTickets();
   }
   function showAuthGate(message){
     $('appShell').style.display = 'none';
@@ -3269,10 +3278,19 @@
   }
 
   // ---- Floating tickets panel (visible on every tab) ----
+  function openFloatingTickets(){
+    $('floatingTicketsPanel').classList.add('open');
+    $('ftBackdrop').classList.add('show');
+  }
+  function closeFloatingTickets(){
+    $('floatingTicketsPanel').classList.remove('open');
+    $('ftBackdrop').classList.remove('show');
+  }
   $('floatingTicketsBtn').addEventListener('click', () => {
-    $('floatingTicketsPanel').classList.toggle('open');
+    if ($('floatingTicketsPanel').classList.contains('open')) closeFloatingTickets(); else openFloatingTickets();
   });
-  $('closeFloatingTickets').addEventListener('click', () => $('floatingTicketsPanel').classList.remove('open'));
+  $('closeFloatingTickets').addEventListener('click', closeFloatingTickets);
+  $('ftBackdrop').addEventListener('click', closeFloatingTickets);
 
   // ---- Back-to-top shortcut — shows once you've scrolled past ~1 screen, jumps straight up ----
   const backToTopBtn = $('backToTopBtn');
@@ -3298,7 +3316,7 @@
       if (!t) return;
       const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', t.id);
       openTicketPrintPreview(t, items || []);
-      $('floatingTicketsPanel').classList.remove('open');
+      closeFloatingTickets();
     }));
   }
 
@@ -3714,7 +3732,7 @@
     const el = document.createElement('div');
     el.className = 'live-toast';
     el.innerHTML = '<b>' + title + '</b>' + (sub ? sub : '');
-    el.addEventListener('click', function(){ el.remove(); $('floatingTicketsPanel').classList.add('open'); });
+    el.addEventListener('click', function(){ el.remove(); openFloatingTickets(); });
     box.appendChild(el);
     setTimeout(() => el.remove(), 7000);
   }
@@ -3801,7 +3819,7 @@
     const { error } = await supabaseClient.from('tasks').update({ status:'in_progress', claimed_by: currentUserId }).eq('id', taskId);
     if (error){ alert(error.message); return; }
     await refreshTasksPanel();
-    $('floatingTicketsPanel').classList.remove('open');
+    closeFloatingTickets();
     if (task) acceptTaskAndCreateTicket(task);
   }
 
