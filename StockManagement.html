@@ -2965,8 +2965,8 @@
         '<td><input type="text" class="tk-desc" value="' + (li.description || '').replace(/"/g,'&quot;') + '" placeholder="Description"></td>' +
         '<td><input type="number" class="tk-qty" value="' + li.qty + '" min="0.01" step="0.01" style="width:70px;"></td>' +
         '<td><select class="tk-sides" title="Only matters for print jobs — feeds the Konica counter\'s estimated sheet count">' +
-          '<option value="single"' + (li.sides !== 'double' ? ' selected' : '') + '>1-Side</option>' +
-          '<option value="double"' + (li.sides === 'double' ? ' selected' : '') + '>Both Sides</option>' +
+          '<option value="single"' + (li.sides !== 'double' ? ' selected' : '') + '>Single Side</option>' +
+          '<option value="double"' + (li.sides === 'double' ? ' selected' : '') + '>Front &amp; Back</option>' +
         '</select></td>' +
         '<td><input type="number" class="tk-rate" value="' + li.rate + '" min="0" step="0.01" style="width:85px;"></td>' +
         '<td class="li-amt">' + fmtMoney(amount) + '</td>' +
