@@ -827,7 +827,7 @@
           </div>
           <datalist id="tkServiceDatalist"></datalist>
           <table class="li-table">
-            <thead><tr><th style="width:24%">Service / Stock Item</th><th style="width:9%">Size</th><th>Description</th><th>Qty</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+            <thead><tr><th style="width:22%">Service / Stock Item</th><th style="width:9%">Size</th><th>Description</th><th>Qty</th><th style="width:9%">Sides</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
             <tbody id="tkLineItems"></tbody>
           </table>
           <button class="btn-sm" id="tkAddLineBtn">+ Add line</button>
@@ -2791,7 +2791,7 @@
   }
 
   // ---- Ticket line items ----
-  function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0, size:'', autoLinked:false }; }
+  function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0, size:'', sides:'single', autoLinked:false }; }
   let selectedTicketPartyId = null;
   // True when selectedTicketPartyId came from noticing the typed name/phone match a saved
   // customer, rather than from an explicit pick in the search box above. Lets later keystrokes
@@ -2824,6 +2824,7 @@
     ticketLineItems = (items && items.length ? items : [{}]).map(li => ({
       service_id: li.service_id ? 'svc:' + li.service_id : (li.material_id ? 'mat:' + li.material_id : ''),
       description: li.description || '', qty: Number(li.quantity) || 1, unit: li.unit || '', rate: Number(li.rate) || 0,
+      sides: li.print_sides === 'double' ? 'double' : 'single',
       autoLinked: false // an existing saved link is explicit, whether it was originally picked or auto-matched
     }));
     renderTicketLineItems();
@@ -2963,6 +2964,10 @@
         '<td><input type="text" class="tk-size" value="' + (li.size || '').replace(/"/g,'&quot;') + '" placeholder="4X5" style="width:64px;"></td>' +
         '<td><input type="text" class="tk-desc" value="' + (li.description || '').replace(/"/g,'&quot;') + '" placeholder="Description"></td>' +
         '<td><input type="number" class="tk-qty" value="' + li.qty + '" min="0.01" step="0.01" style="width:70px;"></td>' +
+        '<td><select class="tk-sides" title="Only matters for print jobs — feeds the Konica counter\'s estimated sheet count">' +
+          '<option value="single"' + (li.sides !== 'double' ? ' selected' : '') + '>1-Side</option>' +
+          '<option value="double"' + (li.sides === 'double' ? ' selected' : '') + '>Both Sides</option>' +
+        '</select></td>' +
         '<td><input type="number" class="tk-rate" value="' + li.rate + '" min="0" step="0.01" style="width:85px;"></td>' +
         '<td class="li-amt">' + fmtMoney(amount) + '</td>' +
         '<td><button class="li-remove" title="Remove line">✕</button></td></tr>';
@@ -3025,6 +3030,7 @@
         if (hintEl) hintEl.innerHTML = ticketStockHintFor(li);
       });
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
+      tr.querySelector('.tk-sides').addEventListener('change', function(){ ticketLineItems[idx].sides = this.value; });
       tr.querySelector('.tk-rate').addEventListener('input', function(){ ticketLineItems[idx].rate = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.li-remove').addEventListener('click', function(){ ticketLineItems.splice(idx, 1); if (ticketLineItems.length === 0) ticketLineItems.push(newTicketLineRow()); renderTicketLineItems(); updateTicketTotal(); });
     });
@@ -3110,7 +3116,8 @@
         const itemsPayload = validLines.map(li => ({
           service_id: li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : '',
           material_id: li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : '',
-          description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || '', rate: li.rate
+          description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || '', rate: li.rate,
+          print_sides: li.sides === 'double' ? 'double' : 'single'
         }));
         const operatorTyped = $('tkOperator').value.trim();
         const matchedOperator = operatorTyped ? resolveOperatorByName(operatorTyped) : null;
@@ -3175,7 +3182,7 @@
         const realMaterialId = li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : null;
         return { org_id: currentOrgId, ticket_id: tkRow.id, service_id: realServiceId, material_id: realMaterialId,
           description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || null,
-          rate: li.rate, amount: li.qty * li.rate };
+          rate: li.rate, amount: li.qty * li.rate, print_sides: li.sides === 'double' ? 'double' : 'single' };
       });
       const { error: itemsErr } = await supabaseClient.from('job_ticket_items').insert(itemRows);
       if (itemsErr) throw itemsErr;
@@ -4333,7 +4340,7 @@
   let machineTicketDailyStats = {};
   async function loadMachineTicketStats(){
     const { data, error } = await supabaseClient.from('job_ticket_items')
-      .select('quantity, job_tickets!inner(id, machine, created_at)')
+      .select('quantity, print_sides, job_tickets!inner(id, machine, created_at)')
       .eq('org_id', currentOrgId).eq('job_tickets.machine', MACHINE_COUNTER_MACHINE).limit(3000);
     machineTicketDailyStats = {};
     if (error || !data) return;
@@ -4343,7 +4350,11 @@
       const day = toISODateLocal(jt.created_at);
       if (!machineTicketDailyStats[day]) machineTicketDailyStats[day] = { slipIds: new Set(), sheets: 0 };
       machineTicketDailyStats[day].slipIds.add(jt.id);
-      machineTicketDailyStats[day].sheets += Number(row.quantity) || 0;
+      const qty = Number(row.quantity) || 0;
+      // A "Both Sides" line prints 2 pages per physical sheet -- halve it so this estimate
+      // lines up with what the machine's own Duplex/Single counters would actually read,
+      // instead of just summing raw quantity regardless of how it was printed.
+      machineTicketDailyStats[day].sheets += row.print_sides === 'double' ? qty / 2 : qty;
     });
   }
 
