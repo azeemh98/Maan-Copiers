@@ -4362,10 +4362,11 @@
       if (!machineTicketDailyStats[day]) machineTicketDailyStats[day] = { slipIds: new Set(), sheets: 0 };
       machineTicketDailyStats[day].slipIds.add(jt.id);
       const qty = Number(row.quantity) || 0;
-      // A "Both Sides" line prints 2 pages per physical sheet -- halve it so this estimate
-      // lines up with what the machine's own Duplex/Single counters would actually read,
-      // instead of just summing raw quantity regardless of how it was printed.
-      machineTicketDailyStats[day].sheets += row.print_sides === 'double' ? qty / 2 : qty;
+      // Quantity on a print line is entered as physical SHEETS (e.g. "815 duplex sheets"),
+      // and the machine's own Total Counter increments once per printed SIDE -- so a Front &
+      // Back sheet counts double (815 sheets -> 1630 on the counter), not half. Previously had
+      // this backwards (was halving), which undercounted every duplex job's estimate.
+      machineTicketDailyStats[day].sheets += row.print_sides === 'double' ? qty * 2 : qty;
     });
   }
 
