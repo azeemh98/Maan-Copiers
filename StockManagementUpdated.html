@@ -3160,24 +3160,27 @@
         return;
       }
 
-      const subtotal = computeTicketTotal();
       const gstPct = parseFloat($('tkGstPct').value) || 0;
-      const gstAmount = computeTicketGstAmount(subtotal);
-      const roundOff = computeTicketRoundOff(subtotal + gstAmount);
-      const grandTotal = subtotal + gstAmount + roundOff;
-
       const operatorTyped = $('tkOperator').value.trim();
       const matchedOperator = operatorTyped ? resolveOperatorByName(operatorTyped) : null;
-      // Ticket-number generation and the ticket row itself used to be two separate round trips
-      // (next_invoice_number() RPC, then a plain insert) -- if the insert failed for any
-      // reason, the number had already been consumed with nothing to show for it. Traced a real
-      // gap to exactly this (JT-0257 jumped to JT-0262 after four failed saves). create_job_ticket()
-      // does both in one transaction: either the ticket exists with that number, or the number
-      // was never touched.
-      const { data: tkRow, error: tkErr } = await supabaseClient.rpc('create_job_ticket', {
+
+      const itemsPayload = validLines.map(li => ({
+        service_id: li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : '',
+        material_id: li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : '',
+        description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || '', rate: li.rate,
+        print_sides: li.sides === 'double' ? 'double' : 'single'
+      }));
+
+      // Ticket, items, stock deduction, and (if billed to a saved party) the invoice + invoice
+      // items all happen inside ONE server-side transaction (create_job_ticket_full) instead of
+      // 5+ separate client round trips. The old separate-calls version could leave a ticket that
+      // existed and had a party attached but no invoice if any later step failed partway --
+      // silently missing from that customer's balance forever (found + backfilled 3 real cases
+      // this way: JT-0081/JT-0235/JT-0316). Now it's all-or-nothing.
+      const { data: tkRow, error: tkErr } = await supabaseClient.rpc('create_job_ticket_full', {
         p_org_id: currentOrgId, p_party_id: selectedTicketPartyId,
         p_customer_name: $('tkCustomerName').value.trim() || null, p_phone: $('tkPhone').value.trim() || null,
-        p_subtotal: subtotal, p_gst_pct: gstPct, p_gst_amount: gstAmount, p_round_off: roundOff,
+        p_items: itemsPayload, p_gst_pct: gstPct,
         p_notes: $('tkNotes').value.trim() || null,
         p_expected_at: $('tkExpected').value ? new Date($('tkExpected').value).toISOString() : null,
         p_machine: $('tkMachine').value.trim() || null,
@@ -3189,72 +3192,29 @@
       });
       if (tkErr) throw tkErr;
       const ticketNo = tkRow.ticket_no;
+      const grandTotal = Number(tkRow.subtotal) + Number(tkRow.gst_amount) + Number(tkRow.round_off);
 
-      // Fire the "yes, that worked" signal the instant the ticket itself exists, rather than
-      // waiting on everything else below (items, stock, invoice, full panel refresh) — that
-      // gap was long enough, with a form that had already gone blank, to look like nothing
-      // happened at all.
       showToast('🎫 ' + ticketNo + ' created', ($('tkCustomerName').value.trim() || 'Walk-in') + ' — ' + fmtMoney(grandTotal));
       showStatus(statusEl, ticketNo + ' created.', true);
 
+      // Built purely for the print preview + deciding whether to refresh the Stock panel below —
+      // the actual rows were already inserted server-side above.
       const itemRows = validLines.map(li => {
-        const realServiceId = li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : null;
         const realMaterialId = li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : null;
-        return { org_id: currentOrgId, ticket_id: tkRow.id, service_id: realServiceId, material_id: realMaterialId,
-          description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || null,
-          rate: li.rate, amount: li.qty * li.rate, print_sides: li.sides === 'double' ? 'double' : 'single' };
+        return { material_id: realMaterialId, description: li.description.trim() || 'Job', quantity: li.qty,
+          unit: li.unit || null, rate: li.rate, amount: li.qty * li.rate, print_sides: li.sides === 'double' ? 'double' : 'single' };
       });
-      const { error: itemsErr } = await supabaseClient.from('job_ticket_items').insert(itemRows);
-      if (itemsErr) throw itemsErr;
+      const hasStockLines = itemRows.some(r => r.material_id);
 
-      // A line item picked straight from the Stock catalog (not a plain service) pulls real
-      // inventory — deduct it now, the same as a sale invoice would, instead of only
-      // affecting stock once/if the job is later billed through Sales & Purchases.
-      const stockMoveRows = itemRows.filter(r => r.material_id).map(r => ({
-        org_id: currentOrgId, material_id: r.material_id, type: 'exit', quantity: r.quantity,
-        transaction_date: todayISO(), note: 'Ticket ' + ticketNo, source: 'ticket', ticket_id: tkRow.id, created_by: currentUserId
-      }));
-      if (stockMoveRows.length){
-        const { error: moveErr } = await supabaseClient.from('stock_movements').insert(stockMoveRows);
-        if (moveErr) throw moveErr;
-      }
-
-      // A job tied to a saved customer is billed to their account right away — as an
-      // outstanding receivable — rather than waiting for Mark Paid, so the amount shows up
-      // in Parties immediately. Anonymous walk-ins (no party picked) stay untouched until
-      // Mark Paid, same as before.
       if (selectedTicketPartyId){
-        const { data: nextInvNum, error: invNumErr } = await supabaseClient.rpc('next_invoice_number', { p_org_id: currentOrgId, p_type: 'sale' });
-        if (invNumErr) throw invNumErr;
-        const saleInvoiceNo = 'INV-' + String(nextInvNum).padStart(4, '0');
-        const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
-          org_id: currentOrgId, type:'sale', invoice_no: saleInvoiceNo, party_id: selectedTicketPartyId, invoice_date: todayISO(),
-          subtotal, discount_total: 0, tax_total: gstAmount, round_off: roundOff, grand_total: grandTotal,
-          status:'unpaid', amount_paid: 0, notes:'Walk-in job ' + ticketNo, created_by: currentUserId
-        }).select().single();
-        if (invErr) throw invErr;
-        const invItemRows = itemRows.map(r => {
-          const lineTaxAmount = gstPct ? Math.round(r.amount * gstPct) / 100 : 0;
-          return { org_id: currentOrgId, invoice_id: invRow.id, material_id: null,
-            description: r.description, quantity: r.quantity, unit: r.unit, rate: r.rate, discount_pct:0, tax_pct: gstPct,
-            taxable_amount: r.amount, tax_amount: lineTaxAmount, line_total: r.amount + lineTaxAmount };
-        });
-        if (invItemRows.length){
-          const { error: invItemsErr } = await supabaseClient.from('invoice_items').insert(invItemRows);
-          if (invItemsErr) throw invItemsErr;
-        }
-        const { error: linkErr } = await supabaseClient.from('job_tickets').update({ invoice_id: invRow.id }).eq('id', tkRow.id);
-        if (linkErr) throw linkErr;
-        tkRow.invoice_id = invRow.id;
         await loadPartiesAndBalances();
         renderPartiesTable(); renderOutstandingSummary();
       }
 
-      const savedTicket = { ...tkRow, subtotal };
       resetTicketForm();
       await refreshTicketsPanel();
-      if (stockMoveRows.length) await refreshStockPanel();
-      openTicketPrintPreview(savedTicket, itemRows);
+      if (hasStockLines) await refreshStockPanel();
+      openTicketPrintPreview(tkRow, itemRows);
     } catch (err){
       showStatus(statusEl, err.message || 'Could not save ticket.', false);
       $('saveTicketLabel').textContent = origLabel;
