@@ -3419,9 +3419,14 @@
     tbody.innerHTML = html;
     tbody.querySelectorAll('.tk-status').forEach(sel => sel.addEventListener('change', async function(){
       const prevValue = currentlyRenderedTickets.get(this.dataset.id)?.status || 'received';
-      const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: this.value });
+      const changed = currentlyRenderedTickets.get(this.dataset.id);
+      const newStatus = this.value;
+      const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: newStatus });
       if (error){ alert(error.message); this.value = prevValue; return; }
       await loadTickets(); renderTicketsTable(); renderTicketStats(); renderMachineBoard();
+      if (newStatus === 'in_progress' && changed && changed.machine === MACHINE_COUNTER_MACHINE){
+        await refreshMachineCounterPanel();
+      }
     }));
     tbody.querySelectorAll('.tk-view').forEach(btn => btn.addEventListener('click', async function(){
       const t = currentlyRenderedTickets.get(this.dataset.id);
@@ -3586,9 +3591,16 @@
 
     wrap.querySelectorAll('.bc-advance').forEach(btn => btn.addEventListener('click', async function(){
       this.disabled = true;
-      const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: this.dataset.id, p_new_status: this.dataset.next });
+      const ticketId = this.dataset.id, nextStatus = this.dataset.next;
+      const started = tickets.find(t => t.id === ticketId);
+      const { error } = await supabaseClient.rpc('advance_ticket_status', { p_ticket_id: ticketId, p_new_status: nextStatus });
       if (error){ alert(error.message); this.disabled = false; return; }
       await loadTickets(); renderMachineBoard(); renderTicketsTable(); renderTicketStats();
+      // Pressing Start on a Konica job is what puts it on today's counter, so show that land
+      // straight away rather than leaving the reading stale until the next full refresh.
+      if (nextStatus === 'in_progress' && started && started.machine === MACHINE_COUNTER_MACHINE){
+        await refreshMachineCounterPanel();
+      }
     }));
   }
 
@@ -4329,14 +4341,19 @@
   let machineTicketDailyStats = {};
   async function loadMachineTicketStats(){
     const { data, error } = await supabaseClient.from('job_ticket_items')
-      .select('quantity, print_sides, job_tickets!inner(id, machine, created_at)')
+      .select('quantity, print_sides, job_tickets!inner(id, machine, created_at, started_at)')
       .eq('org_id', currentOrgId).eq('job_tickets.machine', MACHINE_COUNTER_MACHINE).limit(3000);
     machineTicketDailyStats = {};
     if (error || !data) return;
     data.forEach(row => {
       const jt = row.job_tickets;
       if (!jt) return;
-      const day = toISODateLocal(jt.created_at);
+      // The machine's own counter only moves when the operator presses Start, so a job counts
+      // on the day it actually RAN. A slip written at 9pm and printed the next morning belongs
+      // to the next morning -- otherwise the day's estimate can never line up with the physical
+      // reading. Falls back to the slip date for anything never started through the board (old
+      // tickets, or jobs taken straight to Ready).
+      const day = toISODateLocal(jt.started_at || jt.created_at);
       if (!machineTicketDailyStats[day]) machineTicketDailyStats[day] = { slipIds: new Set(), sheets: 0 };
       machineTicketDailyStats[day].slipIds.add(jt.id);
       const qty = Number(row.quantity) || 0;
