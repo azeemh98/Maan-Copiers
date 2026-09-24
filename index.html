@@ -4981,11 +4981,18 @@
     $('partyJobsTotal').textContent = fmtMoney(jobsTotal);
     await loadPartyCommLog(partyId);
 
+    // A walk-in job's ledger row is an invoice (INV-xxxx), but everyone here refers to the work
+    // by its ticket number — so a job you know happened is findable by the number you know it
+    // by, instead of only by an invoice number you never saw.
+    const ticketNoByInvoice = {};
+    currentLedgerTickets.forEach(t => { if (t.invoice_id) ticketNoByInvoice[t.invoice_id] = t.ticket_no; });
+
     const entries = [];
     if (p.opening_balance) entries.push({ date: '—', type:'Opening', ref:'Opening balance', debit: p.opening_balance > 0 ? p.opening_balance : 0, credit: p.opening_balance < 0 ? -p.opening_balance : 0, sortKey:'0000-00-00' });
     (inv || []).forEach(i => {
-      if (i.type === 'sale') entries.push({ date: fmtDate(i.invoice_date), type:'Sale', ref: i.invoice_no, debit: i.grand_total, credit:0, sortKey: i.invoice_date });
-      else entries.push({ date: fmtDate(i.invoice_date), type:'Purchase', ref: i.invoice_no, debit:0, credit: i.grand_total, sortKey: i.invoice_date });
+      const ref = ticketNoByInvoice[i.id] ? i.invoice_no + ' · ' + ticketNoByInvoice[i.id] : i.invoice_no;
+      if (i.type === 'sale') entries.push({ date: fmtDate(i.invoice_date), type:'Sale', ref, debit: i.grand_total, credit:0, sortKey: i.invoice_date });
+      else entries.push({ date: fmtDate(i.invoice_date), type:'Purchase', ref, debit:0, credit: i.grand_total, sortKey: i.invoice_date });
     });
     (pay || []).forEach(pm => {
       if (pm.direction === 'in') entries.push({ date: fmtDate(pm.payment_date), type:'Payment received', ref: pm.mode, debit:0, credit: pm.amount, sortKey: pm.payment_date });
