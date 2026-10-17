@@ -556,6 +556,7 @@
 
 <nav class="main-nav" id="mainNav">
   <button class="nav-tab active" data-nav="stock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Stock</button>
+  <button class="nav-tab" data-nav="readystock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></svg>Ready Stock</button>
   <button class="nav-tab" data-nav="tickets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></svg>Walk-in Jobs</button>
   <button class="nav-tab" data-nav="machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="16" height="8" rx="1"/><path d="M8 9V5h8v4M8 17v3h8v-3"/><circle cx="16" cy="13" r="1"/></svg>Machine</button>
   <button class="nav-tab" data-nav="tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/><path d="m8 15 2 2 4-4"/></svg>Tasks</button>
@@ -972,6 +973,71 @@
   </section>
 
   <!-- ============ MACHINE STATUS BOARD ============ -->
+  <!-- ============ READY STOCK ============
+       Finished goods sitting on the shelf ready to hand over (booklets, stickers, card sheets...),
+       tracked by category + code name + quantity. Separate from Stock, which is raw material. -->
+  <section class="section-panel" id="panel-readystock">
+    <div class="stats-row">
+      <div class="stat-card"><div class="s-label">Items Listed</div><div class="s-val" id="rsStatItems">—</div></div>
+      <div class="stat-card ok"><div class="s-label">Total Qty Ready</div><div class="s-val" id="rsStatQty">—</div></div>
+      <div class="stat-card"><div class="s-label">Categories</div><div class="s-val" id="rsStatCats">—</div></div>
+    </div>
+
+    <section class="card">
+      <h2 class="collapsible" id="rsAddToggle"><span id="rsAddToggleLabel">+ Add Ready Stock</span><span class="chev">▶</span></h2>
+      <div id="rsAddBody" style="display:none; margin-top:18px;">
+        <div class="row2">
+          <div class="field"><label for="rsCategory">Category</label><select id="rsCategory"></select></div>
+          <div class="field" id="rsNewCategoryWrap" style="display:none;"><label for="rsNewCategory">New category name</label><input type="text" id="rsNewCategory" placeholder="e.g. Calendars"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label for="rsCode">Code / Name</label><input type="text" id="rsCode" placeholder="e.g. BK-A5-DIARY or Ruhi Booklet 40pg"></div>
+          <div class="field"><label for="rsQty">Quantity</label><input type="number" id="rsQty" min="0" step="1" value="0"></div>
+        </div>
+        <div class="field"><label for="rsNote">Note (optional)</label><input type="text" id="rsNote" placeholder="e.g. for Ruhi Enterprises, rack 2"></div>
+        <div style="display:flex; gap:10px;">
+          <button class="add-btn save-btn" id="rsSaveBtn"><span id="rsSaveLabel">Save Ready Stock</span><span></span></button>
+          <button class="btn-sm" id="rsCancelEditBtn" style="display:none;">Cancel Edit</button>
+        </div>
+        <div class="status-msg" id="rsStatus"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="table-head-row">
+        <h2>Ready to Deliver</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <div class="search-wrap"><input type="text" id="rsSearch" placeholder="Search code / name…"></div>
+          <button class="export-btn" id="rsExportXlsxBtn">⭳ Export to Excel</button>
+          <button class="export-btn" id="rsExportPdfBtn">🖨 Print / PDF</button>
+        </div>
+      </div>
+      <div class="cat-tabs" id="rsCatTabs"></div>
+      <table class="data-table">
+        <thead><tr><th>Category</th><th>Code / Name</th><th style="text-align:right;">Qty</th><th>Note</th><th>Updated</th><th></th></tr></thead>
+        <tbody id="rsTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="card printable-doc" id="rsPrintDoc">
+      <div class="no-print" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:18px;">
+        <button class="btn-sm" id="rsClosePrintBtn">Close</button>
+        <button class="btn-sm primary" id="rsPrintDocBtn">🖨 Print</button>
+      </div>
+      <div class="inv-doc-head">
+        <div>
+          <h2>READY STOCK — READY TO DELIVER</h2>
+          <div class="inv-biz" id="rsPrintBiz"></div>
+        </div>
+        <div class="inv-meta" id="rsPrintMeta"></div>
+      </div>
+      <table class="li-table" style="font-size:12.5px; margin-top:16px;">
+        <thead><tr><th>#</th><th>Category</th><th>Code / Name</th><th style="text-align:right;">Qty</th><th>Note</th></tr></thead>
+        <tbody id="rsPrintRows"></tbody>
+      </table>
+    </section>
+  </section>
+
   <section class="section-panel" id="panel-machine">
     <section class="card">
       <div class="table-head-row">
@@ -1495,6 +1561,21 @@
           </div>
         </section>
 
+        <!-- Login accounts + admin-triggered password reset. Uses Supabase's own reset-email
+             flow: the browser only holds the public anon key, so it can't set another user's
+             password directly -- the emailed link is the safe way. -->
+        <section class="card">
+          <h2 class="collapsible" id="loginAccountsToggle"><span>🔑 Login Accounts &amp; Password Reset</span><span class="chev">▶</span></h2>
+          <div id="loginAccountsBody" style="display:none; margin-top:18px;">
+            <div class="hint" style="margin-bottom:12px;">Sends a password-reset link to that person's email. They open it, land back in the app signed in, and choose a new password. Only works for accounts with a real inbox.</div>
+            <table class="data-table">
+              <thead><tr><th>Username</th><th>Email</th><th>Role</th><th></th></tr></thead>
+              <tbody id="loginAccountsTableBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+            </table>
+            <div class="status-msg" id="loginAccountsStatus"></div>
+          </div>
+        </section>
+
         <section class="card">
           <h2 class="collapsible" id="importEmployeeToggle"><span>+ Import Employees from Excel</span><span class="chev">▶</span></h2>
           <div id="importEmployeeBody" style="display:none; margin-top:18px;">
@@ -1742,6 +1823,11 @@
   const SUPABASE_URL = 'https://yymwifdmuwmhlfwgcjrj.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl5bXdpZmRtdXdtaGxmd2djanJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NzAxNzUsImV4cCI6MjEwMjU0NjE3NX0.U4jLF_BozUCZshspeUKO4PkASF2sPXem_gcsBsq7HtU';
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Read before the SDK consumes the URL hash: a password-reset email link lands here with
+  // type=recovery (or an error if the link expired / was already used).
+  let arrivedFromRecoveryLink = /type=recovery/.test(location.hash);
+  const recoveryLinkError = (location.hash.match(/error_description=([^&]+)/) || [])[1];
+  supabaseClient.auth.onAuthStateChange(event => { if (event === 'PASSWORD_RECOVERY') arrivedFromRecoveryLink = true; });
 
   let currentOrgId = null;
   let currentUserId = null;
@@ -1894,6 +1980,12 @@
     }
     currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; isTicketApprover = isAdmin || !!m.can_approve_tickets; currentUserId = session.user.id;
     showApp(session);
+    if (arrivedFromRecoveryLink){
+      arrivedFromRecoveryLink = false;
+      history.replaceState(null, '', location.pathname + location.search);
+      openChangePassword();
+      showStatus($('cpwStatus'), 'You opened a password-reset link — choose your new password.', true);
+    }
   }
 
   $('authSubmit').addEventListener('click', async function(){
@@ -1922,6 +2014,7 @@
     } finally { btn.disabled = false; }
   });
 
+  if (recoveryLinkError) alert('Password reset link problem: ' + decodeURIComponent(recoveryLinkError.replace(/\+/g, ' ')) + '\n\nAsk an admin to send a fresh reset email.');
   initAuth();
   // ====================================================================
 
@@ -2069,6 +2162,7 @@
   // NAVIGATION
   // ======================================================================
   const PAGE_META = {
+    readystock: ['Ready Stock', 'Finished goods ready to deliver — booklets, stickers, card sheets and more, by code and quantity.'],
     stock: ['Stock Management', 'Record material in/out and track remaining sheets and items across every product line.'],
     tickets: ['Walk-in Jobs', 'Printout, photocopy, lamination, binding and other daily cash jobs — print a slip for the customer.'],
     machine: ['Machine Status', 'Quickly move jobs through Received → In Progress → Ready → Delivered.'],
@@ -2131,7 +2225,8 @@
       loadBankTransactions(),
       refreshTicketsPanel(),
       refreshEmployeesPanel(),
-      refreshTasksPanel()
+      refreshTasksPanel(),
+      refreshReadyStockPanel()
     ]);
     renderPartiesTable();
     renderOutstandingSummary();
@@ -3987,9 +4082,190 @@
   $('payDateEmp').value = todayISO();
   $('salMonth').value = todayISO().slice(0,7);
 
+  // ======================================================================
+  // READY STOCK — finished goods ready to deliver, by category + code name + qty
+  // ======================================================================
+  const READY_STOCK_DEFAULT_CATEGORIES = ['Booklet', 'Stickers', 'Card Sheets', 'Dewalt'];
+  let readyStockItems = [], rsCategoryFilter = 'all', rsEditingId = null;
+  const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  toggleCollapsible($('rsAddToggle'), $('rsAddBody'));
+
+  function readyStockCategories(){
+    return Array.from(new Set([...READY_STOCK_DEFAULT_CATEGORIES, ...readyStockItems.map(r => r.category)]));
+  }
+  async function loadReadyStock(){
+    const { data, error } = await supabaseClient.from('ready_stock_items').select('*').eq('org_id', currentOrgId).order('category').order('code');
+    readyStockItems = error ? [] : (data || []);
+  }
+  async function refreshReadyStockPanel(){
+    await loadReadyStock();
+    renderReadyStockCategorySelect();
+    renderReadyStock();
+  }
+  function renderReadyStockCategorySelect(){
+    const sel = $('rsCategory');
+    const prev = sel.value;
+    sel.innerHTML = readyStockCategories().map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('') + '<option value="__new__">+ New category…</option>';
+    if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
+    $('rsNewCategoryWrap').style.display = sel.value === '__new__' ? 'block' : 'none';
+  }
+  $('rsCategory').addEventListener('change', function(){ $('rsNewCategoryWrap').style.display = this.value === '__new__' ? 'block' : 'none'; });
+
+  function filteredReadyStock(){
+    const term = $('rsSearch').value.trim().toLowerCase();
+    return readyStockItems.filter(r =>
+      (rsCategoryFilter === 'all' || r.category === rsCategoryFilter) &&
+      (!term || r.code.toLowerCase().includes(term) || (r.note || '').toLowerCase().includes(term)));
+  }
+  function renderReadyStock(){
+    const cats = readyStockCategories();
+    if (rsCategoryFilter !== 'all' && !cats.includes(rsCategoryFilter)) rsCategoryFilter = 'all';
+    $('rsCatTabs').innerHTML = ['all', ...cats].map(c => {
+      const count = c === 'all' ? readyStockItems.length : readyStockItems.filter(r => r.category === c).length;
+      return '<button class="cat-tab' + (c === rsCategoryFilter ? ' active' : '') + '" data-rscat="' + escHtml(c) + '">' + (c === 'all' ? 'All' : escHtml(c)) + ' (' + count + ')</button>';
+    }).join('');
+    $('rsCatTabs').querySelectorAll('.cat-tab').forEach(b => b.addEventListener('click', function(){ rsCategoryFilter = this.dataset.rscat; renderReadyStock(); }));
+
+    $('rsStatItems').textContent = readyStockItems.length;
+    $('rsStatQty').textContent = fmtQty(readyStockItems.reduce((s, r) => s + Number(r.quantity), 0));
+    $('rsStatCats').textContent = new Set(readyStockItems.map(r => r.category)).size;
+
+    const rows = filteredReadyStock();
+    const tbody = $('rsTableBody');
+    if (!rows.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">' + (readyStockItems.length ? 'Nothing matches this filter.' : 'No ready stock yet — add some above.') + '</td></tr>'; return; }
+    tbody.innerHTML = rows.map(r =>
+      '<tr><td>' + escHtml(r.category) + '</td><td class="item-name">' + escHtml(r.code) + '</td>' +
+      '<td style="text-align:right; font-weight:700;">' + fmtQty(r.quantity) + '</td><td>' + (r.note ? escHtml(r.note) : '—') + '</td>' +
+      '<td>' + fmtDate(toISODateLocal(r.updated_at)) + '</td>' +
+      '<td><div class="row-actions"><button class="rs-edit" data-id="' + r.id + '" title="Edit">✎</button>' +
+      (isAdmin ? '<button class="rs-del danger" data-id="' + r.id + '" title="Delete">✕</button>' : '') + '</div></td></tr>').join('');
+    tbody.querySelectorAll('.rs-edit').forEach(b => b.addEventListener('click', function(){ const r = readyStockItems.find(x => x.id === this.dataset.id); if (r) startEditReadyStock(r); }));
+    tbody.querySelectorAll('.rs-del').forEach(b => b.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
+      const r = readyStockItems.find(x => x.id === this.dataset.id);
+      if (!r || !window.confirm('Delete "' + r.code + '" (' + r.category + ') from Ready Stock?')) return;
+      const { error } = await supabaseClient.from('ready_stock_items').delete().eq('id', r.id);
+      if (error){ alert(error.message); return; }
+      if (rsEditingId === r.id) resetReadyStockForm();
+      await refreshReadyStockPanel();
+    }));
+  }
+  $('rsSearch').addEventListener('input', renderReadyStock);
+
+  function resetReadyStockForm(){
+    rsEditingId = null;
+    $('rsCode').value = ''; $('rsQty').value = 0; $('rsNote').value = ''; $('rsNewCategory').value = '';
+    $('rsAddToggleLabel').textContent = '+ Add Ready Stock';
+    $('rsSaveLabel').textContent = 'Save Ready Stock';
+    $('rsCancelEditBtn').style.display = 'none';
+  }
+  function startEditReadyStock(r){
+    rsEditingId = r.id;
+    $('rsCategory').value = r.category; $('rsNewCategoryWrap').style.display = 'none';
+    $('rsCode').value = r.code; $('rsQty').value = r.quantity; $('rsNote').value = r.note || '';
+    $('rsAddToggleLabel').textContent = '✎ Edit Ready Stock';
+    $('rsSaveLabel').textContent = 'Update Ready Stock';
+    $('rsCancelEditBtn').style.display = 'inline-flex';
+    $('rsAddBody').style.display = 'block'; $('rsAddToggle').classList.add('open');
+    $('rsAddToggle').scrollIntoView({ behavior:'smooth', block:'center' });
+    $('rsQty').focus();
+  }
+  $('rsCancelEditBtn').addEventListener('click', resetReadyStockForm);
+
+  $('rsSaveBtn').addEventListener('click', async function(){
+    const statusEl = $('rsStatus');
+    const category = $('rsCategory').value === '__new__' ? $('rsNewCategory').value.trim() : $('rsCategory').value;
+    const code = $('rsCode').value.trim();
+    const quantity = parseFloat($('rsQty').value);
+    if (!category){ showStatus(statusEl, 'Enter a category name.', false); return; }
+    if (!code){ showStatus(statusEl, 'Enter the code / name.', false); return; }
+    if (isNaN(quantity) || quantity < 0){ showStatus(statusEl, 'Enter a quantity of 0 or more.', false); return; }
+    this.disabled = true;
+    try {
+      const payload = { category, code, quantity, note: $('rsNote').value.trim() || null, updated_at: new Date().toISOString() };
+      if (rsEditingId){
+        const { error } = await supabaseClient.from('ready_stock_items').update(payload).eq('id', rsEditingId);
+        if (error) throw error;
+        showStatus(statusEl, '"' + code + '" updated.', true);
+      } else {
+        const { error } = await supabaseClient.from('ready_stock_items').insert({ ...payload, org_id: currentOrgId, created_by: currentUserId });
+        if (error) throw error;
+        showStatus(statusEl, '"' + code + '" added — ' + fmtQty(quantity) + ' ready.', true);
+      }
+      resetReadyStockForm();
+      await refreshReadyStockPanel();
+      $('rsCategory').value = category;
+    } catch (err){ showStatus(statusEl, err.message || 'Could not save.', false); }
+    finally { this.disabled = false; }
+  });
+
+  function readyStockFilterLabel(){
+    const parts = [rsCategoryFilter === 'all' ? 'All categories' : rsCategoryFilter];
+    const term = $('rsSearch').value.trim();
+    if (term) parts.push('search "' + term + '"');
+    return parts.join(' · ');
+  }
+  $('rsExportXlsxBtn').addEventListener('click', function(){
+    const rows = filteredReadyStock();
+    if (!rows.length){ alert('Nothing to export for this filter.'); return; }
+    const data = rows.map(r => ({ Category: r.category, 'Code / Name': r.code, Quantity: Number(r.quantity), Note: r.note || '', 'Last Updated': toISODateLocal(r.updated_at) }));
+    data.push({ Category: 'TOTAL', 'Code / Name': '', Quantity: rows.reduce((s, r) => s + Number(r.quantity), 0), Note: '', 'Last Updated': '' });
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{wch:16},{wch:34},{wch:10},{wch:30},{wch:14}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ready Stock');
+    XLSX.writeFile(wb, 'Ready-Stock-' + todayISO() + '.xlsx');
+  });
+  // "PDF" = the browser's own print dialog with "Save as PDF" as the destination, same as the
+  // balance-slip export -- no PDF library needed.
+  $('rsExportPdfBtn').addEventListener('click', function(){
+    const rows = filteredReadyStock();
+    if (!rows.length){ alert('Nothing to print for this filter.'); return; }
+    $('rsPrintBiz').innerHTML = '<b>' + escHtml(org.name || 'MAAN COPIERS') + '</b>' + (org.address ? '<br>' + escHtml(org.address) : '');
+    $('rsPrintMeta').innerHTML = 'Date: <b>' + fmtDate(todayISO()) + '</b><br>' + escHtml(readyStockFilterLabel());
+    $('rsPrintRows').innerHTML = rows.map((r, i) =>
+      '<tr><td>' + (i + 1) + '</td><td>' + escHtml(r.category) + '</td><td>' + escHtml(r.code) + '</td><td style="text-align:right;">' + fmtQty(r.quantity) + '</td><td>' + escHtml(r.note || '') + '</td></tr>').join('') +
+      '<tr><td colspan="3" style="text-align:right; font-weight:700;">Total</td><td style="text-align:right; font-weight:700;">' + fmtQty(rows.reduce((s, r) => s + Number(r.quantity), 0)) + '</td><td></td></tr>';
+    $('rsPrintDoc').classList.add('show');
+    requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+  });
+  $('rsClosePrintBtn').addEventListener('click', () => $('rsPrintDoc').classList.remove('show'));
+  $('rsPrintDocBtn').addEventListener('click', () => window.print());
+
+  // ======================================================================
+  // LOGIN ACCOUNTS — admin-only list with "send password reset email"
+  // ======================================================================
+  let loginAccounts = [];
+  toggleCollapsible($('loginAccountsToggle'), $('loginAccountsBody'));
+  async function loadLoginAccounts(){
+    const { data, error } = await supabaseClient.rpc('list_org_login_accounts', { p_org_id: currentOrgId });
+    loginAccounts = error ? [] : (data || []);
+    renderLoginAccounts();
+  }
+  function renderLoginAccounts(){
+    const tbody = $('loginAccountsTableBody');
+    if (!loginAccounts.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No accounts found.</td></tr>'; return; }
+    tbody.innerHTML = loginAccounts.map(a =>
+      '<tr><td class="item-name">' + escHtml(a.username || '—') + '</td><td>' + escHtml(a.email || '—') + '</td><td>' + escHtml(a.role) + '</td>' +
+      '<td>' + (a.email ? '<button class="btn-sm acct-reset" data-email="' + escHtml(a.email) + '" data-name="' + escHtml(a.username || a.email) + '">📧 Send reset email</button>' : '') + '</td></tr>').join('');
+    tbody.querySelectorAll('.acct-reset').forEach(b => b.addEventListener('click', async function(){
+      const statusEl = $('loginAccountsStatus');
+      if (!requireAdmin(statusEl)) return;
+      const email = this.dataset.email;
+      if (!window.confirm('Send a password-reset link to ' + this.dataset.name + ' at ' + email + '?')) return;
+      this.disabled = true;
+      try {
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+        if (error) throw error;
+        showStatus(statusEl, 'Reset link sent to ' + email + '. It expires in about an hour.', true);
+      } catch (err){ showStatus(statusEl, err.message || 'Could not send the reset email.', false); }
+      finally { this.disabled = false; }
+    }));
+  }
+
   async function refreshEmployeesPanel(){
     if (!isAdmin) return;
-    await Promise.all([ loadEmployees(), loadWastageRecords() ]);
+    await Promise.all([ loadEmployees(), loadWastageRecords(), loadLoginAccounts() ]);
     renderEmployeesTable();
     renderEmployeeSelects();
     renderWastageTable();
