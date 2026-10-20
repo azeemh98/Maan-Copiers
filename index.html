@@ -910,7 +910,10 @@
         <section class="card">
           <div class="table-head-row">
             <h2>Job Tickets</h2>
-            <div class="search-wrap"><input type="text" id="ticketSearch" placeholder="Search ticket # / customer…"></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <select id="ticketCreatorFilter" title="Show only slips created by this person"><option value="">All staff</option></select>
+              <div class="search-wrap"><input type="text" id="ticketSearch" placeholder="JT # / customer / phone — all dates…"></div>
+            </div>
           </div>
           <div class="ticket-status-tabs" id="ticketStatusTabs">
             <button class="cat-tab active" data-tstatus="all">All</button>
@@ -1739,6 +1742,25 @@
       <div class="stat-card"><div class="s-label">Expenses</div><div class="s-val" id="repExpenses">—</div></div>
       <div class="stat-card" id="repProfitCard"><div class="s-label">Net Profit (approx.)</div><div class="s-val" id="repProfit">—</div></div>
     </div>
+
+    <section class="card">
+      <div class="table-head-row">
+        <h2>Staff Productivity — Walk-in Slips</h2>
+        <button class="export-btn" id="exportProdBtn">⭳ Export to Excel</button>
+      </div>
+      <div class="hint" id="prodRangeLabel" style="margin-bottom:10px;">Slips each person created in the report period (cancelled slips excluded).</div>
+      <table class="data-table">
+        <thead><tr><th>Staff</th><th style="text-align:right;">Slips</th><th style="text-align:right;">Share</th><th style="text-align:right;">Slip value</th><th style="text-align:right;">Unpaid</th><th style="text-align:right;">Avg / slip</th><th style="text-align:right;">Days active</th><th style="text-align:right;">Slips / day</th></tr></thead>
+        <tbody id="prodBody"><tr class="empty-row"><td colspan="8">Run a report to see who created how many slips.</td></tr></tbody>
+      </table>
+      <h2 class="collapsible" id="prodDailyToggle" style="margin-top:18px;"><span>Day by day</span><span class="chev">▶</span></h2>
+      <div id="prodDailyBody" style="display:none; margin-top:12px;">
+        <table class="data-table">
+          <thead id="prodDailyHead"></thead>
+          <tbody id="prodDailyRows"><tr class="empty-row"><td>Run a report first.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
 
     <section class="card">
       <h2>GST Summary <span class="hint" style="font-weight:400;">(reference for filing — not submitted anywhere)</span></h2>
@@ -3044,7 +3066,7 @@
   // machine-operator accounts, so typing any name is just as valid as picking one.
   function renderOperatorSelect(){
     const dl = $('tkOperatorDatalist');
-    dl.innerHTML = operators.map(o => '<option value="' + (o.username || '').replace(/"/g,'&quot;') + '"></option>').join('');
+    dl.innerHTML = operators.map(o => '<option value="' + titleCase(o.username).replace(/"/g,'&quot;') + '"></option>').join('');
   }
   function resolveOperatorByName(name){
     return operators.find(o => (o.username || '').toLowerCase() === name.trim().toLowerCase()) || null;
@@ -3540,6 +3562,8 @@
     await loadServices();
     await loadTicketMaterials();
     await loadOperators();
+    await loadAssignableMembers();
+    renderTicketCreatorFilter();
     await loadTickets();
     renderServiceCategorySelect();
     renderServicesTable();
@@ -3609,7 +3633,49 @@
     ticketStatusFilter = this.dataset.tstatus;
     renderTicketsTable();
   }));
-  $('ticketSearch').addEventListener('input', renderTicketsTable);
+  // Search now goes to the database (all dates), so wait for a pause in typing rather than
+  // firing a query on every keystroke.
+  let ticketSearchTimer = null;
+  $('ticketSearch').addEventListener('input', () => { clearTimeout(ticketSearchTimer); ticketSearchTimer = setTimeout(renderTicketsTable, 300); });
+  $('ticketCreatorFilter').addEventListener('change', renderTicketsTable);
+
+  // Staff names for "created by" / operator: profiles first (loaded for everyone), the
+  // org-member list as a fallback.
+  // Usernames are stored lowercase ("karan"); people's names read as Title Case everywhere.
+  function titleCase(s){ return String(s || '').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
+  function staffName(uid){
+    if (!uid) return '';
+    const p = profilesMap[uid];
+    if (p) return p.username ? titleCase(p.username) : (p.full_name || p.email);
+    const m = assignableMembers.find(x => x.id === uid);
+    return m ? (m.username ? titleCase(m.username) : '—') : 'Unknown';
+  }
+  function renderTicketCreatorFilter(){
+    const sel = $('ticketCreatorFilter');
+    const prev = sel.value;
+    const people = assignableMembers.filter(m => m.role !== 'operator').slice().sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+    sel.innerHTML = '<option value="">All staff</option>' + people.map(m => '<option value="' + m.id + '">' + escHtml(titleCase(m.username) || '—') + '</option>').join('');
+    if (prev && people.some(m => m.id === prev)) sel.value = prev;
+  }
+
+  // The list in memory (`tickets`) only holds the 200 most recent slips -- a couple of days -- so
+  // searching it could never find an older JT number. Ask the database instead. A bare number
+  // ("81", "jt81", "JT-0081") is treated as a ticket number and its exact match is listed first.
+  async function searchTicketsServer(term){
+    const clean = term.replace(/[%,()*\\:"']/g, ' ').trim();
+    if (!clean) return [];
+    const num = clean.match(/^(?:jt)?[\s-]*0*(\d{1,6})$/i);
+    const filters = ['ticket_no.ilike.%' + clean + '%'];
+    if (num) filters.push('ticket_no.eq.JT-' + num[1].padStart(4, '0'));
+    // A short number is a ticket number; anything else may also be a name or phone.
+    if (!/^\d{1,5}$/.test(clean)) filters.push('customer_name.ilike.%' + clean + '%', 'phone.ilike.%' + clean + '%');
+    const { data, error } = await supabaseClient.from('job_tickets').select('*').eq('org_id', currentOrgId)
+      .or(filters.join(',')).order('created_at', { ascending:false }).limit(300);
+    if (error) throw error;
+    const rows = data || [];
+    if (num){ const exact = 'JT-' + num[1].padStart(4, '0'); rows.sort((a, b) => (b.ticket_no === exact) - (a.ticket_no === exact)); }
+    return rows;
+  }
 
   // ---- Day navigator for the Job Tickets table (see the .day-nav markup, id="ticketDayNav") ----
   function shiftTicketDay(delta){
@@ -3663,8 +3729,11 @@
 
     let rows;
     if (searching){
-      // A search looks across everything loaded so far, regardless of the selected day.
-      rows = tickets.slice();
+      tbody.style.opacity = '0.4';
+      try { rows = await searchTicketsServer(term); }
+      catch (err){ tbody.style.opacity = ''; tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Search failed — ' + escHtml(err.message || 'check your connection') + '</td></tr>'; return; }
+      tbody.style.opacity = '';
+      if ($('ticketSearch').value.trim().toLowerCase() !== term) return; // typing moved on
     } else {
       const requestedDay = selectedTicketDay;
       // Wiping the table to a "Loading…" row and then replacing it is what actually caused the
@@ -3681,11 +3750,16 @@
       if (requestedDay !== selectedTicketDay || $('ticketSearch').value.trim().toLowerCase() !== term) return;
     }
     if (ticketStatusFilter !== 'all') rows = rows.filter(t => t.status === ticketStatusFilter);
-    if (term) rows = rows.filter(t => t.ticket_no.toLowerCase().includes(term) || (t.customer_name || '').toLowerCase().includes(term));
+    const creatorFilter = $('ticketCreatorFilter').value;
+    if (creatorFilter) rows = rows.filter(t => t.created_by === creatorFilter);
 
     currentlyRenderedTickets = new Map(rows.map(t => [t.id, t]));
 
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + (searching ? 'No matching tickets.' : 'No slips on this day.') + '</td></tr>'; return; }
+    if (rows.length === 0){
+      const who = creatorFilter ? ' by ' + escHtml(staffName(creatorFilter)) : '';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + (searching ? 'No slip' + who + ' matches "' + escHtml(term) + '" on any date.' : 'No slips' + who + ' on this day.') + '</td></tr>';
+      return;
+    }
 
     // Group by calendar day — a single group when browsing one day (the normal case), or
     // several when a search pulls in matches from more than one day. Rows are already
@@ -3720,7 +3794,8 @@
           '<td>' + fmtMoney(ticketGrandTotal(t)) + (Number(t.gst_amount) > 0 ? '<div class="item-cat">incl. GST ' + fmtMoney(t.gst_amount) + '</div>' : '') + '</td>' +
           '<td><select class="tk-status" data-id="' + t.id + '">' + statusOptionsHtml(t.status) + '</select></td>' +
           '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td>' +
-          '<td class="last-mv">' + fmtTimeOnly(t.created_at) + gapHtml + '</td>' +
+          '<td class="last-mv">' + fmtTimeOnly(t.created_at) + gapHtml +
+            '<div class="item-cat">by ' + escHtml(staffName(t.created_by) || '—') + ((t.operator_name || t.assigned_operator_id) ? ' · op ' + escHtml(titleCase(t.operator_name) || staffName(t.assigned_operator_id)) : '') + '</div></td>' +
           '<td><div class="row-actions">' +
             '<button class="tk-view" data-id="' + t.id + '" title="View / Print">🖨</button>' +
             (isTicketApprover && pending ? '<button class="tk-approve" data-id="' + t.id + '" title="Approve as-is">✓</button>' : '') +
@@ -3890,7 +3965,7 @@
     wrap.innerHTML = BOARD_COLUMNS.map(col => {
       const colRows = rows.filter(t => t.status === col.status).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
       const cards = colRows.map(t => {
-        const tags = [t.machine, t.operator_name].filter(Boolean).join(' · ');
+        const tags = [t.machine, titleCase(t.operator_name)].filter(Boolean).join(' · ');
         const pending = t.approval_status !== 'approved';
         let actionHtml = '';
         if (pending) actionHtml = '<div class="bc-pending">⏳ Awaiting approval</div>';
@@ -4166,8 +4241,9 @@
 
   function buildSlipHtml(ticket, items, copyLabel){
     const lines = items.map(li => '<tr><td>' + li.description + (li.unit ? ' (' + li.unit + ')' : '') + '<br>' + fmtQty(li.quantity) + ' × ' + fmtMoney(li.rate) + '</td><td style="text-align:right;">' + fmtMoney(li.amount) + '</td></tr>').join('');
-    const handler = profilesMap[ticket.created_by];
-    const handlerName = handler ? (handler.username || handler.full_name || handler.email) : 'Unknown';
+    const handlerName = staffName(ticket.created_by) || 'Unknown';
+    // Who takes the job vs who actually produces it -- both on every copy.
+    const operatorName = titleCase(ticket.operator_name) || staffName(ticket.assigned_operator_id) || 'Not assigned';
     const approver = ticket.approved_by ? profilesMap[ticket.approved_by] : null;
     const approverName = approver ? (approver.username || approver.full_name || approver.email) : 'PENDING';
     return (
@@ -4195,6 +4271,8 @@
       (ticket.notes ? '<div class="t-rule"></div><div>' + ticket.notes + '</div>' : '') +
       '<div class="t-rule"></div>' +
       '<div class="t-row"><span>Job taken by</span><span>' + handlerName + '</span></div>' +
+      '<div class="t-row"><span>Operator</span><span>' + operatorName + '</span></div>' +
+      (ticket.machine ? '<div class="t-row"><span>Machine</span><span>' + ticket.machine + '</span></div>' : '') +
       '<div class="t-row"><span>Approved by</span><span>' + approverName + '</span></div>' +
       '<div class="t-foot">Please keep this slip for collection.<br>Thank you for your business!</div>'
     );
@@ -6796,8 +6874,70 @@
   }
 
   $('runReportBtn').addEventListener('click', runReport);
+  // ---- Staff Productivity (walk-in slips per creator, per day) ----
+  let prodSummary = [], prodDaily = [], prodStaff = [], prodRange = null;
+  toggleCollapsible($('prodDailyToggle'), $('prodDailyBody'));
+  async function loadStaffProductivity(from, to){
+    prodRange = { from, to };
+    let data, error;
+    try { ({ data, error } = await fetchAllPages(() => supabaseClient.rpc('staff_ticket_daily', { p_org_id: currentOrgId, p_from: from, p_to: to }).order('day').order('user_id'))); }
+    catch (err){ error = err; }
+    const body = $('prodBody');
+    if (error){ body.innerHTML = '<tr class="empty-row"><td colspan="8">Could not load staff productivity.</td></tr>'; return; }
+    const byUser = new Map();
+    data.forEach(r => {
+      const key = r.user_id || 'none';
+      if (!byUser.has(key)) byUser.set(key, { user_id: r.user_id, name: r.username ? titleCase(r.username) : (r.user_id ? staffName(r.user_id) : '(not recorded)'), slips: 0, value: 0, unpaid: 0, days: new Set() });
+      const u = byUser.get(key);
+      u.slips += Number(r.slips); u.value += Number(r.total_value); u.unpaid += Number(r.unpaid_value); u.days.add(r.day);
+    });
+    prodSummary = Array.from(byUser.values()).sort((a, b) => b.slips - a.slips);
+    prodStaff = prodSummary.map(u => u.user_id || 'none');
+    prodDaily = data;
+    const totalSlips = prodSummary.reduce((s, u) => s + u.slips, 0);
+    $('prodRangeLabel').textContent = fmtDate(from) + ' – ' + fmtDate(to) + ' · ' + totalSlips + ' slips by ' + prodSummary.length + ' staff (cancelled slips excluded).';
+    if (!prodSummary.length){ body.innerHTML = '<tr class="empty-row"><td colspan="8">No slips in this period.</td></tr>'; $('prodDailyHead').innerHTML = ''; $('prodDailyRows').innerHTML = ''; return; }
+    body.innerHTML = prodSummary.map(u =>
+      '<tr><td class="item-name">' + escHtml(u.name) + '</td>' +
+      '<td style="text-align:right; font-weight:700;">' + u.slips + '</td>' +
+      '<td style="text-align:right;">' + Math.round(u.slips * 100 / totalSlips) + '%</td>' +
+      '<td style="text-align:right;">' + fmtMoney(u.value) + '</td>' +
+      '<td style="text-align:right;" class="' + (u.unpaid > 0 ? 'amt-neg' : '') + '">' + fmtMoney(u.unpaid) + '</td>' +
+      '<td style="text-align:right;">' + fmtMoney(u.value / u.slips) + '</td>' +
+      '<td style="text-align:right;">' + u.days.size + '</td>' +
+      '<td style="text-align:right;">' + (u.slips / u.days.size).toFixed(1) + '</td></tr>').join('');
+
+    // Day-by-day grid: one row per day (newest first), one column per staff member.
+    const cell = {};
+    data.forEach(r => { cell[r.day + '|' + (r.user_id || 'none')] = r; });
+    const days = Array.from(new Set(data.map(r => r.day))).sort().reverse();
+    $('prodDailyHead').innerHTML = '<tr><th>Date</th>' + prodSummary.map(u => '<th style="text-align:right;">' + escHtml(u.name) + '</th>').join('') + '<th style="text-align:right;">Total</th></tr>';
+    $('prodDailyRows').innerHTML = days.map(d => {
+      let dayTotal = 0;
+      const tds = prodStaff.map(k => { const r = cell[d + '|' + k]; if (!r) return '<td style="text-align:right; color:var(--faint);">—</td>'; dayTotal += Number(r.slips); return '<td style="text-align:right;" title="' + fmtMoney(r.total_value) + '">' + r.slips + '</td>'; }).join('');
+      return '<tr><td>' + fmtDate(d) + '</td>' + tds + '<td style="text-align:right; font-weight:700;">' + dayTotal + '</td></tr>';
+    }).join('');
+  }
+  $('exportProdBtn').addEventListener('click', function(){
+    if (!prodSummary.length){ alert('Run a report with some slips in it first.'); return; }
+    const total = prodSummary.reduce((s, u) => s + u.slips, 0);
+    const summary = prodSummary.map(u => ({ Staff: u.name, Slips: u.slips, 'Share %': Math.round(u.slips * 100 / total), 'Slip value': Math.round(u.value * 100) / 100, Unpaid: Math.round(u.unpaid * 100) / 100, 'Avg per slip': Math.round(u.value / u.slips), 'Days active': u.days.size, 'Slips per day': Number((u.slips / u.days.size).toFixed(1)) }));
+    const days = Array.from(new Set(prodDaily.map(r => r.day))).sort().reverse();
+    const daily = days.map(d => {
+      const row = { Date: d };
+      prodSummary.forEach((u, i) => { const r = prodDaily.find(x => x.day === d && (x.user_id || 'none') === prodStaff[i]); row[u.name] = r ? Number(r.slips) : 0; });
+      row.Total = prodSummary.reduce((s, u) => s + row[u.name], 0);
+      return row;
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Summary');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(daily), 'Day by day');
+    XLSX.writeFile(wb, 'Staff-Productivity-' + prodRange.from + '-to-' + prodRange.to + '.xlsx');
+  });
+
   async function runReport(){
     const { from, to } = reportRange();
+    loadStaffProductivity(from, to);
     const [{ data: saleInv }, { data: purInv }, { data: expRows }, { data: payRows }] = await Promise.all([
       fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
       fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
