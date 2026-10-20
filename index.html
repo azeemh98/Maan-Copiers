@@ -9,6 +9,51 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- Vercel Web Analytics (cookie-free). Starts reporting once Web Analytics is enabled for the project in the Vercel dashboard. -->
+<script>window.va = window.va || function(){ (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<!-- Error tracking: catches uncaught errors and failed promises, tells the user in plain words instead of failing silently,
+     and forwards to Sentry if a loader URL is pasted below (Sentry project → Settings → Client Keys → "Loader Script"). -->
+<script>
+(function(){
+  var SENTRY_LOADER_URL = ''; // e.g. 'https://js.sentry-cdn.com/<key>.min.js' — leave empty to disable
+  if (SENTRY_LOADER_URL){
+    var s = document.createElement('script');
+    s.src = SENTRY_LOADER_URL; s.crossOrigin = 'anonymous';
+    document.head.appendChild(s);
+  }
+  var lastShown = 0;
+  function friendlyToast(){
+    var now = Date.now();
+    if (now - lastShown < 10000) return; // don't spam the screen if one bug fires repeatedly
+    lastShown = now;
+    var host = document.getElementById('liveToasts');
+    if (!host) return;
+    var t = document.createElement('div');
+    t.className = 'live-toast'; t.setAttribute('role', 'alert');
+    t.innerHTML = '<b>Something went wrong</b>Please try again. If it keeps happening, refresh the page or tell your admin.';
+    t.onclick = function(){ t.remove(); };
+    host.appendChild(t);
+    setTimeout(function(){ if (t.parentNode) t.remove(); }, 8000);
+  }
+  window.addEventListener('error', function(e){
+    // Ignore harmless resource-load noise (e.g. a blocked font) — only real script errors.
+    if (e && e.target && e.target !== window) return;
+    console.error('[app error]', e && e.error ? e.error : e.message);
+    friendlyToast();
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    console.error('[app error: unhandled promise]', e && e.reason);
+    friendlyToast();
+  });
+  window.addEventListener('offline', function(){
+    var host = document.getElementById('liveToasts'); if (!host) return;
+    var t = document.createElement('div'); t.className = 'live-toast'; t.setAttribute('role', 'alert');
+    t.innerHTML = '<b>You are offline</b>Changes will not save until the connection is back.';
+    host.appendChild(t); setTimeout(function(){ if (t.parentNode) t.remove(); }, 6000);
+  });
+})();
+</script>
 <style>
   :root{
     --ink:#111826; --muted:#5B6B80; --faint:#8996A6;
@@ -518,7 +563,9 @@
     <input type="password" id="authPassword">
   </div>
   <button id="authSubmit">Sign In</button>
-  <div id="authError"></div>
+  <div id="authError" role="alert" aria-live="polite"></div>
+  <p style="margin:12px 0 0;font-size:12.5px;color:var(--muted);text-align:center;">Forgot your password? Ask your admin to send you a reset email.</p>
+  <p style="margin:8px 0 0;font-size:12px;color:var(--faint);text-align:center;"><a href="/privacy.html" target="_blank" rel="noopener" style="color:inherit;">Privacy</a> · <a href="/terms.html" target="_blank" rel="noopener" style="color:inherit;">Terms</a></p>
   <div class="auth-strip" title="Printing · Copying · Stationery">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
@@ -1809,7 +1856,7 @@
 
 </main>
 
-<footer>MAAN COPIERS · Lucknow</footer>
+<footer>MAAN COPIERS · Lucknow · <a href="/privacy.html" target="_blank" rel="noopener" style="color:inherit;">Privacy</a> · <a href="/terms.html" target="_blank" rel="noopener" style="color:inherit;">Terms</a></footer>
 
 <!-- Live-update toasts: pop up when a realtime change (new ticket/task, status update) arrives -->
 <div class="no-print" id="liveToasts"></div>
@@ -2027,18 +2074,33 @@
     }
   }
 
+  // Client-side brake on repeated bad logins (Supabase Auth also enforces its own server-side limits).
+  let authFailCount = 0, authLockedUntil = 0;
+  function noteAuthFailure(){
+    authFailCount++;
+    if (authFailCount >= 5){ authLockedUntil = Date.now() + 30000; authFailCount = 0; }
+  }
   $('authSubmit').addEventListener('click', async function(){
     const username = $('authUsername').value.trim();
     const password = $('authPassword').value;
     const btn = this;
+    const waitMs = authLockedUntil - Date.now();
+    if (waitMs > 0){
+      const errEl = $('authError');
+      errEl.textContent = 'Too many failed attempts. Please wait ' + Math.ceil(waitMs / 1000) + ' seconds and try again.';
+      errEl.classList.add('show');
+      return;
+    }
     btn.disabled = true;
     $('authError').classList.remove('show');
     try {
       if (!username) throw new Error('Enter your username.');
+      if (!password) throw new Error('Enter your password.');
       const { data: email, error: lookupErr } = await supabaseClient.rpc('get_email_for_username', { p_username: username });
-      if (lookupErr || !email) throw new Error('Invalid username or password');
+      if (lookupErr || !email){ noteAuthFailure(); throw new Error('Invalid username or password'); }
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-      if (error) throw new Error('Invalid username or password');
+      if (error){ noteAuthFailure(); throw new Error('Invalid username or password'); }
+      authFailCount = 0;
       const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
       if (!m){
         await supabaseClient.auth.signOut();
