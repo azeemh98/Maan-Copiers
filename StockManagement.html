@@ -22,6 +22,12 @@
 
   .topbar{ background:var(--navy); color:#fff; padding:0 28px; }
   .topbar-inner{ max-width:1280px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; padding:16px 0; }
+  @media (max-width:640px){
+    .topbar{ padding:0 16px; }
+    .topbar-inner{ flex-wrap:wrap; gap:10px; padding:12px 0; }
+    #userBar{ flex-wrap:wrap; gap:8px; }
+    #userEmail{ flex-basis:100%; order:-1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  }
   .brand{ display:flex; align-items:center; gap:11px; }
   .brand-mark{ width:34px; height:34px; border-radius:7px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#fff; letter-spacing:-0.02em; flex-shrink:0; }
   .brand-name{ font-weight:700; font-size:15.5px; letter-spacing:-0.01em; }
@@ -77,8 +83,11 @@
   .stat-card.ok .s-val{ color:var(--ok); }
   .stat-card.danger .s-val{ color:var(--danger); }
 
-  .content-grid{ display:grid; grid-template-columns:1.35fr 1fr; gap:22px; align-items:start; }
-  @media (max-width:980px){ .content-grid{grid-template-columns:1fr;} }
+  /* minmax(0,…) + min-width:0: a plain 1fr column grows to fit its widest table, so on a phone
+     the whole page scrolled sideways instead of just the table inside its own scroll box. */
+  .content-grid{ display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:22px; align-items:start; }
+  .content-grid > *{ min-width:0; }
+  @media (max-width:980px){ .content-grid{grid-template-columns:minmax(0,1fr);} }
 
   .card{ background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:24px 24px 26px; margin-bottom:20px; }
   .card h2{ font-size:14px; font-weight:700; letter-spacing:0.02em; margin:0 0 18px; color:var(--ink); padding-bottom:14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
@@ -442,6 +451,15 @@
     .thermal-cut{ page-break-after:always; }
   }
 
+  /* Shown while the saved session is checked on page load -- otherwise someone already signed
+     in sees the login form flash up for a moment before the app replaces it. */
+  body.booting #authGate, body.booting #appShell{ display:none !important; }
+  #bootSplash{ display:none; min-height:70vh; flex-direction:column; align-items:center; justify-content:center; gap:14px; color:var(--muted); font-size:13px; }
+  body.booting #bootSplash{ display:flex; }
+  .boot-spinner{ width:30px; height:30px; border-radius:50%; border:3px solid var(--border); border-top-color:var(--accent); animation:bootspin 0.8s linear infinite; }
+  @keyframes bootspin{ to{ transform:rotate(360deg); } }
+  @media print{ #bootSplash{ display:none !important; } }
+
   /* Auth gate */
   #authGate{
     max-width:400px; margin:70px auto; background:var(--surface); border:1px solid var(--border);
@@ -499,7 +517,8 @@
   }
 </style>
 </head>
-<body>
+<body class="booting">
+<div id="bootSplash"><div class="boot-spinner"></div><div>Loading MAAN COPIERS…</div></div>
 
 <div id="authGate">
   <div class="auth-hero">
@@ -518,6 +537,7 @@
     <input type="password" id="authPassword">
   </div>
   <button id="authSubmit">Sign In</button>
+  <div style="margin-top:14px; text-align:center; font-size:12px; color:var(--muted);">Forgot your password? Ask an admin to send you a reset link.</div>
   <div id="authError"></div>
   <div class="auth-strip" title="Printing · Copying · Stationery">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -842,7 +862,7 @@
             <div class="field"><label for="tkPhone">Phone (optional)</label><input type="tel" id="tkPhone" placeholder="10-digit mobile"></div>
           </div>
           <datalist id="tkServiceDatalist"></datalist>
-          <table class="li-table">
+          <table class="li-table li-edit">
             <thead><tr><th style="width:20%">Service / Stock Item</th><th style="width:8%">Size</th><th>Description</th><th>Qty</th><th style="width:130px;">Sides</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
             <tbody id="tkLineItems"></tbody>
           </table>
@@ -1355,7 +1375,7 @@
       </div>
 
       <datalist id="invMaterialDatalist"></datalist>
-      <table class="li-table">
+      <table class="li-table li-edit">
         <thead><tr><th style="width:22%">Item</th><th>Description</th><th>Qty</th><th>Rate</th><th>Disc %</th><th>Tax %</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
         <tbody id="invLineItems"></tbody>
       </table>
@@ -1511,7 +1531,7 @@
         <section class="card">
           <div class="table-head-row">
             <h2>Payment Mode Ledger</h2>
-            <div style="display:flex; gap:8px; align-items:center;">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
               <input type="date" id="pmlFrom" title="From">
               <span style="color:var(--faint); font-size:12px;">to</span>
               <input type="date" id="pmlTo" title="To">
@@ -1801,8 +1821,28 @@
       <h2>Team Access</h2>
       <div class="hint" style="margin-bottom:14px;">Control what each signed-in person can do. <b>Admin</b> = full access. <b>User</b> = everything except Employees/salary data. <b>Walk-in Jobs only</b> = can only use the Walk-in Jobs tab — nothing else. <b>Machine Operator</b> = only the Machine status board, to move jobs through stages.</div>
       <table class="data-table">
-        <thead><tr><th>Email</th><th>Username</th><th>Access level</th></tr></thead>
-        <tbody id="teamAccessTableBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
+        <thead><tr><th>Email</th><th>Username</th><th>Access level</th><th></th></tr></thead>
+        <tbody id="teamAccessTableBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+      </table>
+      <div class="hint" style="margin-top:10px;"><b>Remove access</b> locks someone out of MAAN COPIERS (Live and Demo) — use it when a staff member leaves. Their past records stay untouched.</div>
+    </section>
+
+    <section class="card" id="backupCard" style="display:none;">
+      <h2>Data Backup</h2>
+      <div class="hint" style="margin-bottom:14px;">Downloads every record — parties, invoices, payments, tickets, stock, employees, salaries — as one Excel file, one sheet per table. The database plan in use has no automatic restorable backups, so download this regularly (e.g. weekly) and keep it somewhere safe: it contains salary and customer data.</div>
+      <button class="add-btn save-btn" id="downloadBackupBtn"><span>⭳ Download Full Backup (Excel)</span><span></span></button>
+      <div class="status-msg" id="backupStatus"></div>
+    </section>
+
+    <section class="card" id="errorLogCard" style="display:none;">
+      <div class="table-head-row">
+        <h2>App Error Log</h2>
+        <button class="btn-sm" id="clearErrorLogBtn">Clear all</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px;">Errors anyone ran into while using the app, recorded automatically. Empty is good.</div>
+      <table class="data-table">
+        <thead><tr><th>When</th><th>Who</th><th>Screen</th><th>Error</th></tr></thead>
+        <tbody id="errorLogBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
       </table>
     </section>
   </section>
@@ -1851,7 +1891,7 @@
   // Wraps every data table (all of them are static <table> markup in the HTML -- only their
   // <tbody> rows get filled in by JS later, so this one pass at load time catches all of them)
   // in a horizontally-scrollable box. See the .table-scroll CSS rule for why this exists.
-  document.querySelectorAll('table.data-table').forEach(t => {
+  document.querySelectorAll('table.data-table, table.li-edit').forEach(t => {
     const wrap = document.createElement('div');
     wrap.className = 'table-scroll';
     t.parentNode.insertBefore(wrap, t);
@@ -1876,6 +1916,26 @@
   let isTicketApprover = false;
   let org = { name:'', gstin:'', biz_state:'', address:'' };
 
+  // Uncaught errors get recorded (deduped, capped per page load) so a problem someone hit can
+  // be traced later from Settings → App Error Log instead of relying on a description of it.
+  const reportedErrorKeys = new Set();
+  function reportClientError(message, stack){
+    try {
+      if (!currentUserId || !message || reportedErrorKeys.size >= 20) return;
+      const key = String(message).slice(0, 200);
+      if (reportedErrorKeys.has(key)) return;
+      reportedErrorKeys.add(key);
+      const tab = document.querySelector('.nav-tab.active');
+      supabaseClient.from('client_errors').insert({
+        org_id: currentOrgId, user_id: currentUserId,
+        message: String(message).slice(0, 2000), stack: stack ? String(stack).slice(0, 8000) : null,
+        page: (tab ? tab.dataset.nav : location.pathname).slice(0, 500), user_agent: navigator.userAgent.slice(0, 500)
+      }).then(() => {}, () => {});
+    } catch (_){}
+  }
+  window.addEventListener('error', e => reportClientError(e.message, e.error && e.error.stack));
+  window.addEventListener('unhandledrejection', e => { const r = e.reason; reportClientError((r && r.message) || String(r), r && r.stack); });
+
   // Two parallel organizations behind one login: real business data, and an isolated
   // practice copy (auto-seeded with the same catalog) for training/demos without ever
   // touching real stock, sales, or customer records. The Live/Demo toggle just swaps
@@ -1888,9 +1948,12 @@
 
   async function fetchMembership(orgId){
     const { data, error } = await supabaseClient.from('memberships').select('org_id, role, can_approve_tickets').eq('org_id', orgId).limit(1).single();
-    if (error || !data) return null;
-    return data;
+    // PGRST116 = genuinely no membership row. Anything else (offline, server hiccup) used to be
+    // treated the same way, which signed the person out over a momentary connection drop.
+    if (error && error.code !== 'PGRST116') throw new Error(CONNECTION_ERROR_MSG);
+    return data || null;
   }
+  const CONNECTION_ERROR_MSG = "Couldn't reach the server — check your internet connection and try again.";
 
   async function fetchOrBootstrapMembership(orgId){
     let m = await fetchMembership(orgId);
@@ -1948,6 +2011,7 @@
   }
 
   async function showApp(session){
+    document.body.classList.remove('booting');
     $('authGate').style.display = 'none';
     $('appShell').style.display = 'block';
     $('userBar').style.display = 'flex';
@@ -1960,6 +2024,7 @@
     openFloatingTickets();
   }
   function showAuthGate(message){
+    document.body.classList.remove('booting');
     $('appShell').style.display = 'none';
     $('userBar').style.display = 'none';
     $('authGate').style.display = 'block';
@@ -2011,7 +2076,9 @@
   async function initAuth(){
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session){ showAuthGate(); return; }
-    const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
+    let m;
+    try { m = await fetchOrBootstrapMembership(ORG_IDS[appMode]); }
+    catch (err){ showAuthGate(err.message || CONNECTION_ERROR_MSG); return; }
     if (!m){
       await supabaseClient.auth.signOut();
       showAuthGate('Your account isn\'t linked to an organization yet — contact your admin.');
@@ -2035,9 +2102,15 @@
     $('authError').classList.remove('show');
     try {
       if (!username) throw new Error('Enter your username.');
+      if (!password) throw new Error('Enter your password.');
       const { data: email, error: lookupErr } = await supabaseClient.rpc('get_email_for_username', { p_username: username });
-      if (lookupErr || !email) throw new Error('Invalid username or password');
+      if (lookupErr) throw new Error(CONNECTION_ERROR_MSG);
+      if (!email) throw new Error('Invalid username or password');
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      // Supabase Auth throttles repeated sign-in attempts per IP; say so instead of implying
+      // the password was wrong.
+      if (error && error.status === 429) throw new Error('Too many sign-in attempts — wait a few minutes and try again.');
+      if (error && /fetch|network/i.test(error.message || '')) throw new Error(CONNECTION_ERROR_MSG);
       if (error) throw new Error('Invalid username or password');
       const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
       if (!m){
@@ -2112,6 +2185,29 @@
   function fmtQty(n){ n = Number(n) || 0; return Number.isInteger(n) ? n.toLocaleString('en-IN') : n.toLocaleString('en-IN', {maximumFractionDigits:2}); }
   function fmtMoney(n){ n = Number(n) || 0; return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits:2}); }
   function fmtMoney0(n){ n = Number(n) || 0; return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits:0}); }
+  // PostgREST silently caps every response at 1000 rows -- a report over a long range, or an
+  // org-wide total, came back short with no error at all. Page through instead. makeQuery must
+  // build a fresh query each call and include an order with a unique tiebreaker (id).
+  async function fetchAllPages(makeQuery){
+    const all = [];
+    for (let from = 0; ; from += 1000){
+      const { data, error } = await makeQuery().range(from, from + 999);
+      if (error) return { data: null, error };
+      all.push(...data);
+      if (data.length < 1000) return { data: all, error: null };
+    }
+  }
+  // .in() with hundreds of ids also overruns the request URL length, so batch the ids as well.
+  async function fetchByIdsInChunks(table, column, ids){
+    const out = [];
+    for (let i = 0; i < ids.length; i += 100){
+      const chunk = ids.slice(i, i + 100);
+      const { data, error } = await fetchAllPages(() => supabaseClient.from(table).select('*').in(column, chunk).order('id'));
+      if (error) return { data: null, error };
+      out.push(...data);
+    }
+    return { data: out, error: null };
+  }
   function fmtDateTime(d){ return new Date(d).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); }
   function fmtDate(d){ return new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }); }
   function todayISO(){ const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
@@ -2300,18 +2396,100 @@
     $('setMyUsername').value = prof?.username || '';
 
     $('teamAccessCard').style.display = isAdmin ? 'block' : 'none';
-    if (isAdmin) await loadTeamAccess();
+    $('backupCard').style.display = isAdmin ? 'block' : 'none';
+    $('errorLogCard').style.display = isAdmin ? 'block' : 'none';
+    if (isAdmin){ await loadTeamAccess(); await loadErrorLog(); }
   }
 
   const ROLE_LABEL = { admin:'Admin', user:'User', walkin_only:'Walk-in Jobs only', operator:'Machine Operator' };
+  let teamMembers = [];
+
+  async function loadErrorLog(){
+    const { data, error } = await supabaseClient.from('client_errors').select('*').eq('org_id', currentOrgId).order('created_at', { ascending:false }).limit(50);
+    const tbody = $('errorLogBody');
+    if (error){ tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Could not load the error log.</td></tr>'; return; }
+    if (!data.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No errors recorded.</td></tr>'; return; }
+    const nameOf = uid => { const m = teamMembers.find(x => x.user_id === uid); return m ? (m.username || m.email) : '—'; };
+    tbody.innerHTML = data.map(e => '<tr><td style="white-space:nowrap;">' + fmtDateTime(e.created_at) + '</td><td>' + escHtml(nameOf(e.user_id)) + '</td><td>' + escHtml(e.page || '—') + '</td>' +
+      '<td title="' + escHtml(e.stack || '') + '">' + escHtml(e.message) + '</td></tr>').join('');
+  }
+  $('clearErrorLogBtn').addEventListener('click', async function(){
+    if (!requireAdmin()) return;
+    if (!window.confirm('Clear the whole error log?')) return;
+    const { error } = await supabaseClient.from('client_errors').delete().eq('org_id', currentOrgId);
+    if (error){ alert(error.message); return; }
+    await loadErrorLog();
+  });
+
+  // Free-plan Supabase keeps no restorable backups, so this is the safety net: every org table,
+  // paged past the API's 1000-row cap, into one workbook.
+  const BACKUP_TABLES = [
+    ['parties','id'], ['invoices','id'], ['invoice_items','id'], ['payments','id'],
+    ['job_tickets','id'], ['job_ticket_items','id'], ['job_ticket_costs','id'],
+    ['stock_materials','id'], ['stock_movements','id'], ['ready_stock_items','id'], ['services','id'],
+    ['machine_counter_readings','id'], ['employees','id'], ['employee_payments','id'],
+    ['employee_monthly_attendance',null], ['wastage_records','id'], ['expenses','id'],
+    ['bank_transactions','id'], ['tasks','id'], ['party_communications','id'], ['invoice_counters',null]
+  ];
+  async function fetchAllOrgRows(table, orderCol){
+    const rows = [];
+    for (let from = 0; ; from += 1000){
+      let q = supabaseClient.from(table).select('*').eq('org_id', currentOrgId);
+      if (orderCol) q = q.order(orderCol).range(from, from + 999);
+      const { data, error } = await q;
+      if (error) throw error;
+      rows.push(...data);
+      if (!orderCol || data.length < 1000) return rows;
+    }
+  }
+  $('downloadBackupBtn').addEventListener('click', async function(){
+    const statusEl = $('backupStatus');
+    if (!requireAdmin(statusEl)) return;
+    this.disabled = true;
+    const wb = XLSX.utils.book_new();
+    const summary = [];
+    try {
+      for (let i = 0; i < BACKUP_TABLES.length; i++){
+        const [table, orderCol] = BACKUP_TABLES[i];
+        showStatus(statusEl, 'Exporting ' + table.replace(/_/g, ' ') + '… (' + (i + 1) + ' of ' + BACKUP_TABLES.length + ')', true);
+        try {
+          const rows = await fetchAllOrgRows(table, orderCol);
+          const flat = rows.map(r => { const o = {}; Object.keys(r).forEach(k => { const v = r[k]; o[k] = v !== null && typeof v === 'object' ? JSON.stringify(v) : v; }); return o; });
+          XLSX.utils.book_append_sheet(wb, flat.length ? XLSX.utils.json_to_sheet(flat) : XLSX.utils.aoa_to_sheet([['(no rows)']]), table.slice(0, 31));
+          summary.push({ Table: table, Rows: rows.length, Status: 'OK' });
+        } catch (err){ summary.push({ Table: table, Rows: 0, Status: 'Not exported: ' + (err.message || err) }); }
+      }
+      const head = [{ Table: 'Backup of ' + (org.name || 'MAAN COPIERS') + (appMode === 'demo' ? ' (DEMO data)' : ''), Rows: '', Status: 'Taken ' + new Date().toLocaleString() }];
+      const readme = XLSX.utils.json_to_sheet(head.concat(summary));
+      readme['!cols'] = [{wch:34},{wch:10},{wch:60}];
+      wb.SheetNames.unshift('README'); wb.Sheets['README'] = readme;
+      XLSX.writeFile(wb, 'MAAN-Backup-' + (appMode === 'demo' ? 'DEMO-' : '') + todayISO() + '.xlsx');
+      const failed = summary.filter(s => s.Status !== 'OK').length;
+      showStatus(statusEl, 'Backup downloaded — ' + summary.reduce((s, x) => s + x.Rows, 0).toLocaleString() + ' records across ' + (summary.length - failed) + ' tables' + (failed ? ' (' + failed + ' could not be exported — see the README sheet)' : '') + '.', !failed);
+    } catch (err){ showStatus(statusEl, err.message || 'Backup failed.', false); }
+    finally { this.disabled = false; }
+  });
   async function loadTeamAccess(){
     const { data, error } = await supabaseClient.rpc('list_org_members', { p_org_id: currentOrgId });
     const tbody = $('teamAccessTableBody');
-    if (error || !data || data.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="3">Could not load team members.</td></tr>'; return; }
+    if (error || !data || data.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Could not load team members.</td></tr>'; return; }
+    teamMembers = data;
     tbody.innerHTML = data.map(m => {
       const opts = Object.keys(ROLE_LABEL).map(r => '<option value="' + r + '"' + (r === m.role ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>').join('');
-      return '<tr><td>' + m.email + '</td><td>' + (m.username || '—') + '</td><td><select class="team-role-select" data-uid="' + m.user_id + '">' + opts + '</select></td></tr>';
+      const removeBtn = m.user_id === currentUserId ? '' : '<button class="btn-sm team-remove" data-uid="' + m.user_id + '" data-name="' + escHtml(m.username || m.email) + '" style="color:var(--danger);">Remove access</button>';
+      return '<tr><td>' + escHtml(m.email) + '</td><td>' + escHtml(m.username || '—') + '</td><td><select class="team-role-select" data-uid="' + m.user_id + '">' + opts + '</select></td><td>' + removeBtn + '</td></tr>';
     }).join('');
+    tbody.querySelectorAll('.team-remove').forEach(btn => btn.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
+      if (!window.confirm('Remove ' + this.dataset.name + "'s access to MAAN COPIERS (Live and Demo)?\n\nThey'll be signed out and can't log in again. Their past records stay as they are.")) return;
+      this.disabled = true;
+      // Live first (the one that matters); the Demo copy is best-effort.
+      const { error } = await supabaseClient.rpc('revoke_org_access', { p_org_id: ORG_IDS.live, p_user_id: this.dataset.uid });
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await supabaseClient.rpc('revoke_org_access', { p_org_id: ORG_IDS.demo, p_user_id: this.dataset.uid });
+      await loadTeamAccess();
+      if (typeof loadLoginAccounts === 'function') await loadLoginAccounts();
+    }));
     tbody.querySelectorAll('.team-role-select').forEach(sel => sel.addEventListener('change', async function(){
       const uid = this.dataset.uid;
       const newRole = this.value;
@@ -2752,9 +2930,11 @@
     const toISO = monthEnd.toISOString().slice(0,10);
     const matFilter = $('calMaterialFilter').value;
 
-    let query = supabaseClient.from('stock_movements').select('*, stock_materials(name, unit, category)').eq('org_id', currentOrgId).gte('transaction_date', fromISO).lte('transaction_date', toISO);
-    if (matFilter) query = query.eq('material_id', matFilter);
-    const { data, error } = await query;
+    const { data, error } = await fetchAllPages(() => {
+      let q = supabaseClient.from('stock_movements').select('*, stock_materials(name, unit, category)').eq('org_id', currentOrgId).gte('transaction_date', fromISO).lte('transaction_date', toISO);
+      if (matFilter) q = q.eq('material_id', matFilter);
+      return q.order('id');
+    });
     const monthMovements = error ? [] : (data || []);
 
     const byDay = {};
@@ -5310,9 +5490,9 @@
     // party's actual line items are available regardless of which of the two ways their work
     // got recorded.
     const [{ data: inv }, { data: pay }, { data: tix }] = await Promise.all([
-      supabaseClient.from('invoices').select('*, invoice_items(*)').eq('party_id', partyId).neq('status','cancelled').neq('type','estimate').order('invoice_date'),
-      supabaseClient.from('payments').select('*').eq('party_id', partyId).order('payment_date'),
-      supabaseClient.from('job_tickets').select('*, job_ticket_items(*)').eq('party_id', partyId).neq('status','cancelled').order('created_at')
+      fetchAllPages(() => supabaseClient.from('invoices').select('*, invoice_items(*)').eq('party_id', partyId).neq('status','cancelled').neq('type','estimate').order('invoice_date').order('id')),
+      fetchAllPages(() => supabaseClient.from('payments').select('*').eq('party_id', partyId).order('payment_date').order('id')),
+      fetchAllPages(() => supabaseClient.from('job_tickets').select('*, job_ticket_items(*)').eq('party_id', partyId).neq('status','cancelled').order('created_at').order('id'))
     ]);
     currentLedgerTickets = tix || [];
     currentLedgerInvoices = inv || [];
@@ -5361,10 +5541,12 @@
   let ppPartyId = null;
   function renderPartyPayInvoiceOptions(){
     if (!currentLedgerParty) return;
-    const pool = $('ppDirection').value === 'out' ? invoicesPurchase : invoicesSale;
+    // currentLedgerInvoices is this party's complete list (fetched by openLedger); the global
+    // invoicesSale/Purchase only hold the 200 most recent, which hid older unpaid invoices.
+    const wantType = $('ppDirection').value === 'out' ? 'purchase' : 'sale';
     const ticketNoByInvoice = {};
     currentLedgerTickets.forEach(t => { if (t.invoice_id) ticketNoByInvoice[t.invoice_id] = t.ticket_no; });
-    const open = pool.filter(i => i.party_id === currentLedgerParty.id && i.status !== 'cancelled' && i.status !== 'paid');
+    const open = currentLedgerInvoices.filter(i => i.type === wantType && i.status !== 'cancelled' && i.status !== 'paid');
     const prev = $('ppInvoice').value;
     $('ppInvoice').innerHTML = '<option value="">On account (no specific invoice)</option>' + open.map(i =>
       '<option value="' + i.id + '">' + i.invoice_no + (ticketNoByInvoice[i.id] ? ' · ' + ticketNoByInvoice[i.id] : '') +
@@ -5374,7 +5556,7 @@
   $('ppDirection').addEventListener('change', renderPartyPayInvoiceOptions);
   // Picking an invoice pre-fills what's still due on it -- the common case is settling it in full.
   $('ppInvoice').addEventListener('change', function(){
-    const inv = [...invoicesSale, ...invoicesPurchase].find(i => i.id === this.value);
+    const inv = currentLedgerInvoices.find(i => i.id === this.value);
     if (inv) $('ppAmount').value = Math.max(0, Number(inv.grand_total) - Number(inv.amount_paid));
   });
   $('ppSaveBtn').addEventListener('click', async function(){
@@ -5386,7 +5568,7 @@
     const direction = $('ppDirection').value;
     const invoiceId = $('ppInvoice').value || null;
     if (invoiceId){
-      const inv = [...invoicesSale, ...invoicesPurchase].find(i => i.id === invoiceId);
+      const inv = currentLedgerInvoices.find(i => i.id === invoiceId);
       const due = inv ? Number(inv.grand_total) - Number(inv.amount_paid) : null;
       if (due !== null && amount > due + 0.5 && !window.confirm(fmtMoney(amount) + ' is more than the ' + fmtMoney(due) + ' still due on ' + inv.invoice_no + '. Record it anyway?')) return;
     }
@@ -5959,16 +6141,21 @@
     renderPaymentInvoiceOptions();
   }
   $('payParty').addEventListener('change', renderPaymentInvoiceOptions);
-  function renderPaymentInvoiceOptions(){
+  // invoicesSale/invoicesPurchase only hold the 200 most recent invoices (for the list views),
+  // so an older unpaid invoice never showed up here to settle. Ask for this party's open ones.
+  let payInvoiceReqId = 0;
+  async function renderPaymentInvoiceOptions(){
     const partyId = $('payParty').value;
     const sel = $('payInvoice');
-    // Match the invoice pool to the payment's direction: money going OUT should only ever
-    // settle what we owe a supplier (Purchase invoices), money coming IN should only ever
-    // settle what a customer owes us (Sale invoices) -- pooling both let a payment get linked
-    // to the wrong kind of invoice for a party who is both a customer and a supplier.
-    const pool = payDirection === 'out' ? invoicesPurchase : invoicesSale;
-    const relevant = pool.filter(i => i.party_id === partyId && i.status !== 'cancelled' && i.status !== 'paid');
-    sel.innerHTML = '<option value="">On account (no specific invoice)</option>' + relevant.map(i => '<option value="' + i.id + '">' + i.invoice_no + ' — due ' + fmtMoney(i.grand_total - i.amount_paid) + '</option>').join('');
+    const reqId = ++payInvoiceReqId;
+    const prev = sel.value;
+    const { data } = partyId
+      ? await supabaseClient.from('invoices').select('id, invoice_no, grand_total, amount_paid, status, party_id')
+          .eq('party_id', partyId).eq('type', payDirection === 'out' ? 'purchase' : 'sale').neq('status','cancelled').neq('status','paid').order('invoice_date')
+      : { data: [] };
+    if (reqId !== payInvoiceReqId) return; // a newer party/direction pick already superseded this
+    sel.innerHTML = '<option value="">On account (no specific invoice)</option>' + (data || []).map(i => '<option value="' + i.id + '">' + i.invoice_no + ' — due ' + fmtMoney(i.grand_total - i.amount_paid) + '</option>').join('');
+    if (prev && (data || []).some(i => i.id === prev)) sel.value = prev;
   }
 
   // Shared by the Payments tab and the party ledger's Log Payment box, so a payment recorded
@@ -6050,8 +6237,8 @@
     const { data: unmatchedTxns } = await supabaseClient.from('bank_transactions').select('*').eq('org_id', currentOrgId).eq('match_status','unmatched');
     if (!unmatchedTxns || !unmatchedTxns.length) return;
     const [{ data: candidatePayments }, { data: alreadyLinked }] = await Promise.all([
-      supabaseClient.from('payments').select('*, parties(name)').eq('org_id', currentOrgId),
-      supabaseClient.from('bank_transactions').select('matched_payment_id').eq('org_id', currentOrgId).eq('match_status','matched')
+      fetchAllPages(() => supabaseClient.from('payments').select('*, parties(name)').eq('org_id', currentOrgId).order('id')),
+      fetchAllPages(() => supabaseClient.from('bank_transactions').select('matched_payment_id').eq('org_id', currentOrgId).eq('match_status','matched').order('id'))
     ]);
     const linkedIds = new Set((alreadyLinked || []).map(x => x.matched_payment_id).filter(Boolean));
     let pool = (candidatePayments || []).filter(p => !linkedIds.has(p.id));
@@ -6296,8 +6483,8 @@
     const from = $('pmlFrom').value || todayISO();
     const to = $('pmlTo').value || todayISO();
     const [{ data: payRows }, { data: expRows }] = await Promise.all([
-      supabaseClient.from('payments').select('direction, amount, mode').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to),
-      supabaseClient.from('expenses').select('amount, mode').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to)
+      fetchAllPages(() => supabaseClient.from('payments').select('direction, amount, mode').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to).order('id')),
+      fetchAllPages(() => supabaseClient.from('expenses').select('amount, mode').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to).order('id'))
     ]);
     const modes = ['cash','bank','upi','cheque','other'];
     const inByMode = Object.fromEntries(modes.map(m => [m,0]));
@@ -6446,8 +6633,8 @@
     const since = new Date(); since.setMonth(since.getMonth() - 5); since.setDate(1);
     const sinceISO = since.toISOString().slice(0,10);
     const [{ data: payRows }, { data: expRows }] = await Promise.all([
-      supabaseClient.from('payments').select('direction, amount, mode, payment_date').eq('org_id', currentOrgId).gte('payment_date', sinceISO),
-      supabaseClient.from('expenses').select('category, amount, mode, expense_date').eq('org_id', currentOrgId).gte('expense_date', sinceISO)
+      fetchAllPages(() => supabaseClient.from('payments').select('direction, amount, mode, payment_date').eq('org_id', currentOrgId).gte('payment_date', sinceISO).order('id')),
+      fetchAllPages(() => supabaseClient.from('expenses').select('category, amount, mode, expense_date').eq('org_id', currentOrgId).gte('expense_date', sinceISO).order('id'))
     ]);
     chartPayments = payRows || [];
     chartExpenses = expRows || [];
@@ -6611,10 +6798,10 @@
   async function runReport(){
     const { from, to } = reportRange();
     const [{ data: saleInv }, { data: purInv }, { data: expRows }, { data: payRows }] = await Promise.all([
-      supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to),
-      supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to),
-      supabaseClient.from('expenses').select('*').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to),
-      supabaseClient.from('payments').select('payment_date, direction, amount, mode').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to)
+      fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
+      fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
+      fetchAllPages(() => supabaseClient.from('expenses').select('*').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to).order('id')),
+      fetchAllPages(() => supabaseClient.from('payments').select('payment_date, direction, amount, mode').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to).order('id'))
     ]);
     const salesTaxable = (saleInv||[]).reduce((s,i) => s + Number(i.subtotal - i.discount_total), 0);
     const purchTaxable = (purInv||[]).reduce((s,i) => s + Number(i.subtotal - i.discount_total), 0);
@@ -6632,7 +6819,7 @@
     const ids = allInvoices.map(i => i.id);
     let items = [];
     if (ids.length){
-      const { data } = await supabaseClient.from('invoice_items').select('*').in('invoice_id', ids);
+      const { data } = await fetchByIdsInChunks('invoice_items', 'invoice_id', ids);
       items = data || [];
     }
     const gstMap = {};
@@ -6769,11 +6956,11 @@
     this.disabled = true;
     try {
       const [{ data: allParties }, { data: saleInv }, { data: purInv }, { data: payRows }, { data: expRows }] = await Promise.all([
-        supabaseClient.from('parties').select('id, opening_balance').eq('org_id', currentOrgId),
-        supabaseClient.from('invoices').select('party_id, grand_total').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').lte('invoice_date', asOf),
-        supabaseClient.from('invoices').select('party_id, grand_total').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').lte('invoice_date', asOf),
-        supabaseClient.from('payments').select('party_id, amount, direction').eq('org_id', currentOrgId).lte('payment_date', asOf),
-        supabaseClient.from('expenses').select('amount').eq('org_id', currentOrgId).lte('expense_date', asOf)
+        fetchAllPages(() => supabaseClient.from('parties').select('id, opening_balance').eq('org_id', currentOrgId).order('id')),
+        fetchAllPages(() => supabaseClient.from('invoices').select('party_id, grand_total').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').lte('invoice_date', asOf).order('id')),
+        fetchAllPages(() => supabaseClient.from('invoices').select('party_id, grand_total').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').lte('invoice_date', asOf).order('id')),
+        fetchAllPages(() => supabaseClient.from('payments').select('party_id, amount, direction').eq('org_id', currentOrgId).lte('payment_date', asOf).order('id')),
+        fetchAllPages(() => supabaseClient.from('expenses').select('amount').eq('org_id', currentOrgId).lte('expense_date', asOf).order('id'))
       ]);
 
       // Anonymous walk-in transactions (no party_id — e.g. a cash sale with nobody picked)
@@ -6819,10 +7006,10 @@
     try {
       const { from, to } = reportRange();
       const [{ data: saleInv }, { data: purInv }, { data: payRows }, { data: expRows }] = await Promise.all([
-        supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('invoice_date'),
-        supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('invoice_date'),
-        supabaseClient.from('payments').select('*, parties(name)').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to).order('payment_date'),
-        supabaseClient.from('expenses').select('*').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to).order('expense_date')
+        fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('invoice_date').order('id')),
+        fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('invoice_date').order('id')),
+        fetchAllPages(() => supabaseClient.from('payments').select('*, parties(name)').eq('org_id', currentOrgId).gte('payment_date', from).lte('payment_date', to).order('payment_date').order('id')),
+        fetchAllPages(() => supabaseClient.from('expenses').select('*').eq('org_id', currentOrgId).gte('expense_date', from).lte('expense_date', to).order('expense_date').order('id'))
       ]);
 
       const partyName = id => (parties.find(p => p.id === id) || {}).name || 'Cash/Unknown Party';
