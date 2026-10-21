@@ -4250,8 +4250,7 @@
     const handlerName = staffName(ticket.created_by) || 'Unknown';
     // Who takes the job vs who actually produces it -- both on every copy.
     const operatorName = titleCase(ticket.operator_name) || staffName(ticket.assigned_operator_id) || 'Not assigned';
-    const approver = ticket.approved_by ? profilesMap[ticket.approved_by] : null;
-    const approverName = approver ? (approver.username || approver.full_name || approver.email) : 'PENDING';
+    const approverName = ticket.approved_by ? staffName(ticket.approved_by) : 'PENDING';
     return (
       '<div class="t-center t-label">' + copyLabel + '</div>' +
       '<div class="t-center"><b>JOB WORK</b></div>' +
@@ -5678,7 +5677,7 @@
     const rows = data || [];
     list.innerHTML = rows.length ? rows.map(c => {
       const who = profilesMap[c.created_by];
-      const whoName = who ? (who.username || who.full_name || who.email) : null;
+      const whoName = who ? staffName(c.created_by) : null;
       return '<div class="activity-item"><div class="act-body">' +
         '<div class="act-line1">' + (COMM_CHANNEL_LABEL[c.channel] || c.channel) + '</div>' +
         '<div class="act-note">"' + c.note + '"</div>' +
