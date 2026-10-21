@@ -467,6 +467,14 @@
   @keyframes bootspin{ to{ transform:rotate(360deg); } }
   @media print{ #bootSplash{ display:none !important; } }
 
+  /* "New version available" bar -- see checkForAppUpdate() */
+  #updateBanner{ display:none; position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:900;
+    background:var(--navy); color:#fff; border-radius:10px; padding:12px 16px; box-shadow:0 10px 30px rgba(15,37,64,0.35);
+    align-items:center; gap:14px; font-size:13.5px; max-width:calc(100% - 32px); }
+  #updateBanner.show{ display:flex; }
+  #updateBanner button{ background:var(--accent); color:#fff; border:none; border-radius:7px; padding:8px 14px; font-family:inherit; font-weight:700; font-size:13px; cursor:pointer; white-space:nowrap; }
+  @media print{ #updateBanner{ display:none !important; } }
+
   /* Auth gate */
   #authGate{
     max-width:400px; margin:70px auto; background:var(--surface); border:1px solid var(--border);
@@ -1883,6 +1891,12 @@
 <!-- Live-update toasts: pop up when a realtime change (new ticket/task, status update) arrives -->
 <div class="no-print" id="liveToasts"></div>
 
+<!-- Shown when a newer version of the app has been deployed since this tab was opened -->
+<div class="no-print" id="updateBanner" role="status">
+  <span>A new version of MAAN COPIERS is available.</span>
+  <button id="updateReloadBtn">Reload now</button>
+</div>
+
 <!-- Change Password — reachable by everyone from the top bar, regardless of role -->
 <div class="no-print cpw-backdrop" id="cpwBackdrop"></div>
 <div class="no-print cpw-panel" id="changePasswordPanel">
@@ -2157,6 +2171,25 @@
 
   if (recoveryLinkError) alert('Password reset link problem: ' + decodeURIComponent(recoveryLinkError.replace(/\+/g, ' ')) + '\n\nAsk an admin to send a fresh reset email.');
   initAuth();
+
+  // The app stays open all day in one tab, so a fix that's already live doesn't reach the shop
+  // until someone reloads -- a slip-size fix sat unused for exactly this reason. Vercel gives
+  // every deploy a new ETag, so compare the one this tab loaded with what's live now.
+  let loadedAppVersion = null;
+  async function checkForAppUpdate(){
+    if (!/^https?:$/.test(location.protocol)) return;
+    try {
+      const r = await fetch(location.pathname, { method:'HEAD', cache:'no-store' });
+      const v = r.headers.get('etag') || r.headers.get('last-modified');
+      if (!v) return;
+      if (!loadedAppVersion){ loadedAppVersion = v; return; }
+      if (v !== loadedAppVersion) $('updateBanner').classList.add('show');
+    } catch (_){ /* offline -- try again next time */ }
+  }
+  checkForAppUpdate();
+  setInterval(checkForAppUpdate, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForAppUpdate(); });
+  $('updateReloadBtn').addEventListener('click', () => location.reload());
   // ====================================================================
 
   const DEFAULT_CATALOG = [
