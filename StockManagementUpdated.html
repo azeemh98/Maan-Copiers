@@ -5006,7 +5006,25 @@
     const ticketStats = machineTicketDailyStats[r.reading_date];
     const slipCount = ticketStats ? ticketStats.slips : 0;
     const estSheets = ticketStats ? ticketStats.sheets : 0;
-    return { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets };
+    // The difference is "since the previous reading", which is only "today" when the machine was
+    // read yesterday too. With a gap (e.g. 36 days), compare it against what slips estimated for
+    // that same span -- the shortfall is printing that never went on a slip.
+    const prevDate = prev ? prev.reading_date : null;
+    const gapDays = prev ? Math.round((new Date(r.reading_date) - new Date(prevDate)) / 86400000) : null;
+    let estSincePrev = null;
+    if (prev){
+      estSincePrev = 0;
+      Object.keys(machineTicketDailyStats).forEach(d => { if (d > prevDate && d <= r.reading_date) estSincePrev += machineTicketDailyStats[d].sheets; });
+    }
+    return { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets, prevDate, gapDays, estSincePrev };
+  }
+  function printsSinceLabel(d){
+    return fmtQty(d.printsToday) + (d.gapDays > 1 ? ' since ' + fmtDate(d.prevDate) : '');
+  }
+  function offSlipLine(d){
+    if (d.printsToday === null || d.estSincePrev === null) return '';
+    const off = d.printsToday - d.estSincePrev;
+    return '~' + fmtQty(Math.round(d.estSincePrev)) + ' on slips' + (off > 0 ? ' · ' + fmtQty(Math.round(off)) + ' not on any slip (' + Math.round(off * 100 / d.printsToday) + '%)' : '');
   }
 
   // Total Counter / Today's Counter headline stat pair -- Total Counter is the latest reading
@@ -5018,10 +5036,11 @@
     const today = todayISO();
     const latest = machineCounterReadings[0]; // already sorted newest-first from loadMachineCounterReadings
     const todaysRow = machineCounterReadings.find(r => r.reading_date === today);
-    let todaysLabel = 'not read today';
+    let todaysLabel = 'not read today', todaysSub = '';
     if (todaysRow){
-      const { printsToday } = machineCounterDeltasFor(todaysRow);
-      todaysLabel = printsToday === null ? 'first reading' : fmtQty(printsToday);
+      const d = machineCounterDeltasFor(todaysRow);
+      todaysLabel = d.printsToday === null ? 'first reading' : printsSinceLabel(d);
+      todaysSub = offSlipLine(d);
     } else {
       const stats = machineTicketDailyStats[today];
       if (stats && stats.sheets > 0) todaysLabel = '~' + fmtQty(stats.sheets) + ' est.';
@@ -5041,7 +5060,7 @@
       : 'as of ' + fmtDate(latest.reading_date);
     wrap.innerHTML =
       '<div class="stat-card" style="flex:1; min-width:220px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Total Counter</div><div class="s-val">' + fmtQty(totalVal) + '</div><div class="item-cat">' + totalSub + '</div></div>' +
-      '<div class="stat-card ok" style="flex:1; min-width:170px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Today\'s Counter</div><div class="s-val">' + todaysLabel + '</div></div>';
+      '<div class="stat-card ok" style="flex:1; min-width:170px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Today\'s Counter</div><div class="s-val">' + todaysLabel + '</div>' + (todaysSub ? '<div class="item-cat">' + todaysSub + '</div>' : '') + '</div>';
   }
 
   // ---- Calendar — reuses the exact .cal-head/.cal-grid/.cal-day widget Stock's Monthly
@@ -5091,14 +5110,16 @@
     const wrap = $('mcCalDayDetail');
     if (!r){ wrap.innerHTML = '<div class="hint" style="margin:14px 0;">No reading or slips on ' + fmtDate(dateStr) + '.</div>'; return; }
     const hasReading = r.total_counter !== null && r.total_counter !== undefined;
-    const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
+    const d = machineCounterDeltasFor(r);
+    const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = d;
     const rowHtml = (label, val) => '<div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px;">' +
       '<span style="color:var(--muted);">' + label + '</span><span style="font-weight:700; color:var(--ink);">' + val + '</span></div>';
     wrap.innerHTML = '<div class="hint" style="margin:14px 0 8px; font-weight:700;">' + fmtDate(dateStr) + '</div>' +
       rowHtml('Slips', slipCount || '—') +
       rowHtml('Est. Sheets (from tickets)', slipCount ? fmtQty(estSheets) : '—') +
       rowHtml('Total Counter', hasReading ? fmtQty(r.total_counter) : 'not read') +
-      rowHtml('Prints Today', printsToday === null ? (hasReading ? 'first reading' : '—') : fmtQty(printsToday)) +
+      rowHtml(d.gapDays > 1 ? 'Prints since previous reading' : 'Prints Today', printsToday === null ? (hasReading ? 'first reading' : '—') : printsSinceLabel(d)) +
+      (d.gapDays > 1 && printsToday !== null ? rowHtml('Slips vs counter', offSlipLine(d)) : '') +
       rowHtml('Duplex', duplexDelta === null ? '—' : fmtQty(duplexDelta)) +
       rowHtml('Single', singleDelta === null ? '—' : fmtQty(singleDelta)) +
       rowHtml('Sheets Deducted', sheetsDeducted === null ? '—' : fmtQty(sheetsDeducted));
@@ -5114,14 +5135,15 @@
     let html = '';
     sortedRows.forEach(r => {
       const hasReading = r.total_counter !== null && r.total_counter !== undefined;
-      const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
-      const statLine = hasReading ? 'Reading logged' : (slipCount > 0 ? slipCount + ' slip' + (slipCount === 1 ? '' : 's') + ' · not physically read' : 'Not read');
+      const d = machineCounterDeltasFor(r);
+      const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = d;
+      const statLine = hasReading ? 'Reading logged' + (printsToday !== null && d.gapDays > 1 ? ' · ' + offSlipLine(d) : '') : (slipCount > 0 ? slipCount + ' slip' + (slipCount === 1 ? '' : 's') + ' · not physically read' : 'Not read');
       html += '<tr class="day-group-row"><td colspan="8"><div class="day-group-title">' + dayLabelFor(r.reading_date) + '</div><div class="day-group-stats">' + statLine + '</div></td></tr>';
       html += '<tr>' +
         '<td>' + (slipCount > 0 ? slipCount : '—') + '</td>' +
         '<td>' + (slipCount > 0 ? fmtQty(estSheets) : '—') + '</td>' +
         '<td>' + (hasReading ? fmtQty(r.total_counter) : '<span class="item-cat">not read</span>') + '</td>' +
-        '<td>' + (printsToday === null ? (hasReading ? '<span class="item-cat">first reading</span>' : '—') : fmtQty(printsToday)) + '</td>' +
+        '<td>' + (printsToday === null ? (hasReading ? '<span class="item-cat">first reading</span>' : '—') : printsSinceLabel(d)) + '</td>' +
         '<td>' + (duplexDelta === null ? '—' : fmtQty(duplexDelta)) + '</td>' +
         '<td>' + (singleDelta === null ? '—' : fmtQty(singleDelta)) + '</td>' +
         '<td>' + (sheetsDeducted === null ? '—' : fmtQty(sheetsDeducted)) + '</td>' +
@@ -5154,13 +5176,17 @@
     if (rows.length === 0){ alert('Nothing to export yet — log at least one reading, or create a ticket on this machine, first.'); return; }
     const excelRows = rows.map(r => {
       const hasReading = r.total_counter !== null && r.total_counter !== undefined;
-      const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = machineCounterDeltasFor(r);
+      const d = machineCounterDeltasFor(r);
+      const { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets } = d;
       const linkedMaterial = r.material_id ? (materials.find(m => m.material_id === r.material_id)?.name || '—') : '—';
       return {
         Date: r.reading_date, Machine: MACHINE_COUNTER_MACHINE,
         Slips: slipCount || '', 'Est. Sheets (from tickets)': slipCount ? estSheets : '',
         'Total Counter': hasReading ? Number(r.total_counter) : '',
-        'Prints Today': printsToday === null ? (hasReading ? 'first reading' : '') : printsToday,
+        'Prints Since Previous Reading': printsToday === null ? (hasReading ? 'first reading' : '') : printsToday,
+        'Previous Reading Date': d.prevDate || '',
+        'Est. Sheets Since Previous Reading': d.estSincePrev === null ? '' : d.estSincePrev,
+        'Not On Any Slip': d.estSincePrev === null || printsToday === null ? '' : Math.round(printsToday - d.estSincePrev),
         'Duplex Counter': hasReading ? Number(r.duplex_counter) : '', 'Duplex Today': duplexDelta === null ? '' : duplexDelta,
         'Single Counter': hasReading ? Number(r.single_counter) : '', 'Single Today': singleDelta === null ? '' : singleDelta,
         'Sheets Deducted': sheetsDeducted === null ? '' : sheetsDeducted,
@@ -5168,7 +5194,7 @@
       };
     });
     const ws = XLSX.utils.json_to_sheet(excelRows);
-    ws['!cols'] = [{wch:12},{wch:18},{wch:8},{wch:20},{wch:13},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:20}];
+    ws['!cols'] = [{wch:12},{wch:18},{wch:8},{wch:20},{wch:13},{wch:16},{wch:14},{wch:18},{wch:14},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:20}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Machine Counter');
     XLSX.writeFile(wb, 'Machine-Print-Counter-' + todayISO() + '.xlsx');
