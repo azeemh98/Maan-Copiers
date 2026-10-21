@@ -4959,30 +4959,16 @@
   // the unit -- pages, pieces, sq.ft. -- so it's not a substitute for the manual physical
   // reading above, which is the only thing tied to actual stock deduction).
   let machineTicketDailyStats = {};
+  // Added up in the database (machine_ticket_daily), one row per day. Fetching every job line
+  // and summing here broke once the machine passed 1000 lines: the API silently caps responses
+  // at 1000 rows, so the newest days dropped out and read ~0. Rules are unchanged: a job counts
+  // on the day Start was pressed (falling back to the slip date), and a Front & Back sheet
+  // counts twice -- the counter ticks once per printed side (815 F&B sheets -> 1630).
   async function loadMachineTicketStats(){
-    const { data, error } = await supabaseClient.from('job_ticket_items')
-      .select('quantity, print_sides, job_tickets!inner(id, machine, created_at, started_at)')
-      .eq('org_id', currentOrgId).eq('job_tickets.machine', MACHINE_COUNTER_MACHINE).limit(3000);
+    const { data, error } = await fetchAllPages(() => supabaseClient.rpc('machine_ticket_daily', { p_org_id: currentOrgId, p_machine: MACHINE_COUNTER_MACHINE }).order('day'));
     machineTicketDailyStats = {};
     if (error || !data) return;
-    data.forEach(row => {
-      const jt = row.job_tickets;
-      if (!jt) return;
-      // The machine's own counter only moves when the operator presses Start, so a job counts
-      // on the day it actually RAN. A slip written at 9pm and printed the next morning belongs
-      // to the next morning -- otherwise the day's estimate can never line up with the physical
-      // reading. Falls back to the slip date for anything never started through the board (old
-      // tickets, or jobs taken straight to Ready).
-      const day = toISODateLocal(jt.started_at || jt.created_at);
-      if (!machineTicketDailyStats[day]) machineTicketDailyStats[day] = { slipIds: new Set(), sheets: 0 };
-      machineTicketDailyStats[day].slipIds.add(jt.id);
-      const qty = Number(row.quantity) || 0;
-      // Quantity on a print line is entered as physical SHEETS (e.g. "815 duplex sheets"),
-      // and the machine's own Total Counter increments once per printed SIDE -- so a Front &
-      // Back sheet counts double (815 sheets -> 1630 on the counter), not half. Previously had
-      // this backwards (was halving), which undercounted every duplex job's estimate.
-      machineTicketDailyStats[day].sheets += row.print_sides === 'double' ? qty * 2 : qty;
-    });
+    data.forEach(r => { machineTicketDailyStats[r.day] = { slips: Number(r.slips), sheets: Number(r.sheets) }; });
   }
 
   // The table shows one row per date that has EITHER a manual reading or ticket activity -- a
@@ -5018,7 +5004,7 @@
     const singleDelta = prev ? Math.max(0, Number(r.single_counter) - Number(prev.single_counter)) : null;
     const sheetsDeducted = r.material_id && duplexDelta !== null ? duplexDelta + singleDelta : null;
     const ticketStats = machineTicketDailyStats[r.reading_date];
-    const slipCount = ticketStats ? ticketStats.slipIds.size : 0;
+    const slipCount = ticketStats ? ticketStats.slips : 0;
     const estSheets = ticketStats ? ticketStats.sheets : 0;
     return { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets };
   }
