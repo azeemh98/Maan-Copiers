@@ -4129,6 +4129,8 @@
       if (kind === 'tickets'){
         await loadTickets();
         renderTicketsTable(); renderTicketStats(); renderMachineBoard(); renderFloatingTickets();
+        // Counter estimates come from slips, so keep them in step (walk-in-only staff can't see it).
+        if (!isWalkinOnly) await refreshMachineCounterPanel();
       } else {
         await loadWorkTasks();
         renderTasksTable(); renderFloatingTasks(); updateFloatingBadge();
@@ -4947,10 +4949,19 @@
   // picker just means undoing this constant + re-adding the field it replaced.
   const MACHINE_COUNTER_MACHINE = 'KONIKA MINOLTA';
 
+  // Slips vs each reading, measured to the minute the reading was taken (not just its date) --
+  // jobs printed later on a reading's own day used to count as *before* it and never moved the
+  // Total Counter. See machine_counter_estimates / job_print_moments in the database.
+  let machineReadingEst = {};
   async function loadMachineCounterReadings(){
-    const { data, error } = await supabaseClient.from('machine_counter_readings').select('*')
-      .eq('org_id', currentOrgId).eq('machine', MACHINE_COUNTER_MACHINE).order('reading_date', { ascending:false }).limit(400);
+    const [{ data, error }, est] = await Promise.all([
+      supabaseClient.from('machine_counter_readings').select('*')
+        .eq('org_id', currentOrgId).eq('machine', MACHINE_COUNTER_MACHINE).order('reading_date', { ascending:false }).limit(400),
+      supabaseClient.rpc('machine_counter_estimates', { p_org_id: currentOrgId, p_machine: MACHINE_COUNTER_MACHINE })
+    ]);
     machineCounterReadings = error ? [] : (data || []);
+    machineReadingEst = {};
+    (est.data || []).forEach(e => { machineReadingEst[e.reading_id] = e; });
   }
 
   // Auto-computed counter: sums the quantity on every job ticket item billed on this machine,
@@ -5012,7 +5023,9 @@
     const prevDate = prev ? prev.reading_date : null;
     const gapDays = prev ? Math.round((new Date(r.reading_date) - new Date(prevDate)) / 86400000) : null;
     let estSincePrev = null;
-    if (prev){
+    const exact = r.id ? machineReadingEst[r.id] : null;
+    if (prev && exact && exact.est_since_prev !== null) estSincePrev = Number(exact.est_since_prev);
+    else if (prev){
       estSincePrev = 0;
       Object.keys(machineTicketDailyStats).forEach(d => { if (d > prevDate && d <= r.reading_date) estSincePrev += machineTicketDailyStats[d].sheets; });
     }
@@ -5041,6 +5054,8 @@
       const d = machineCounterDeltasFor(todaysRow);
       todaysLabel = d.printsToday === null ? 'first reading' : printsSinceLabel(d);
       todaysSub = offSlipLine(d);
+      const after = machineReadingEst[todaysRow.id];
+      if (after && Number(after.est_after) > 0) todaysSub += (todaysSub ? ' · ' : '') + '+~' + fmtQty(Math.round(Number(after.est_after))) + ' printed since this reading (' + after.slips_after + ' slip' + (after.slips_after == 1 ? '' : 's') + ')';
     } else {
       const stats = machineTicketDailyStats[today];
       if (stats && stats.sheets > 0) todaysLabel = '~' + fmtQty(stats.sheets) + ' est.';
@@ -5050,14 +5065,16 @@
     // real jobs kept happening on it. Project it forward with everything tickets have
     // estimated since that reading, so it reads as a live running total instead of a frozen
     // number, while still being clearly anchored to the last real reading as ground truth.
+    const latestEst = machineReadingEst[latest.id];
     let projected = 0;
-    Object.keys(machineTicketDailyStats).forEach(day => {
-      if (day > latest.reading_date) projected += machineTicketDailyStats[day].sheets;
-    });
+    if (latestEst) projected = Number(latestEst.est_after);
+    else Object.keys(machineTicketDailyStats).forEach(day => { if (day > latest.reading_date) projected += machineTicketDailyStats[day].sheets; });
+    projected = Math.round(projected);
+    const readWhen = latestEst ? fmtDateTime(latestEst.read_at) : fmtDate(latest.reading_date);
     const totalVal = Number(latest.total_counter) + projected;
     const totalSub = projected > 0
-      ? fmtQty(latest.total_counter) + ' as of ' + fmtDate(latest.reading_date) + ' + ~' + fmtQty(projected) + ' est. from tickets since'
-      : 'as of ' + fmtDate(latest.reading_date);
+      ? fmtQty(latest.total_counter) + ' read ' + readWhen + ' + ~' + fmtQty(projected) + ' est. from slips since'
+      : 'read ' + readWhen;
     wrap.innerHTML =
       '<div class="stat-card" style="flex:1; min-width:220px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Total Counter</div><div class="s-val">' + fmtQty(totalVal) + '</div><div class="item-cat">' + totalSub + '</div></div>' +
       '<div class="stat-card ok" style="flex:1; min-width:170px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Today\'s Counter</div><div class="s-val">' + todaysLabel + '</div>' + (todaysSub ? '<div class="item-cat">' + todaysSub + '</div>' : '') + '</div>';
