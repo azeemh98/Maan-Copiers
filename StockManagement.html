@@ -432,14 +432,16 @@
   .thermal-wrap{ display:flex; justify-content:center; }
   .thermal-slip{ width:272px; font-family:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace; font-size:15px; color:#000; line-height:1.55; }
   .thermal-slip .t-center{ text-align:center; }
-  .thermal-slip .t-big{ font-size:28px; font-weight:800; letter-spacing:0.02em; }
-  .thermal-slip .t-rule{ border-top:1px dashed #000; margin:9px 0; }
-  .thermal-slip .t-row{ display:flex; justify-content:space-between; gap:8px; }
-  .thermal-slip table{ width:100%; border-collapse:collapse; margin:7px 0; }
-  .thermal-slip td{ padding:3px 0; vertical-align:top; }
-  .thermal-slip .t-foot{ margin-top:9px; font-size:13.5px; text-align:center; }
-  .thermal-copy{ padding-bottom:6px; }
-  .thermal-cut{ text-align:center; font-size:11px; color:#999; margin:10px 0; letter-spacing:0.05em; }
+  .thermal-slip .t-big{ font-size:1.867em; font-weight:800; letter-spacing:0.02em; }
+  .thermal-slip .t-rule{ border-top:1px dashed #000; margin:0.6em 0; }
+  .thermal-slip .t-row{ display:flex; justify-content:space-between; gap:0.533em; }
+  .thermal-slip .t-label{ font-size:0.8em; letter-spacing:0.08em; color:#555; }
+  .thermal-slip .t-total{ font-weight:800; font-size:1.2em; }
+  .thermal-slip table{ width:100%; border-collapse:collapse; margin:0.467em 0; }
+  .thermal-slip td{ padding:0.2em 0; vertical-align:top; }
+  .thermal-slip .t-foot{ margin-top:0.6em; font-size:0.9em; text-align:center; }
+  .thermal-copy{ padding-bottom:0.4em; }
+  .thermal-cut{ text-align:center; font-size:0.733em; color:#999; margin:0.667em 0; letter-spacing:0.05em; }
   /* No @page rule = browser defaults to ~1in margins plus its own header/footer (page title,
      URL, date) in that margin — wastes paper and prints the site link on every thermal slip.
      Zero margin removes both; the named page keeps A4 documents (invoices, balance slips)
@@ -447,7 +449,11 @@
   @page{ margin:10mm; }
   @page thermal{ size:72mm auto; margin:0; }
   @media print{
-    .thermal-slip{ width:100%; page:thermal; }
+    /* Printed slips used to come out at 2/3 of this size by accident: the Walk-in Jobs page
+       was wider than the 72mm paper, so the browser shrank the whole printout to fit. Fixing
+       that page width (20 Oct) made slips print noticeably larger. Pin the old size here
+       instead (10px = 2/3 of the 15px screen size) so it no longer depends on page width. */
+    .thermal-slip{ width:100%; page:thermal; font-size:10px; }
     .thermal-copy{ page-break-inside:avoid; }
     .thermal-cut{ page-break-after:always; }
   }
@@ -4247,7 +4253,7 @@
     const approver = ticket.approved_by ? profilesMap[ticket.approved_by] : null;
     const approverName = approver ? (approver.username || approver.full_name || approver.email) : 'PENDING';
     return (
-      '<div class="t-center" style="font-size:12px; letter-spacing:0.08em; color:#555;">' + copyLabel + '</div>' +
+      '<div class="t-center t-label">' + copyLabel + '</div>' +
       '<div class="t-center"><b>JOB WORK</b></div>' +
       (org.address ? '<div class="t-center">' + org.address + '</div>' : '') +
       (org.gstin ? '<div class="t-center">GSTIN: ' + org.gstin + '</div>' : '') +
@@ -4266,7 +4272,7 @@
         (Number(ticket.gst_amount) > 0 ? '<div class="t-row"><span>GST (' + Number(ticket.gst_pct) + '%)</span><span>' + fmtMoney(ticket.gst_amount) + '</span></div>' : '') +
         (Number(ticket.round_off || 0) !== 0 ? '<div class="t-row"><span>Round off</span><span>' + fmtMoney(ticket.round_off) + '</span></div>' : '')
         : '') +
-      '<div class="t-row" style="font-weight:800; font-size:18px;"><span>TOTAL</span><span>' + fmtMoney(ticketGrandTotal(ticket)) + '</span></div>' +
+      '<div class="t-row t-total"><span>TOTAL</span><span>' + fmtMoney(ticketGrandTotal(ticket)) + '</span></div>' +
       '<div class="t-row"><span>Payment</span><span>' + ticket.payment_status.toUpperCase() + '</span></div>' +
       (ticket.notes ? '<div class="t-rule"></div><div>' + ticket.notes + '</div>' : '') +
       '<div class="t-rule"></div>' +
