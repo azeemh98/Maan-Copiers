@@ -475,6 +475,39 @@
   #updateBanner button{ background:var(--accent); color:#fff; border:none; border-radius:7px; padding:8px 14px; font-family:inherit; font-weight:700; font-size:13px; cursor:pointer; white-space:nowrap; }
   @media print{ #updateBanner{ display:none !important; } }
 
+  /* Motion -- short and subtle for an all-day work tool. Screen only, so nothing is
+     mid-animation when a slip or invoice prints, and skipped entirely when the computer is set
+     to reduce motion. Panels/sections are shown by flipping display, so these play each time
+     one opens. */
+  @media screen and (prefers-reduced-motion: no-preference){
+    @keyframes mcFadeUp{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+    @keyframes mcFadeIn{ from{ opacity:0; } to{ opacity:1; } }
+    @keyframes mcPop{ from{ opacity:0; transform:translate(-50%,-50%) scale(0.96); } to{ opacity:1; transform:translate(-50%,-50%) scale(1); } }
+    @keyframes mcBannerUp{ from{ opacity:0; transform:translate(-50%, 12px); } to{ opacity:1; transform:translate(-50%, 0); } }
+
+    /* switching tabs, opening a party, expanding a section, a save/error message */
+    .section-panel.active, .party-ledger.show, .printable-doc.show{ animation:mcFadeUp .22s ease-out; }
+    .card h2.collapsible + div{ animation:mcFadeUp .18s ease-out; }
+    .status-msg.show{ animation:mcFadeIn .2s ease-out; }
+
+    /* popups */
+    .cpw-backdrop.show, .ft-backdrop.show{ animation:mcFadeIn .18s ease-out; }
+    .cpw-panel.show{ animation:mcPop .18s ease-out; }
+    #updateBanner.show{ animation:mcBannerUp .25s ease-out; }
+
+    /* buttons: smooth colour changes and a small press */
+    .nav-tab, .cat-tab, .btn-sm, .export-btn, .row-actions button, .pill, .bc-advance{
+      transition:background-color .12s, color .12s, border-color .12s, box-shadow .12s, transform .08s;
+    }
+    .add-btn{ transition:background-color .12s, transform .08s; }
+    .add-btn:active, .btn-sm:active, .export-btn:active, .cat-tab:active, .row-actions button:active, .pill:active, .bc-advance:active, #updateReloadBtn:active{ transform:scale(0.97); }
+
+    /* clickable rows and job cards */
+    table.data-table tr.clickable{ transition:background-color .12s; }
+    .board-card{ transition:box-shadow .15s, transform .15s; }
+    .board-card:hover{ box-shadow:0 4px 14px rgba(15,37,64,0.10); transform:translateY(-1px); }
+  }
+
   /* Auth gate */
   #authGate{
     max-width:400px; margin:70px auto; background:var(--surface); border:1px solid var(--border);
