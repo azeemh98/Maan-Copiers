@@ -2143,6 +2143,22 @@
   <button id="updateReloadBtn">Reload now</button>
 </div>
 
+<!-- "Trust this device?" — asked once, the first time an account signs in -->
+<div class="no-print cpw-backdrop" id="trustBackdrop" style="z-index:900;"></div>
+<div class="no-print cpw-panel" id="trustPanel" role="dialog" aria-labelledby="trustTitle" style="z-index:901; width:380px;">
+  <div class="cpw-head"><span id="trustTitle">🔒 Trust this device?</span></div>
+  <div class="cpw-body">
+    <div style="font-size:13.5px; line-height:1.55;">
+      Your account <b id="trustUser"></b> will work <b>only on this device</b> (<span id="trustLabel"></span>).
+      Logging in on any other phone or computer will be refused until Azeem resets it.
+    </div>
+    <div class="hint" style="margin-top:10px;">क्या आप इस डिवाइस पर भरोसा करते हैं? आपका अकाउंट सिर्फ़ इसी डिवाइस पर चलेगा — दूसरे फ़ोन या कंप्यूटर पर लॉग इन नहीं होगा।</div>
+    <div class="hint" style="margin-top:10px;">Only trust the shop's own PC or your own work phone.</div>
+    <button class="add-btn save-btn" id="trustYesBtn" style="margin-top:16px;"><span>Yes, trust this device / हाँ</span><span></span></button>
+    <button class="btn-sm" id="trustNoBtn" style="margin-top:10px; width:100%;">Cancel — don't log in / रद्द करें</button>
+  </div>
+</div>
+
 <!-- Change Password — reachable by everyone from the top bar, regardless of role -->
 <div class="no-print cpw-backdrop" id="cpwBackdrop"></div>
 <div class="no-print cpw-panel" id="changePasswordPanel">
@@ -2377,6 +2393,8 @@
   // opened on a device that still has to pass the trusted-device check).
   document.body.appendChild($('cpwBackdrop'));
   document.body.appendChild($('changePasswordPanel'));
+  document.body.appendChild($('trustBackdrop'));
+  document.body.appendChild($('trustPanel'));
   $('changePasswordBtn').addEventListener('click', openChangePassword);
   $('closeChangePassword').addEventListener('click', closeChangePassword);
   $('cpwBackdrop').addEventListener('click', closeChangePassword);
@@ -2419,13 +2437,38 @@
     return browser + ' on ' + os;
   }
   function blockedDeviceMessage(r){
-    const since = r && r.trusted_at ? ' since ' + new Date(r.trusted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
-    return 'This account can only be used on its trusted device' + (r && r.label ? ' (' + r.label + since + ')' : '') + '. Sign in there, or ask Azeem to reset your device.';
+    const since = r && r.trusted_at ? ', since ' + new Date(r.trusted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
+    return 'Already logged in on another device' + (r && r.label ? ' (' + r.label + since + ')' : '') +
+      '. This account works on one device only — log in there, or ask Azeem to reset your device. / यह अकाउंट पहले से दूसरे डिवाइस पर लॉग इन है।';
+  }
+  // "Trust this device?" — resolves true (trust) or false (cancel).
+  function askTrustDevice(username){
+    return new Promise(resolve => {
+      $('trustUser').textContent = titleCase(username || '');
+      $('trustLabel').textContent = getDeviceLabel();
+      $('trustBackdrop').classList.add('show');
+      $('trustPanel').classList.add('show');
+      const done = ok => {
+        $('trustBackdrop').classList.remove('show');
+        $('trustPanel').classList.remove('show');
+        $('trustYesBtn').onclick = $('trustNoBtn').onclick = null;
+        resolve(ok);
+      };
+      $('trustYesBtn').onclick = () => done(true);
+      $('trustNoBtn').onclick = () => done(false);
+    });
   }
   // Returns null when this device may continue, otherwise the message to show.
-  async function claimThisDevice(){
-    const { data, error } = await supabaseClient.rpc('claim_device', { p_device_id: getDeviceId(), p_label: getDeviceLabel() });
-    if (error) return /fetch|network/i.test(error.message || '') ? CONNECTION_ERROR_MSG : 'Could not verify this device — please try again.';
+  async function claimThisDevice(username){
+    const call = confirm => supabaseClient.rpc('claim_device', { p_device_id: getDeviceId(), p_label: getDeviceLabel(), p_confirm: confirm });
+    const fail = error => /fetch|network/i.test(error.message || '') ? CONNECTION_ERROR_MSG : 'Could not verify this device — please try again.';
+    let { data, error } = await call(false);
+    if (error) return fail(error);
+    if (data && data.status === 'confirm'){
+      if (!(await askTrustDevice(username))) return 'Not logged in — this device was not trusted.';
+      ({ data, error } = await call(true));
+      if (error) return fail(error);
+    }
     return data && data.status === 'blocked' ? blockedDeviceMessage(data) : null;
   }
   async function forceSignOut(msg){
@@ -2442,7 +2485,7 @@
     deviceCheckBusy = true;
     try {
       const { data, error } = await supabaseClient.rpc('device_status');
-      if (!error && data === 'blocked') await forceSignOut('You were signed out on this device — your account was signed in on another device or reset by Azeem. Sign in again on your trusted device.');
+      if (!error && data === 'blocked') await forceSignOut('You were logged out here — this account is logged in on another device, or Azeem reset it. This account works on one device only.');
     } finally { deviceCheckBusy = false; }
   }
   setInterval(checkDeviceStillTrusted, 2 * 60 * 1000);
@@ -2462,7 +2505,7 @@
       showStatus($('cpwStatus'), 'You opened a password-reset link — choose your new password.', true);
       return;
     }
-    const deviceMsg = await claimThisDevice();
+    const deviceMsg = await claimThisDevice((session.user.email || '').split('@')[0]);
     if (deviceMsg){ await forceSignOut(deviceMsg); return; }
     let m;
     try { m = await fetchOrBootstrapMembership(ORG_IDS[appMode]); }
@@ -2497,7 +2540,7 @@
       if (error && error.status === 429) throw new Error('Too many sign-in attempts — wait a few minutes and try again.');
       if (error && /fetch|network/i.test(error.message || '')) throw new Error(CONNECTION_ERROR_MSG);
       if (error) throw new Error('Invalid username or password');
-      const deviceMsg = await claimThisDevice();
+      const deviceMsg = await claimThisDevice(username);
       if (deviceMsg){ try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (_){} throw new Error(deviceMsg); }
       const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
       if (!m){
