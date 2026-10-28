@@ -570,6 +570,17 @@
   }
   @media print{ .help-panel, .help-backdrop, .tour-card{ display:none !important; } .tour-focus{ outline:none !important; } }
 
+  /* Excel import preview */
+  .imp-detected{ font-size:12px; color:var(--muted); margin:14px 0 6px; }
+  .imp-summary{ font-size:13px; margin-bottom:8px; }
+  .imp-skip-count{ color:var(--warn); font-weight:700; }
+  .imp-table{ font-size:12.5px; }
+  .imp-table .imp-new{ color:var(--ok); font-weight:700; }
+  .imp-table .imp-upd{ color:var(--accent-dark); font-weight:600; }
+  .imp-table .imp-bad{ color:var(--danger); }
+  .imp-table tr.imp-row-skip td{ color:var(--faint); }
+  .imp-table tr.imp-row-skip td.imp-bad{ color:var(--danger); }
+
   /* Auth gate */
   #authGate{
     max-width:400px; margin:70px auto; background:var(--surface); border:1px solid var(--border);
@@ -771,6 +782,33 @@
           <div class="hint" id="movHint">Select an item to see current stock.</div>
           <button class="add-btn" id="recordBtn"><span id="recordBtnLabel">Record Entry</span><span id="movCurrentStock">—</span></button>
           <div class="status-msg" id="movStatus"></div>
+        </section>
+
+        <!-- Bulk add from an Excel / CSV list instead of one item at a time. -->
+        <section class="card">
+          <h2 class="collapsible" id="stImportToggle"><span>⬆ Import Stock from Excel</span><span class="chev">▶</span></h2>
+          <div id="stImportBody" style="display:none; margin-top:18px;">
+            <div class="hint">Upload an Excel or CSV list, one row per item. Columns are found from their headings (Item, Category, Unit, Quantity, Reorder Level). You'll see exactly what will happen to every row before anything is saved. <a href="#" id="stTemplateBtn">Download a template</a></div>
+            <div class="field" style="margin-top:14px;"><label for="stImportFile">Excel / CSV file</label><input type="file" id="stImportFile" accept=".xlsx,.xls,.csv"></div>
+            <div class="row2">
+              <div class="field"><label for="stImportMode">Quantities in the file are</label>
+                <select id="stImportMode">
+                  <option value="add">Stock received — add to current stock</option>
+                  <option value="set">Stock count — set stock to this number</option>
+                </select>
+              </div>
+              <div class="field"><label for="stImportDate">Date</label><input type="date" id="stImportDate"></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label for="stImportDefCat">Category for new items (if the file has none)</label><input type="text" id="stImportDefCat" placeholder="e.g. Papers"></div>
+              <div class="field"><label for="stImportDefUnit">Unit for new items (if the file has none)</label>
+                <select id="stImportDefUnit"><option>sheet</option><option>piece</option><option>roll</option><option>box</option><option>kg</option><option>meter</option><option>litre</option></select>
+              </div>
+            </div>
+            <div id="stImportPreview"></div>
+            <button class="add-btn save-btn" id="stImportBtn" style="display:none;"><span>Import</span><span id="stImportCount"></span></button>
+            <div class="status-msg" id="stImportStatus"></div>
+          </div>
         </section>
 
         <section class="card">
@@ -1124,6 +1162,27 @@
       <div class="stat-card ok"><div class="s-label">Total Qty Ready</div><div class="s-val" id="rsStatQty">—</div></div>
       <div class="stat-card"><div class="s-label">Categories</div><div class="s-val" id="rsStatCats">—</div></div>
     </div>
+
+    <!-- Bulk add / update Ready Stock from an Excel / CSV list. -->
+    <section class="card">
+      <h2 class="collapsible" id="rsImportToggle"><span>⬆ Import Ready Stock from Excel</span><span class="chev">▶</span></h2>
+      <div id="rsImportBody" style="display:none; margin-top:18px;">
+        <div class="hint">One row per item with Category, Code / Name, Quantity and (optionally) Note. Matching items are updated, new ones added — check the preview, then import. <a href="#" id="rsTemplateBtn">Download a template</a></div>
+        <div class="field" style="margin-top:14px;"><label for="rsImportFile">Excel / CSV file</label><input type="file" id="rsImportFile" accept=".xlsx,.xls,.csv"></div>
+        <div class="row2">
+          <div class="field"><label for="rsImportMode">Quantities in the file are</label>
+            <select id="rsImportMode">
+              <option value="add">Newly made — add to what's on the shelf</option>
+              <option value="set">A count — set to this number</option>
+            </select>
+          </div>
+          <div class="field"><label for="rsImportDefCat">Category (if the file has none)</label><select id="rsImportDefCat"></select></div>
+        </div>
+        <div id="rsImportPreview"></div>
+        <button class="add-btn save-btn" id="rsImportBtn" style="display:none;"><span>Import</span><span id="rsImportCount"></span></button>
+        <div class="status-msg" id="rsImportStatus"></div>
+      </div>
+    </section>
 
     <section class="card">
       <h2 class="collapsible" id="rsAddToggle"><span id="rsAddToggleLabel">+ Add Ready Stock</span><span class="chev">▶</span></h2>
@@ -4652,6 +4711,7 @@
   async function refreshReadyStockPanel(){
     await loadReadyStock();
     renderReadyStockCategorySelect();
+    renderReadyImportCategories();
     renderReadyStock();
   }
   function renderReadyStockCategorySelect(){
@@ -5449,6 +5509,291 @@
     if (!seen) startTour();
   }
   syncHelpLangButtons();
+
+  // ======================================================================
+  // EXCEL IMPORT — Stock and Ready Stock. The file's columns are detected from their headings;
+  // every row is previewed (new / existing / skipped and why) before anything is saved, and the
+  // save itself is one all-or-nothing database call (import_stock_rows / import_ready_stock_rows).
+  // ======================================================================
+  const IMPORT_HEADERS = {
+    name:     ['item', 'itemname', 'name', 'material', 'materialname', 'product', 'productname', 'paper', 'stockitem', 'particulars', 'description'],
+    category: ['category', 'cat', 'group', 'itemgroup', 'stockgroup', 'itemtype', 'type'],
+    unit:     ['unit', 'uom', 'units', 'measure'],
+    qty:      ['qty', 'quantity', 'stock', 'closingstock', 'currentstock', 'openingstock', 'balance', 'instock', 'available', 'count', 'nos', 'pcs', 'sheets'],
+    reorder:  ['reorderlevel', 'reorder', 'minstock', 'minqty', 'minimum', 'lowstock', 'alertat'],
+    code:     ['code', 'codename', 'itemcode', 'name', 'item', 'itemname', 'title', 'description', 'product'],
+    note:     ['note', 'notes', 'remark', 'remarks', 'comment', 'comments', 'party', 'customer', 'for']
+  };
+  const IMPORT_FIELD_LABEL = { name: 'Item', category: 'Category', unit: 'Unit', qty: 'Quantity', reorder: 'Reorder level', code: 'Code / Name', note: 'Note' };
+  const normHeader = h => String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normText = s => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();
+  const MAX_IMPORT_ROWS = 2000;
+
+  // Finds the heading row (the first 15 rows are searched, so a title above the table is fine) and
+  // maps each wanted field to a column: exact heading match first, in keyword-priority order, then
+  // "heading contains the keyword" for anything still unmatched (e.g. "Quantity (sheets)").
+  function mapImportColumns(headerRow, wanted){
+    const heads = headerRow.map(normHeader), map = {}, used = new Set();
+    const assign = (f, test) => {
+      if (map[f] !== undefined) return;
+      for (const kw of IMPORT_HEADERS[f]){
+        const ci = heads.findIndex((h, i) => h && !used.has(i) && test(h, kw));
+        if (ci >= 0){ map[f] = ci; used.add(ci); return; }
+      }
+    };
+    wanted.forEach(f => assign(f, (h, kw) => h === kw));
+    wanted.forEach(f => assign(f, (h, kw) => kw.length >= 4 && h.includes(kw)));
+    return map;
+  }
+  async function readImportFile(file, wanted, keyField){
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    // blank rows kept so "Row" in the preview is the same row number the person sees in Excel
+    const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: true });
+    const firstRow = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']).s.r + 1 : 1;
+    let headerIdx = -1, map = null, best = 0;
+    for (let i = 0; i < Math.min(15, grid.length); i++){
+      const m = mapImportColumns(grid[i], wanted);
+      const score = Object.keys(m).length;
+      if (m[keyField] !== undefined && score > best){ best = score; headerIdx = i; map = m; }
+    }
+    if (headerIdx < 0) throw new Error('Couldn\'t find the column headings. The first row should have names like ' + wanted.map(f => IMPORT_FIELD_LABEL[f]).join(', ') + ' — download the template to see the format.');
+    const headings = grid[headerIdx];
+    const rows = grid.slice(headerIdx + 1).map((r, i) => {
+      const o = { _line: firstRow + headerIdx + i + 1 };
+      Object.keys(map).forEach(f => { o[f] = String(r[map[f]] == null ? '' : r[map[f]]).trim(); });
+      return o;
+    }).filter(o => Object.keys(map).some(f => o[f] !== ''));
+    if (rows.length > MAX_IMPORT_ROWS) throw new Error('That file has ' + rows.length + ' rows — please split it into files of up to ' + MAX_IMPORT_ROWS + '.');
+    const detected = Object.keys(map).map(f => IMPORT_FIELD_LABEL[f] + ' ← "' + headings[map[f]] + '"');
+    return { rows, map, detected };
+  }
+  // "1,250", "500 sheets", "₹40" -> number; blank -> null; anything else -> NaN
+  function importNumber(v){
+    const s = String(v == null ? '' : v).replace(/[,₹\s]/g, '');
+    if (s === '') return null;
+    const m = s.match(/^-?\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : NaN;
+  }
+  function downloadImportTemplate(filename, header, examples){
+    const ws = XLSX.utils.aoa_to_sheet([header].concat(examples));
+    ws['!cols'] = header.map(() => ({ wch: 20 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Import');
+    XLSX.writeFile(wb, filename);
+  }
+  function renderImportPreview(el, detected, list, cols){
+    const ok = list.filter(r => !r.skip), skipped = list.length - ok.length;
+    const shown = list.slice(0, 300);
+    el.innerHTML =
+      '<div class="imp-detected">Columns found: ' + detected.map(escHtml).join(' · ') + '</div>' +
+      '<div class="imp-summary"><b>' + ok.length + '</b> row' + (ok.length === 1 ? '' : 's') + ' ready to import' +
+        (skipped ? ' · <span class="imp-skip-count">' + skipped + ' will be skipped</span>' : '') + '</div>' +
+      '<table class="data-table imp-table"><thead><tr><th>Row</th>' + cols.map(c => '<th>' + c.label + '</th>').join('') + '<th>What will happen</th></tr></thead><tbody>' +
+      shown.map(r => '<tr class="' + (r.skip ? 'imp-row-skip' : '') + '"><td>' + r.line + '</td>' + cols.map(c => '<td>' + escHtml(r[c.key] == null ? '' : r[c.key]) + '</td>').join('') +
+        '<td class="' + (r.skip ? 'imp-bad' : (r.isNew ? 'imp-new' : 'imp-upd')) + '">' + escHtml(r.action) + '</td></tr>').join('') +
+      '</tbody></table>' + (list.length > shown.length ? '<div class="hint">…and ' + (list.length - shown.length) + ' more rows</div>' : '');
+    // The preview table is built after page load, so give it the same horizontal scroll box as other tables.
+    const t = el.querySelector('table.imp-table');
+    const wrap = document.createElement('div'); wrap.className = 'table-scroll';
+    t.parentNode.insertBefore(wrap, t); wrap.appendChild(t);
+    return ok.length;
+  }
+
+  // ---------------- Stock ----------------
+  let stImport = null;  // { rows, map, detected }
+  toggleCollapsible($('stImportToggle'), $('stImportBody'));
+  $('stImportDate').value = todayISO();
+  $('stTemplateBtn').addEventListener('click', e => {
+    e.preventDefault();
+    downloadImportTemplate('Stock-Import-Template.xlsx', ['Category', 'Item', 'Unit', 'Quantity', 'Reorder Level'],
+      [['Papers', '80 GSM 12X17', 'sheet', 500, 100], ['Sheets', 'Gold Coin 300', 'sheet', 250, 50], ['Gumming Sheets', 'Fasson 13X19', 'sheet', 100, 25]]);
+  });
+  function stockImportPlan(){
+    const mode = $('stImportMode').value;
+    const defCat = $('stImportDefCat').value.trim();
+    const defUnit = $('stImportDefUnit').value;
+    const hasCat = stImport.map.category !== undefined;
+    const byKey = new Map(), byName = new Map(), catSpelling = new Map();
+    materials.forEach(m => {
+      catSpelling.set(normText(m.category), m.category);
+      byKey.set(normText(m.category) + '|' + normText(m.name), m);
+      const k = normText(m.name); if (!byName.has(k)) byName.set(k, []); byName.get(k).push(m);
+    });
+    const merged = new Map(), list = [];
+    stImport.rows.forEach(src => {
+      const r = { line: src._line, name: src.name, category: src.category || '', unit: src.unit || '', qtyText: src.qty || '' };
+      const qty = importNumber(src.qty), reorder = importNumber(src.reorder);
+      if (!r.name){ r.skip = true; r.action = 'Skipped — no item name'; list.push(r); return; }
+      if (Number.isNaN(qty)){ r.skip = true; r.action = 'Skipped — quantity "' + src.qty + '" isn\'t a number'; list.push(r); return; }
+      if (qty !== null && qty < 0){ r.skip = true; r.action = 'Skipped — negative quantity'; list.push(r); return; }
+      let m = null;
+      if (hasCat && r.category) m = byKey.get(normText(r.category) + '|' + normText(r.name)) || null;
+      else {
+        const c = byName.get(normText(r.name)) || [];
+        if (c.length > 1){ r.skip = true; r.action = 'Skipped — "' + r.name + '" exists in ' + c.length + ' categories; ' + (hasCat ? 'fill in its Category' : 'add a Category column'); list.push(r); return; }
+        m = c[0] || null;
+        if (!m && !r.category) r.category = defCat;
+      }
+      if (!m && !r.category){ r.skip = true; r.action = 'Skipped — new item with no category (fill "Category for new items")'; list.push(r); return; }
+      // a new item in an existing category keeps the app's spelling ("papers" -> "Papers")
+      r.category = m ? m.category : (catSpelling.get(normText(r.category)) || r.category);
+      r.name = m ? m.name : r.name;
+      r.unit = m ? m.unit : (r.unit || defUnit);
+      const key = normText(r.category) + '|' + normText(r.name);
+      if (merged.has(key)){
+        const first = merged.get(key);
+        first.qty = mode === 'add' ? (first.qty || 0) + (qty || 0) : (qty === null ? first.qty : qty);
+        r.skip = true; r.action = 'Same item as row ' + first.line + (mode === 'add' ? ' — added together' : ' — this count is used');
+        list.push(r); return;
+      }
+      r.qty = qty; r.reorder = Number.isNaN(reorder) ? null : reorder; r.isNew = !m; r.material = m;
+      merged.set(key, r); list.push(r);
+    });
+    merged.forEach(r => {
+      const cur = r.material ? Number(r.material.remaining) || 0 : 0;
+      const q = r.qty;
+      if (r.isNew) r.action = 'New item' + (q ? ' with ' + fmtQty(q) + ' ' + r.unit : ' (no stock yet)');
+      else if (q === null) r.action = 'Existing item — quantity blank, no change';
+      else if (mode === 'add') r.action = 'Add ' + fmtQty(q) + ' → ' + fmtQty(cur + q) + ' ' + r.unit;
+      else r.action = cur === q ? 'Already ' + fmtQty(q) + ' — no change' : 'Set ' + fmtQty(cur) + ' → ' + fmtQty(q) + ' ' + r.unit + ' (' + (q > cur ? '+' : '−') + fmtQty(Math.abs(q - cur)) + ')';
+      r.qtyText = q === null ? '' : fmtQty(q);
+    });
+    return { list, send: [...merged.values()] };
+  }
+  function renderStockImport(){
+    const btn = $('stImportBtn');
+    if (!stImport){ $('stImportPreview').innerHTML = ''; btn.style.display = 'none'; return; }
+    const { list, send } = stockImportPlan();
+    const n = renderImportPreview($('stImportPreview'), stImport.detected, list,
+      [{ key: 'name', label: 'Item' }, { key: 'category', label: 'Category' }, { key: 'unit', label: 'Unit' }, { key: 'qtyText', label: 'Qty' }]);
+    btn.style.display = n ? 'flex' : 'none';
+    $('stImportCount').textContent = n + ' item' + (n === 1 ? '' : 's');
+    btn._send = send;
+  }
+  $('stImportFile').addEventListener('change', async function(){
+    const statusEl = $('stImportStatus');
+    statusEl.className = 'status-msg';
+    stImport = null; renderStockImport();
+    if (!this.files[0]) return;
+    try {
+      stImport = await readImportFile(this.files[0], ['name', 'category', 'unit', 'qty', 'reorder'], 'name');
+      if (!stImport.rows.length) throw new Error('No rows found under the headings.');
+      renderStockImport();
+    } catch (err){ stImport = null; renderStockImport(); showStatus(statusEl, err.message || 'Could not read that file.', false); }
+  });
+  ['stImportMode', 'stImportDefUnit'].forEach(id => $(id).addEventListener('change', () => { if (stImport) renderStockImport(); }));
+  $('stImportDefCat').addEventListener('input', () => { if (stImport) renderStockImport(); });
+  $('stImportBtn').addEventListener('click', async function(){
+    const statusEl = $('stImportStatus');
+    const send = this._send || [];
+    if (!send.length) return;
+    const mode = $('stImportMode').value;
+    if (mode === 'set' && !window.confirm('Set stock to the counted numbers? Items in the file will be adjusted up or down to match.')) return;
+    this.disabled = true;
+    try {
+      const fileName = $('stImportFile').files[0] ? $('stImportFile').files[0].name : 'Excel';
+      const { data, error } = await supabaseClient.rpc('import_stock_rows', {
+        p_org_id: currentOrgId, p_mode: mode, p_date: $('stImportDate').value || todayISO(),
+        p_note: (mode === 'add' ? 'Excel import — ' : 'Stock count (Excel) — ') + fileName,
+        p_rows: send.map(r => ({ category: r.category, name: r.name, unit: r.unit, qty: r.qty, reorder: r.reorder }))
+      });
+      if (error) throw error;
+      showStatus(statusEl, 'Imported: ' + data.created + ' new item' + (data.created === 1 ? '' : 's') + ', ' + data.existing + ' existing updated' +
+        (data.reactivated ? ' (' + data.reactivated + ' re-activated)' : '') + '. Stock in ' + fmtQty(data.qty_in) + (Number(data.qty_out) ? ', stock out ' + fmtQty(data.qty_out) : '') + '.', true);
+      $('stImportFile').value = ''; stImport = null; renderStockImport();
+      await refreshStockPanel();
+    } catch (err){ showStatus(statusEl, err.message || 'Import failed — nothing was saved.', false); }
+    finally { this.disabled = false; }
+  });
+
+  // ---------------- Ready Stock ----------------
+  let rsImport = null;
+  toggleCollapsible($('rsImportToggle'), $('rsImportBody'));
+  $('rsTemplateBtn').addEventListener('click', e => {
+    e.preventDefault();
+    downloadImportTemplate('Ready-Stock-Import-Template.xlsx', ['Category', 'Code / Name', 'Quantity', 'Note'],
+      [['Booklet', 'BK-A5-40PG', 120, 'Ruhi, rack 2'], ['Stickers', 'STK-ROUND-2IN', 500, ''], ['Card Sheets', 'CS-VISITING-300', 1000, '']]);
+  });
+  function renderReadyImportCategories(){
+    const sel = $('rsImportDefCat'), prev = sel.value;
+    sel.innerHTML = readyStockCategories().map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('');
+    if (prev) sel.value = prev;
+  }
+  function readyImportPlan(){
+    const mode = $('rsImportMode').value, defCat = $('rsImportDefCat').value;
+    const existing = new Map(readyStockItems.map(i => [normText(i.category) + '|' + normText(i.code), i]));
+    const catSpelling = new Map(readyStockCategories().map(c => [normText(c), c]));
+    const merged = new Map(), list = [];
+    rsImport.rows.forEach(src => {
+      const r = { line: src._line, code: src.code, category: src.category || defCat, note: src.note || '', qtyText: src.qty || '' };
+      r.category = catSpelling.get(normText(r.category)) || r.category;
+      const qty = importNumber(src.qty);
+      if (!r.code){ r.skip = true; r.action = 'Skipped — no code / name'; list.push(r); return; }
+      if (Number.isNaN(qty)){ r.skip = true; r.action = 'Skipped — quantity "' + src.qty + '" isn\'t a number'; list.push(r); return; }
+      if (qty !== null && qty < 0){ r.skip = true; r.action = 'Skipped — negative quantity'; list.push(r); return; }
+      const key = normText(r.category) + '|' + normText(r.code);
+      if (merged.has(key)){
+        const first = merged.get(key);
+        first.qty = mode === 'add' ? (first.qty || 0) + (qty || 0) : (qty === null ? first.qty : qty);
+        r.skip = true; r.action = 'Same item as row ' + first.line + (mode === 'add' ? ' — added together' : ' — this count is used');
+        list.push(r); return;
+      }
+      const ex = existing.get(key) || null;
+      r.qty = qty; r.isNew = !ex; r.existing = ex;
+      if (ex){ r.category = ex.category; r.code = ex.code; }
+      merged.set(key, r); list.push(r);
+    });
+    merged.forEach(r => {
+      const q = r.qty || 0, cur = r.existing ? Number(r.existing.quantity) : 0;
+      if (r.isNew) r.action = 'New — ' + fmtQty(q) + ' ready';
+      else if (mode === 'add') r.action = 'Add ' + fmtQty(q) + ' → ' + fmtQty(cur + q);
+      else r.action = cur === q ? 'Already ' + fmtQty(q) + ' — no change' : 'Set ' + fmtQty(cur) + ' → ' + fmtQty(q);
+      r.qtyText = r.qty === null ? '' : fmtQty(r.qty);
+    });
+    return { list, send: [...merged.values()] };
+  }
+  function renderReadyImport(){
+    const btn = $('rsImportBtn');
+    if (!rsImport){ $('rsImportPreview').innerHTML = ''; btn.style.display = 'none'; return; }
+    const { list, send } = readyImportPlan();
+    const n = renderImportPreview($('rsImportPreview'), rsImport.detected, list,
+      [{ key: 'category', label: 'Category' }, { key: 'code', label: 'Code / Name' }, { key: 'qtyText', label: 'Qty' }, { key: 'note', label: 'Note' }]);
+    btn.style.display = n ? 'flex' : 'none';
+    $('rsImportCount').textContent = n + ' item' + (n === 1 ? '' : 's');
+    btn._send = send;
+  }
+  $('rsImportFile').addEventListener('change', async function(){
+    const statusEl = $('rsImportStatus');
+    statusEl.className = 'status-msg';
+    renderReadyImportCategories();
+    rsImport = null; renderReadyImport();
+    if (!this.files[0]) return;
+    try {
+      rsImport = await readImportFile(this.files[0], ['code', 'category', 'qty', 'note'], 'code');
+      if (!rsImport.rows.length) throw new Error('No rows found under the headings.');
+      renderReadyImport();
+    } catch (err){ rsImport = null; renderReadyImport(); showStatus(statusEl, err.message || 'Could not read that file.', false); }
+  });
+  ['rsImportMode', 'rsImportDefCat'].forEach(id => $(id).addEventListener('change', () => { if (rsImport) renderReadyImport(); }));
+  $('rsImportBtn').addEventListener('click', async function(){
+    const statusEl = $('rsImportStatus');
+    const send = this._send || [];
+    if (!send.length) return;
+    const mode = $('rsImportMode').value;
+    this.disabled = true;
+    try {
+      const { data, error } = await supabaseClient.rpc('import_ready_stock_rows', {
+        p_org_id: currentOrgId, p_mode: mode,
+        p_rows: send.map(r => ({ category: r.category, code: r.code, qty: r.qty, note: r.note }))
+      });
+      if (error) throw error;
+      showStatus(statusEl, 'Imported: ' + data.created + ' new, ' + data.updated + ' updated.', true);
+      $('rsImportFile').value = ''; rsImport = null; renderReadyImport();
+      await refreshReadyStockPanel();
+    } catch (err){ showStatus(statusEl, err.message || 'Import failed — nothing was saved.', false); }
+    finally { this.disabled = false; }
+  });
 
   async function refreshEmployeesPanel(){
     if (!isAdmin) return;
