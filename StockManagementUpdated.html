@@ -2409,7 +2409,10 @@
     try {
       if (!username) throw new Error('Enter your username.');
       if (!password) throw new Error('Enter your password.');
-      const { data: email, error: lookupErr } = await supabaseClient.rpc('get_email_for_username', { p_username: username });
+      // The database hands back the account email only when the password is right, so the
+      // sign-in box can't be used to look up staff emails; 5 wrong tries lock a username for 15 min.
+      const { data: email, error: lookupErr } = await supabaseClient.rpc('login_email', { p_username: username, p_password: password });
+      if (lookupErr && /too_many_attempts/.test(lookupErr.message || '')) throw new Error('Too many wrong passwords for this username — wait 15 minutes and try again.');
       if (lookupErr) throw new Error(CONNECTION_ERROR_MSG);
       if (!email) throw new Error('Invalid username or password');
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -2804,7 +2807,7 @@
     tbody.innerHTML = data.map(m => {
       const opts = Object.keys(ROLE_LABEL).map(r => '<option value="' + r + '"' + (r === m.role ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>').join('');
       const removeBtn = m.user_id === currentUserId ? '' : '<button class="btn-sm team-remove" data-uid="' + m.user_id + '" data-name="' + escHtml(m.username || m.email) + '" style="color:var(--danger);">Remove access</button>';
-      return '<tr><td>' + escHtml(m.email) + '</td><td>' + escHtml(m.username || '—') + '</td><td><select class="team-role-select" data-uid="' + m.user_id + '">' + opts + '</select></td><td>' + removeBtn + '</td></tr>';
+      return '<tr><td>' + escHtml(m.email || '—') + '</td><td>' + escHtml(m.username || '—') + '</td><td><select class="team-role-select" data-uid="' + m.user_id + '">' + opts + '</select></td><td>' + removeBtn + '</td></tr>';
     }).join('');
     tbody.querySelectorAll('.team-remove').forEach(btn => btn.addEventListener('click', async function(){
       if (!requireAdmin()) return;
@@ -2878,7 +2881,8 @@
     materials = error ? [] : (data || []);
   }
   async function loadProfiles(){
-    const { data, error } = await supabaseClient.from('profiles').select('id, full_name, email, username');
+    // Names only (no emails) for this business's staff; the profiles table itself is private.
+    const { data, error } = await supabaseClient.rpc('org_staff_names', { p_org_id: currentOrgId });
     if (error) return;
     profilesMap = {};
     (data || []).forEach(p => { profilesMap[p.id] = p; });
@@ -3195,8 +3199,7 @@
     if (movements.length === 0){ wrap.innerHTML = '<div class="empty-activity">No movements recorded yet.</div>'; return; }
     wrap.innerHTML = movements.map(mv => {
       const mat = mv.stock_materials || { name:'Unknown item', unit:'unit', category:'' };
-      const person = profilesMap[mv.created_by];
-      const who = person ? (person.full_name || person.email) : 'Unknown';
+      const who = staffName(mv.created_by) || 'Unknown';
       const sign = mv.type === 'entry' ? '+' : '−';
       const delBtn = isAdmin ? '<button class="act-del" data-id="' + mv.id + '" title="Delete">✕</button>' : '';
       const src = mv.source === 'invoice' ? ' <span class="hint">(from invoice)</span>' : '';
@@ -3950,7 +3953,7 @@
   function staffName(uid){
     if (!uid) return '';
     const p = profilesMap[uid];
-    if (p) return p.username ? titleCase(p.username) : (p.full_name || p.email);
+    if (p) return p.username ? titleCase(p.username) : (p.full_name || 'Staff');
     const m = assignableMembers.find(x => x.id === uid);
     return m ? (m.username ? titleCase(m.username) : '—') : 'Unknown';
   }
