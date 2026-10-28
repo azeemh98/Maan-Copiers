@@ -1886,6 +1886,19 @@
           </div>
         </section>
 
+        <!-- One trusted device per staff account (Azeem only can see / reset). -->
+        <section class="card" id="trustedDevicesCard" style="display:none;">
+          <h2 class="collapsible" id="trustedDevicesToggle"><span>📱 Trusted Devices</span><span class="chev">▶</span></h2>
+          <div id="trustedDevicesBody" style="display:none; margin-top:18px;">
+            <div class="hint" style="margin-bottom:12px;">Each staff account works on one device only — the first device they sign in on. Signing in anywhere else is refused. <b>Reset</b> signs that person out everywhere; the next device they sign in on becomes their trusted one (use it when they change PC/phone or clear the browser).</div>
+            <div class="table-scroll"><table class="data-table">
+              <thead><tr><th>Staff</th><th>Role</th><th>Trusted device</th><th>Since</th><th>Last opened</th><th></th></tr></thead>
+              <tbody id="trustedDevicesTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
+            </table></div>
+            <div class="status-msg" id="trustedDevicesStatus"></div>
+          </div>
+        </section>
+
         <section class="card">
           <h2 class="collapsible" id="importEmployeeToggle"><span>+ Import Employees from Excel</span><span class="chev">▶</span></h2>
           <div id="importEmployeeBody" style="display:none; margin-top:18px;">
@@ -2212,6 +2225,7 @@
   let arrivedFromRecoveryLink = /type=recovery/.test(location.hash);
   const recoveryLinkError = (location.hash.match(/error_description=([^&]+)/) || [])[1];
   supabaseClient.auth.onAuthStateChange(event => { if (event === 'PASSWORD_RECOVERY') arrivedFromRecoveryLink = true; });
+  let pendingDeviceCheckAfterReset = false;
 
   let currentOrgId = null;
   let currentUserId = null;
@@ -2359,6 +2373,10 @@
     $('cpwBackdrop').classList.remove('show');
     $('changePasswordPanel').classList.remove('show');
   }
+  // Lives at body level so it can also open over the sign-in screen (password-reset link
+  // opened on a device that still has to pass the trusted-device check).
+  document.body.appendChild($('cpwBackdrop'));
+  document.body.appendChild($('changePasswordPanel'));
   $('changePasswordBtn').addEventListener('click', openChangePassword);
   $('closeChangePassword').addEventListener('click', closeChangePassword);
   $('cpwBackdrop').addEventListener('click', closeChangePassword);
@@ -2375,13 +2393,77 @@
       showStatus(statusEl, 'Password updated.', true);
       $('cpwNew').value = ''; $('cpwConfirm').value = '';
       setTimeout(closeChangePassword, 1200);
+      if (pendingDeviceCheckAfterReset){ pendingDeviceCheckAfterReset = false; setTimeout(initAuth, 1300); }
     } catch (err){ showStatus(statusEl, err.message || 'Could not update password.', false); }
     finally { this.disabled = false; }
   });
 
+  // ---- Single-device sign-in ----
+  // Every browser gets a random id; the database lets each staff account work from only the
+  // first device it signs in on (Azeem is exempt) and ends any other sessions.
+  const OWNER_ID = '5382f3f8-c8e9-44e6-95be-0b7300ec6c9d';
+  let memDeviceId = null;
+  function getDeviceId(){
+    try {
+      let id = localStorage.getItem('mc_device_id');
+      if (!id){ id = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)); localStorage.setItem('mc_device_id', id); }
+      return id;
+    } catch (_){
+      return memDeviceId || (memDeviceId = Date.now().toString(36) + Math.random().toString(36).slice(2));
+    }
+  }
+  function getDeviceLabel(){
+    const ua = navigator.userAgent;
+    const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    const os = /Android/.test(ua) ? 'Android phone' : /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Windows/.test(ua) ? 'Windows PC' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux PC' : 'device';
+    return browser + ' on ' + os;
+  }
+  function blockedDeviceMessage(r){
+    const since = r && r.trusted_at ? ' since ' + new Date(r.trusted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
+    return 'This account can only be used on its trusted device' + (r && r.label ? ' (' + r.label + since + ')' : '') + '. Sign in there, or ask Azeem to reset your device.';
+  }
+  // Returns null when this device may continue, otherwise the message to show.
+  async function claimThisDevice(){
+    const { data, error } = await supabaseClient.rpc('claim_device', { p_device_id: getDeviceId(), p_label: getDeviceLabel() });
+    if (error) return /fetch|network/i.test(error.message || '') ? CONNECTION_ERROR_MSG : 'Could not verify this device — please try again.';
+    return data && data.status === 'blocked' ? blockedDeviceMessage(data) : null;
+  }
+  async function forceSignOut(msg){
+    if (realtimeChannel){ supabaseClient.removeChannel(realtimeChannel); realtimeChannel = null; }
+    try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (_){}
+    currentOrgId = null; currentUserId = null; isAdmin = false;
+    showAuthGate(msg);
+  }
+  // If the account is used / reset elsewhere, this device's session stops working on the server
+  // straight away; this notices within a couple of minutes (or on returning to the tab).
+  let deviceCheckBusy = false;
+  async function checkDeviceStillTrusted(){
+    if (!currentUserId || currentUserId === OWNER_ID || deviceCheckBusy) return;
+    deviceCheckBusy = true;
+    try {
+      const { data, error } = await supabaseClient.rpc('device_status');
+      if (!error && data === 'blocked') await forceSignOut('You were signed out on this device — your account was signed in on another device or reset by Azeem. Sign in again on your trusted device.');
+    } finally { deviceCheckBusy = false; }
+  }
+  setInterval(checkDeviceStillTrusted, 2 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDeviceStillTrusted(); });
+
   async function initAuth(){
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session){ showAuthGate(); return; }
+    // A password-reset link may be opened on any device: let them set the new password first,
+    // then check the device (see cpwSaveBtn).
+    if (arrivedFromRecoveryLink){
+      arrivedFromRecoveryLink = false;
+      history.replaceState(null, '', location.pathname + location.search);
+      pendingDeviceCheckAfterReset = true;
+      showAuthGate();
+      openChangePassword();
+      showStatus($('cpwStatus'), 'You opened a password-reset link — choose your new password.', true);
+      return;
+    }
+    const deviceMsg = await claimThisDevice();
+    if (deviceMsg){ await forceSignOut(deviceMsg); return; }
     let m;
     try { m = await fetchOrBootstrapMembership(ORG_IDS[appMode]); }
     catch (err){ showAuthGate(err.message || CONNECTION_ERROR_MSG); return; }
@@ -2392,12 +2474,6 @@
     }
     currentOrgId = m.org_id; isAdmin = m.role === 'admin'; isWalkinOnly = m.role === 'walkin_only'; isOperator = m.role === 'operator'; isTicketApprover = isAdmin || !!m.can_approve_tickets; currentUserId = session.user.id;
     showApp(session);
-    if (arrivedFromRecoveryLink){
-      arrivedFromRecoveryLink = false;
-      history.replaceState(null, '', location.pathname + location.search);
-      openChangePassword();
-      showStatus($('cpwStatus'), 'You opened a password-reset link — choose your new password.', true);
-    }
   }
 
   $('authSubmit').addEventListener('click', async function(){
@@ -2421,6 +2497,8 @@
       if (error && error.status === 429) throw new Error('Too many sign-in attempts — wait a few minutes and try again.');
       if (error && /fetch|network/i.test(error.message || '')) throw new Error(CONNECTION_ERROR_MSG);
       if (error) throw new Error('Invalid username or password');
+      const deviceMsg = await claimThisDevice();
+      if (deviceMsg){ try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (_){} throw new Error(deviceMsg); }
       const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
       if (!m){
         await supabaseClient.auth.signOut();
@@ -4856,6 +4934,33 @@
     const { data, error } = await supabaseClient.rpc('list_org_login_accounts', { p_org_id: currentOrgId });
     loginAccounts = error ? [] : (data || []);
     renderLoginAccounts();
+    await loadTrustedDevices();
+  }
+
+  // ---- Trusted devices (Azeem only) ----
+  toggleCollapsible($('trustedDevicesToggle'), $('trustedDevicesBody'));
+  async function loadTrustedDevices(){
+    const isOwner = currentUserId === OWNER_ID;
+    $('trustedDevicesCard').style.display = isOwner ? '' : 'none';
+    if (!isOwner) return;
+    const { data, error } = await supabaseClient.rpc('list_trusted_devices', { p_org_id: currentOrgId });
+    const rows = error ? [] : (data || []);
+    const tbody = $('trustedDevicesTableBody');
+    const when = t => t ? new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '—';
+    if (!rows.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">' + (error ? escHtml(error.message) : 'No staff accounts.') + '</td></tr>'; return; }
+    tbody.innerHTML = rows.map(r => '<tr><td class="item-name">' + escHtml(titleCase(r.username) || '—') + '</td><td>' + escHtml(r.role) + '</td>' +
+      '<td>' + (r.label ? escHtml(r.label) : '<span class="hint">Not signed in yet — next device they use</span>') + '</td>' +
+      '<td>' + when(r.trusted_at) + '</td><td>' + when(r.last_seen) + '</td>' +
+      '<td><button class="btn-sm td-reset" data-uid="' + r.user_id + '" data-name="' + escHtml(titleCase(r.username)) + '" style="color:var(--danger);">Reset</button></td></tr>').join('');
+    tbody.querySelectorAll('.td-reset').forEach(b => b.addEventListener('click', async function(){
+      const statusEl = $('trustedDevicesStatus');
+      if (!window.confirm('Reset ' + this.dataset.name + '\'s device? They will be signed out everywhere, and the next device they sign in on becomes their trusted one.')) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.rpc('reset_trusted_device', { p_user_id: this.dataset.uid });
+      if (error){ showStatus(statusEl, error.message || 'Could not reset.', false); this.disabled = false; return; }
+      showStatus(statusEl, this.dataset.name + ' was signed out everywhere. Their next sign-in sets the new trusted device.', true);
+      await loadTrustedDevices();
+    }));
   }
   function renderLoginAccounts(){
     const tbody = $('loginAccountsTableBody');
