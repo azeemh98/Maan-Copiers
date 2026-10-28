@@ -525,6 +525,51 @@
   .wa-btn:hover{ background:#178A45; }
   .wa-btn:disabled{ background:var(--border-strong); cursor:not-allowed; }
 
+  /* Help panel + guided tour */
+  .help-backdrop{ position:fixed; inset:0; background:rgba(15,37,64,0.35); z-index:840; display:none; }
+  .help-backdrop.show{ display:block; }
+  .help-panel{ position:fixed; top:0; right:0; height:100%; width:min(440px, 100%); background:var(--surface); z-index:841;
+    box-shadow:-12px 0 40px rgba(15,37,64,0.25); display:none; flex-direction:column; }
+  .help-panel.show{ display:flex; }
+  .help-head{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:16px 18px; border-bottom:1px solid var(--border); font-weight:800; font-size:15px; }
+  .help-head-actions{ display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  #closeHelp{ background:none; border:none; font-size:16px; cursor:pointer; color:var(--muted); padding:4px; }
+  #closeHelp:hover{ color:var(--danger); }
+  .help-body{ padding:18px 20px 28px; overflow-y:auto; flex:1; font-size:13.5px; line-height:1.6; color:var(--ink); }
+  .help-body h4{ margin:16px 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); }
+  .help-purpose{ color:var(--muted); font-size:14px; }
+  .help-body ol{ padding-left:20px; margin:0; }
+  .help-body li{ margin-bottom:9px; }
+  .help-tip{ background:var(--accent-soft); color:var(--accent-dark); border-radius:8px; padding:10px 12px; margin-bottom:8px; font-size:12.5px; }
+  .help-other{ display:flex; flex-wrap:wrap; gap:6px; }
+  .help-lang{ display:inline-flex; border:1px solid var(--border-strong); border-radius:6px; overflow:hidden; }
+  .help-lang button{ border:none; background:var(--surface); padding:4px 10px; font-family:'Inter'; font-weight:700; font-size:12px; cursor:pointer; color:var(--muted); }
+  .help-lang button.active{ background:var(--navy); color:#fff; }
+  .tour-card{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); width:min(460px, calc(100% - 32px)); background:var(--navy); color:#fff;
+    border-radius:12px; padding:16px 18px; z-index:860; display:none; box-shadow:0 18px 50px rgba(15,37,64,0.45); }
+  .tour-card.show{ display:block; }
+  .tour-top{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .tour-step{ font-size:11.5px; color:rgba(255,255,255,0.6); font-weight:700; letter-spacing:0.04em; text-transform:uppercase; }
+  .tour-title{ font-weight:800; font-size:16px; margin-bottom:6px; }
+  .tour-text{ font-size:13.5px; line-height:1.55; color:rgba(255,255,255,0.88); }
+  .tour-actions{ display:flex; gap:8px; align-items:center; margin-top:14px; }
+  .tour-skip{ background:none; border:none; color:rgba(255,255,255,0.6); cursor:pointer; font-family:'Inter'; font-size:12.5px; padding:0; }
+  .tour-skip:hover{ color:#fff; }
+  .tour-card .help-lang{ border-color:rgba(255,255,255,0.3); }
+  .tour-card .help-lang button{ background:transparent; color:rgba(255,255,255,0.7); }
+  .tour-card .help-lang button.active{ background:#fff; color:var(--navy); }
+  /* outline + glow only: changing position here would pull fixed elements (the 🎫 button) out of place */
+  .tour-focus{ outline:3px solid var(--accent); outline-offset:4px; border-radius:10px; }
+  @media screen and (prefers-reduced-motion: no-preference){
+    .tour-focus{ animation:tourPulse 1.6s ease-in-out infinite; }
+    @keyframes tourPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(42,92,219,0.35); } 50%{ box-shadow:0 0 0 9px rgba(42,92,219,0); } }
+    .help-panel.show{ animation:helpSlideIn .22s ease-out; }
+    @keyframes helpSlideIn{ from{ transform:translateX(24px); opacity:0; } to{ transform:none; opacity:1; } }
+    .help-backdrop.show{ animation:mcFadeIn .18s ease-out; }
+    .tour-card.show{ animation:mcBannerUp .25s ease-out; }
+  }
+  @media print{ .help-panel, .help-backdrop, .tour-card{ display:none !important; } .tour-focus{ outline:none !important; } }
+
   /* Auth gate */
   #authGate{
     max-width:400px; margin:70px auto; background:var(--surface); border:1px solid var(--border);
@@ -631,6 +676,7 @@
     <div id="userBar">
       <button id="modeToggleBtn" title="Switch between Live and Demo data"></button>
       <span id="userEmail"></span>
+      <button id="helpBtn" title="How to use this page — English / हिंदी">❓ Help</button>
       <button id="changePasswordBtn" title="Change your password">🔑 Password</button>
       <button id="signOutBtn">Sign out</button>
     </div>
@@ -2037,6 +2083,35 @@
   </div>
 </div>
 
+<!-- Help: how-to for the current tab (English / Hindi) -->
+<div class="no-print help-backdrop" id="helpBackdrop"></div>
+<aside class="no-print help-panel" id="helpPanel" aria-label="Help">
+  <div class="help-head">
+    <span id="helpTitle">Help</span>
+    <div class="help-head-actions">
+      <div class="help-lang"><button data-lang="en">EN</button><button data-lang="hi">हिं</button></div>
+      <button id="closeHelp" title="Close">✕</button>
+    </div>
+  </div>
+  <div class="help-body" id="helpBody"></div>
+</aside>
+
+<!-- Guided tour card (first login, or ▶ Take the guided tour in Help) -->
+<div class="no-print tour-card" id="tourCard" role="dialog" aria-live="polite">
+  <div class="tour-top">
+    <span class="tour-step" id="tourStep"></span>
+    <div class="help-lang"><button data-lang="en">EN</button><button data-lang="hi">हिं</button></div>
+  </div>
+  <div class="tour-title" id="tourTitle"></div>
+  <div class="tour-text" id="tourText"></div>
+  <div class="tour-actions">
+    <button class="tour-skip" id="tourSkip">Skip tour</button>
+    <span style="flex:1;"></span>
+    <button class="btn-sm" id="tourBack">Back</button>
+    <button class="btn-sm primary" id="tourNext">Next</button>
+  </div>
+</div>
+
 <!-- Back-to-top shortcut — appears once you've scrolled past a screen's worth of content -->
 <button class="no-print back-to-top-btn" id="backToTopBtn" title="Back to top">⬆</button>
 
@@ -2193,6 +2268,7 @@
     setupRealtime();
     // Surface tasks/tickets the moment someone signs in, instead of making them go find it.
     openFloatingTickets();
+    maybeStartFirstTour();
   }
   function showAuthGate(message){
     document.body.classList.remove('booting');
@@ -4945,6 +5021,434 @@
     XLSX.utils.book_append_sheet(wb, ws, 'Overdue');
     XLSX.writeFile(wb, 'Overdue-Payments-' + todayISO() + '.xlsx');
   });
+
+  // ======================================================================
+  // HELP & GUIDED TOUR — per-tab "how to" in English and Hindi, plus a first-login walkthrough
+  // matched to the person's role. Button names stay in English inside the Hindi text because
+  // that's what staff see on screen. **text** renders bold.
+  // ======================================================================
+  const HELP = {
+    tickets: {
+      en: { title: 'Walk-in Jobs', purpose: 'Every job slip (JT) for customers — create, find, print and track it.',
+        steps: [
+          'In **New Walk-in Job Ticket**, search a saved customer — or just type a walk-in name and phone.',
+          'Add one line per item: pick the service or paper, then quantity and rate. For printing choose **Single Side** or **Front & Back** (writing F&B in the description sets it for you).',
+          'Choose the **Machine** and **Operator**, then press **Save & Print Slip**. The slip prints with who took the job, the operator and the machine.',
+          'Find any old slip: type the JT number (like **81** or **JT-0081**), customer name or phone in the search box — it searches every date.',
+          'Use **All staff** to see one person\'s slips, and the ◀ ▶ arrows or the date box to see another day.',
+          'Row buttons: 🖨 reprint slip · ✓ approve · ✎ edit · 💰 job costs · ₹ mark paid · ✕ delete.'
+        ],
+        tips: [
+          'Slips made by anyone other than Azad or an admin show **PENDING APPROVAL** until they\'re checked — they can\'t be started on the machine before that.',
+          '**+ Manage Services (rates)** keeps your standard price list.'
+        ] },
+      hi: { title: 'Walk-in Jobs', purpose: 'ग्राहकों की हर जॉब स्लिप (JT) — बनाना, ढूँढना, प्रिंट करना और ट्रैक करना।',
+        steps: [
+          '**New Walk-in Job Ticket** में सेव किया हुआ ग्राहक ढूँढें — या वॉक-इन ग्राहक का नाम और फ़ोन लिख दें।',
+          'हर आइटम की एक लाइन जोड़ें: सर्विस या पेपर चुनें, फिर मात्रा और रेट। प्रिंटिंग के लिए **Single Side** या **Front & Back** चुनें (डिस्क्रिप्शन में F&B लिखने पर यह अपने-आप चुन जाता है)।',
+          '**Machine** और **Operator** चुनें, फिर **Save & Print Slip** दबाएँ। स्लिप पर जॉब लेने वाले, ऑपरेटर और मशीन का नाम छपता है।',
+          'कोई भी पुरानी स्लिप ढूँढें: सर्च बॉक्स में JT नंबर (जैसे **81** या **JT-0081**), ग्राहक का नाम या फ़ोन लिखें — यह हर तारीख में ढूँढता है।',
+          '**All staff** से किसी एक व्यक्ति की स्लिप देखें, और ◀ ▶ तीर या तारीख बॉक्स से दूसरे दिन की।',
+          'लाइन के बटन: 🖨 स्लिप दोबारा प्रिंट · ✓ अप्रूव · ✎ एडिट · 💰 जॉब का खर्च · ₹ पेमेंट मिला · ✕ डिलीट।'
+        ],
+        tips: [
+          'आज़ाद या एडमिन के अलावा किसी और की बनाई स्लिप पर **PENDING APPROVAL** दिखता है जब तक उसे चेक न किया जाए — तब तक मशीन पर Start नहीं हो सकता।',
+          '**+ Manage Services (rates)** में आपकी रेट लिस्ट रहती है।'
+        ] }
+    },
+    machine: {
+      en: { title: 'Machine', purpose: 'Move jobs through production, and keep the Konica counter matching the slips.',
+        steps: [
+          'Press **▶ Start** at the moment you actually begin printing a job — not later. The Konica counter uses this time.',
+          'After printing: **→ Send to Post-Press** for cutting, binding, lamination or packing — or **✓ No finishing — Mark Ready** for plain printouts.',
+          '**✓ Mark Ready** when the job is finished, then **✓ Mark Delivered** when the customer collects it.',
+          'Printed something without a slip (reprint, test, jam, shop\'s own use)? Open **🗑 Log Reprint / Test / Spoiled Prints**, enter the sheets (tick Front & Back if both sides) and the reason.',
+          'At closing, read the **Total Counter** on the Konica screen and enter it in **🌙 Close Day**.'
+        ],
+        tips: [
+          'Total Counter = last reading + everything printed since (slips + logged prints). The smaller the "unexplained" number, the better.',
+          'Only paper, card sheets, stickers and textured sheets count on the Konica — cutting, binding and lamination don\'t.'
+        ] },
+      hi: { title: 'Machine', purpose: 'जॉब को प्रोडक्शन में आगे बढ़ाएँ, और कोनिका का काउंटर स्लिप से मिलाकर रखें।',
+        steps: [
+          'जिस समय सच में प्रिंट शुरू करें, उसी समय **▶ Start** दबाएँ — बाद में नहीं। कोनिका काउंटर इसी समय से गिनता है।',
+          'प्रिंट के बाद: कटिंग, बाइंडिंग, लैमिनेशन या पैकिंग के लिए **→ Send to Post-Press** — या सादे प्रिंटआउट के लिए **✓ No finishing — Mark Ready**।',
+          'काम पूरा होने पर **✓ Mark Ready**, और ग्राहक के ले जाने पर **✓ Mark Delivered** दबाएँ।',
+          'बिना स्लिप के कुछ प्रिंट हुआ (दोबारा प्रिंट, टेस्ट, पेपर फँसा, दुकान का अपना काम)? **🗑 Log Reprint / Test / Spoiled Prints** खोलें, शीट की संख्या लिखें (दोनों तरफ़ छपा हो तो Front & Back पर टिक करें) और कारण चुनें।',
+          'दुकान बंद करते समय कोनिका की स्क्रीन पर **Total Counter** पढ़ें और **🌙 Close Day** में लिखें।'
+        ],
+        tips: [
+          'Total Counter = पिछली रीडिंग + उसके बाद का सारा प्रिंट (स्लिप + लॉग किए प्रिंट)। "unexplained" जितना कम, उतना अच्छा।',
+          'कोनिका पर सिर्फ़ पेपर, कार्ड शीट, स्टिकर और टेक्सचर्ड शीट गिनी जाती हैं — कटिंग, बाइंडिंग और लैमिनेशन नहीं।'
+        ] }
+    },
+    stock: {
+      en: { title: 'Stock', purpose: 'Raw materials — paper, card sheets, stickers, lamination, flex. What came in, what went out, what\'s left.',
+        steps: [
+          'Stock you bought: in **Record Stock Movement** pick the item, choose **Stock In**, enter the quantity and press **Record Entry**.',
+          'Taking stock out by hand: choose **Stock Out** and a reason (normal use, machine error, employee wastage…). Paper used on a slip is deducted automatically — don\'t enter it twice.',
+          'New kind of paper or material? Open **+ Add New Item Type**, pick a category and unit, and save.',
+          '**Current Stock** shows what\'s left; low or out-of-stock items are flagged — reorder those.',
+          'The **Monthly Record** calendar shows every movement day by day.'
+        ],
+        tips: [ 'Paper deducted by a slip carries the JT number in its note, so you can trace it back.' ] },
+      hi: { title: 'Stock', purpose: 'कच्चा माल — पेपर, कार्ड शीट, स्टिकर, लैमिनेशन, फ़्लेक्स। क्या आया, क्या गया, कितना बचा।',
+        steps: [
+          'ख़रीदा हुआ माल: **Record Stock Movement** में आइटम चुनें, **Stock In** चुनें, मात्रा लिखें और **Record Entry** दबाएँ।',
+          'हाथ से माल निकालना: **Stock Out** और कारण चुनें (आम इस्तेमाल, मशीन की गलती, कर्मचारी से बर्बादी…)। स्लिप में इस्तेमाल हुआ पेपर अपने-आप घट जाता है — दोबारा न लिखें।',
+          'नया पेपर या मटीरियल? **+ Add New Item Type** खोलें, कैटेगरी और यूनिट चुनकर सेव करें।',
+          '**Current Stock** में बचा हुआ माल दिखता है; कम या ख़त्म हुए आइटम अलग दिखते हैं — उन्हें मँगवाएँ।',
+          '**Monthly Record** कैलेंडर में हर दिन की आवाजाही दिखती है।'
+        ],
+        tips: [ 'स्लिप से घटे पेपर के नोट में JT नंबर होता है, जिससे पता चलता है कि किस जॉब में गया।' ] }
+    },
+    readystock: {
+      en: { title: 'Ready Stock', purpose: 'Finished goods waiting to be delivered — booklets, stickers, card sheets and more.',
+        steps: [
+          '**+ Add Ready Stock**: pick a category (Booklet, Stickers, Card Sheets, Dewalt — or add a new one), type a code or name and the quantity, then save.',
+          'When some are delivered, press ✎ and change the quantity.',
+          'Filter by category or search, then **⭳ Export to Excel** or **🖨 Print / PDF** the list.'
+        ],
+        tips: [ 'Only admins can delete an entry.' ] },
+      hi: { title: 'Ready Stock', purpose: 'डिलीवरी के लिए तैयार माल — बुकलेट, स्टिकर, कार्ड शीट वगैरह।',
+        steps: [
+          '**+ Add Ready Stock**: कैटेगरी चुनें (Booklet, Stickers, Card Sheets, Dewalt — या नई जोड़ें), कोड या नाम और मात्रा लिखकर सेव करें।',
+          'कुछ माल डिलीवर होने पर ✎ दबाकर मात्रा बदलें।',
+          'कैटेगरी या सर्च से छाँटें, फिर लिस्ट को **⭳ Export to Excel** या **🖨 Print / PDF** करें।'
+        ],
+        tips: [ 'एंट्री सिर्फ़ एडमिन डिलीट कर सकते हैं।' ] }
+    },
+    tasks: {
+      en: { title: 'Tasks', purpose: 'The shop\'s to-do list — work given to a person or to anyone.',
+        steps: [
+          'Your tasks appear here and behind the 🎫 button at the bottom right.',
+          'Press **▶** to accept a task. If it\'s for a customer, a new ticket opens already filled in.',
+          'Press **✓** when it\'s done.',
+          'Azad / admins: **+ Assign a Task** to give work to someone, or leave it open for anyone.'
+        ],
+        tips: [] },
+      hi: { title: 'Tasks', purpose: 'दुकान के काम की लिस्ट — किसी एक को दिया गया या किसी के लिए भी खुला काम।',
+        steps: [
+          'आपके काम यहाँ और नीचे दाईं ओर 🎫 बटन में दिखते हैं।',
+          'काम लेने के लिए **▶** दबाएँ। अगर काम किसी ग्राहक का है, तो उसकी भरी हुई नई टिकट खुल जाती है।',
+          'काम पूरा होने पर **✓** दबाएँ।',
+          'आज़ाद / एडमिन: **+ Assign a Task** से किसी को काम दें, या सबके लिए खुला छोड़ें।'
+        ],
+        tips: [] }
+    },
+    parties: {
+      en: { title: 'Parties (Customers & Suppliers)', purpose: 'Who owes you, whom you owe, and every job and payment with each of them.',
+        steps: [
+          '**+ Add Customer / Supplier** with name and mobile number — the number is needed for WhatsApp reminders.',
+          'Click a name to open their ledger: every job, bill and payment, with the running balance.',
+          '**Log Payment** inside the ledger records money received (or paid) and settles bills.',
+          '**⏰ Overdue Payments** shows who owes and for how long. **💬 Remind** opens WhatsApp with the amount and bills typed in — check it and press Send.',
+          '**⭳ Export PDF** or **🖨 Print Balance Slip** gives a customer their statement.'
+        ],
+        tips: [ 'A greyed-out Remind button means no valid mobile number is saved — add one with ✎.' ] },
+      hi: { title: 'Parties (ग्राहक और सप्लायर)', purpose: 'किसे आपको पैसे देने हैं, आपको किसे देने हैं, और हर एक के साथ हर जॉब व पेमेंट।',
+        steps: [
+          '**+ Add Customer / Supplier** में नाम और मोबाइल नंबर डालें — WhatsApp रिमाइंडर के लिए नंबर ज़रूरी है।',
+          'नाम पर क्लिक करके उसका खाता खोलें: हर जॉब, बिल और पेमेंट, चलते बैलेंस के साथ।',
+          'खाते के अंदर **Log Payment** से मिला (या दिया) पैसा दर्ज करें — बिल अपने-आप चुकते हो जाते हैं।',
+          '**⏰ Overdue Payments** में दिखता है किसका कितना बकाया है और कब से। **💬 Remind** दबाने पर WhatsApp में रकम और बिल लिखे हुए खुलते हैं — देखकर Send दबाएँ।',
+          '**⭳ Export PDF** या **🖨 Print Balance Slip** से ग्राहक को उसका हिसाब दें।'
+        ],
+        tips: [ 'Remind बटन धुँधला हो तो सही मोबाइल नंबर सेव नहीं है — ✎ से जोड़ें।' ] }
+    },
+    invoices: {
+      en: { title: 'Sales & Purchases', purpose: 'Formal GST invoices — sales, purchases and estimates.',
+        steps: [
+          'Choose **Sales**, **Purchases** or **Estimates** at the top.',
+          'Pick the party, add items with quantity, rate, discount and GST %, and save. Stock and the party\'s balance update automatically.',
+          'Open an invoice to print it as a Tax Invoice.',
+          'An estimate the customer accepts can be turned into a sale with **➜**.'
+        ],
+        tips: [ 'Walk-in slips for saved customers create their sale invoice automatically — no need to make one here too.' ] },
+      hi: { title: 'Sales & Purchases', purpose: 'GST वाले पक्के बिल — बिक्री, ख़रीद और एस्टिमेट।',
+        steps: [
+          'ऊपर **Sales**, **Purchases** या **Estimates** चुनें।',
+          'पार्टी चुनें, आइटम के साथ मात्रा, रेट, डिस्काउंट और GST % लिखकर सेव करें। स्टॉक और पार्टी का बैलेंस अपने-आप अपडेट होता है।',
+          'बिल खोलकर Tax Invoice प्रिंट करें।',
+          'ग्राहक जो एस्टिमेट मान ले, उसे **➜** से बिक्री का बिल बनाएँ।'
+        ],
+        tips: [ 'सेव किए ग्राहक की वॉक-इन स्लिप का बिल अपने-आप बनता है — यहाँ दोबारा न बनाएँ।' ] }
+    },
+    payments: {
+      en: { title: 'Payments', purpose: 'Money in and money out — payments, expenses and the bank.',
+        steps: [
+          '**Record Payment**: Received (In) from a customer or Paid (Out) to a supplier — party, optional bill, amount and mode (cash, UPI, bank…).',
+          '**Payment History** lists every entry; fix mistakes with ✎ or ✕.',
+          '**+ Log an Expense** for rent, electricity, tea and so on, so profit is right.',
+          '**Payment Mode Ledger** totals cash, UPI and bank for any dates.',
+          '**Bank Reconciliation**: import a bank statement and match it with the payments you recorded.'
+        ],
+        tips: [] },
+      hi: { title: 'Payments', purpose: 'आने और जाने वाला पैसा — पेमेंट, ख़र्च और बैंक।',
+        steps: [
+          '**Record Payment**: ग्राहक से मिला (In) या सप्लायर को दिया (Out) — पार्टी, बिल (चाहें तो), रकम और तरीका (कैश, UPI, बैंक…)।',
+          '**Payment History** में हर एंट्री है; ग़लती ✎ या ✕ से ठीक करें।',
+          'किराया, बिजली, चाय वगैरह के लिए **+ Log an Expense**, ताकि मुनाफ़ा सही निकले।',
+          '**Payment Mode Ledger** किसी भी तारीख़ के कैश, UPI और बैंक का जोड़ दिखाता है।',
+          '**Bank Reconciliation**: बैंक स्टेटमेंट डालकर उसे दर्ज पेमेंट से मिलाएँ।'
+        ],
+        tips: [] }
+    },
+    employees: {
+      en: { title: 'Employees', purpose: 'Staff, salaries, wastage charges and login accounts (admins only).',
+        steps: [
+          '**+ Add Employee** with their monthly salary.',
+          '**Month-End Salary**: pick the employee and month and enter days worked — wastage charges and job work they owe are deducted automatically.',
+          'Record salary paid and advances in the same place.',
+          '**🔑 Login Accounts & Password Reset** sends a password-reset email.'
+        ],
+        tips: [ '🔗 links an employee to a customer account, so job work billed to them comes off their salary.' ] },
+      hi: { title: 'Employees', purpose: 'कर्मचारी, सैलरी, बर्बादी का चार्ज और लॉगिन अकाउंट (सिर्फ़ एडमिन)।',
+        steps: [
+          '**+ Add Employee** में महीने की सैलरी के साथ कर्मचारी जोड़ें।',
+          '**Month-End Salary**: कर्मचारी और महीना चुनें, काम के दिन लिखें — बर्बादी का चार्ज और उनका बकाया जॉब अपने-आप कट जाता है।',
+          'दी गई सैलरी और एडवांस भी वहीं दर्ज करें।',
+          '**🔑 Login Accounts & Password Reset** से पासवर्ड बदलने का ईमेल भेजें।'
+        ],
+        tips: [ '🔗 कर्मचारी को ग्राहक खाते से जोड़ता है, ताकि उनके नाम का जॉब सैलरी से कटे।' ] }
+    },
+    reports: {
+      en: { title: 'Reports', purpose: 'How the business is doing for any period.',
+        steps: [
+          'Pick a period (This Month, Last Month, Custom…) and press **Run Report**.',
+          'See sales, purchases, expenses and approximate profit, plus a **GST Summary** for filing.',
+          '**Staff Productivity**: slips and their value by each person, with a day-by-day grid.',
+          '**Party Outstanding**, **Balance Sheet** and **Tally Export** are for your accountant.'
+        ],
+        tips: [] },
+      hi: { title: 'Reports', purpose: 'किसी भी समय में धंधा कैसा चला।',
+        steps: [
+          'समय चुनें (This Month, Last Month, Custom…) और **Run Report** दबाएँ।',
+          'बिक्री, ख़रीद, ख़र्च और अनुमानित मुनाफ़ा, साथ में फ़ाइलिंग के लिए **GST Summary**।',
+          '**Staff Productivity**: हर व्यक्ति की बनाई स्लिप और उनकी रकम, दिन-ब-दिन।',
+          '**Party Outstanding**, **Balance Sheet** और **Tally Export** आपके अकाउंटेंट के लिए।'
+        ],
+        tips: [] }
+    },
+    settings: {
+      en: { title: 'Settings', purpose: 'Your account, business details, and who can use the app.',
+        steps: [
+          '**My Account**: change the username you sign in with.',
+          '**Business Details**: GSTIN, state and address printed on invoices.',
+          '**Team Access** (admins): change what each person can do, or **Remove access** when someone leaves.',
+          '**Data Backup**: download everything to Excel — do it every week.',
+          '**App Error Log**: problems staff ran into, recorded automatically.'
+        ],
+        tips: [] },
+      hi: { title: 'Settings', purpose: 'आपका अकाउंट, दुकान की जानकारी, और ऐप कौन चला सकता है।',
+        steps: [
+          '**My Account**: लॉगिन वाला यूज़रनेम बदलें।',
+          '**Business Details**: बिल पर छपने वाला GSTIN, राज्य और पता।',
+          '**Team Access** (एडमिन): हर व्यक्ति क्या कर सकता है बदलें, या किसी के जाने पर **Remove access** करें।',
+          '**Data Backup**: सारा डेटा Excel में डाउनलोड करें — हर हफ़्ते।',
+          '**App Error Log**: स्टाफ़ को आई दिक्कतें, अपने-आप दर्ज।'
+        ],
+        tips: [] }
+    }
+  };
+
+  // First-login walkthroughs. nav = tab to open, el = element to highlight (card:true highlights
+  // the card it sits in). Steps whose element doesn't exist for this role are skipped.
+  const TOUR_WELCOME = {
+    en: { t: 'Welcome to MAAN COPIERS 👋', b: 'A one-minute tour of the parts you\'ll use most. You can replay it any time from **❓ Help** at the top.' },
+    hi: { t: 'MAAN COPIERS में स्वागत है 👋', b: 'एक मिनट का टूर — आप जो सबसे ज़्यादा इस्तेमाल करेंगे। इसे कभी भी ऊपर **❓ Help** से दोबारा देख सकते हैं।' }
+  };
+  const TOUR_DEMO = { el: '#modeToggleBtn',
+    en: { t: 'Practise safely in Demo', b: 'Press **Live** to switch to **Demo** — a practice copy where you can try anything without touching real data. Switch back to Live for real work.' },
+    hi: { t: 'Demo में बेफ़िक्र प्रैक्टिस करें', b: '**Live** दबाकर **Demo** पर जाएँ — यह अभ्यास वाली कॉपी है, असली डेटा पर कोई असर नहीं। असली काम के लिए वापस Live पर आएँ।' } };
+  const TOUR_HELP = { el: '#helpBtn',
+    en: { t: 'Stuck? Press Help', b: '**❓ Help** explains the page you\'re on, step by step, in English or Hindi. That\'s the tour — you\'re ready!' },
+    hi: { t: 'अटक गए? Help दबाएँ', b: '**❓ Help** उसी पेज को स्टेप-बाय-स्टेप समझाता है, अंग्रेज़ी या हिंदी में। टूर पूरा — आप तैयार हैं!' } };
+
+  const TOURS = {
+    business: [
+      Object.assign({}, TOUR_WELCOME),
+      { el: '#mainNav',
+        en: { t: 'Everything lives in these tabs', b: '**Walk-in Jobs** for slips, **Machine** for production, **Parties** for who owes what, **Reports** for how business is going.' },
+        hi: { t: 'सब कुछ इन टैब में है', b: 'स्लिप के लिए **Walk-in Jobs**, प्रोडक्शन के लिए **Machine**, बकाये के लिए **Parties**, धंधे के हाल के लिए **Reports**।' } },
+      { nav: 'tickets', el: '#saveTicketBtn', card: true,
+        en: { t: 'Make a job slip', b: 'Pick or type the customer, add a line per item (Single Side or Front & Back for printing), choose machine and operator, then **Save & Print Slip**.' },
+        hi: { t: 'जॉब स्लिप बनाएँ', b: 'ग्राहक चुनें या लिखें, हर आइटम की एक लाइन (प्रिंट के लिए Single Side या Front & Back), मशीन और ऑपरेटर चुनें, फिर **Save & Print Slip**।' } },
+      { nav: 'tickets', el: '#ticketSearch',
+        en: { t: 'Find any slip', b: 'Type a JT number (**81** or **JT-0081**), name or phone — it searches every date. **All staff** shows one person\'s slips.' },
+        hi: { t: 'कोई भी स्लिप ढूँढें', b: 'JT नंबर (**81** या **JT-0081**), नाम या फ़ोन लिखें — हर तारीख़ में ढूँढता है। **All staff** से किसी एक की स्लिप देखें।' } },
+      { nav: 'machine', el: '#machineBoard',
+        en: { t: 'The job board', b: '**▶ Start** when printing actually begins → Post-Press (or straight to Ready) → **Ready** → **Delivered**.' },
+        hi: { t: 'जॉब बोर्ड', b: 'प्रिंट सच में शुरू होने पर **▶ Start** → Post-Press (या सीधे Ready) → **Ready** → **Delivered**।' } },
+      { nav: 'machine', el: '#closeDayCard',
+        en: { t: 'Close the day', b: 'At closing, enter the Konica\'s **Total Counter** here. It\'s compared with the day\'s slips and logged reprints, so missing prints show up.' },
+        hi: { t: 'दिन बंद करें', b: 'दुकान बंद करते समय कोनिका का **Total Counter** यहाँ लिखें। इसे दिन की स्लिप और लॉग किए प्रिंट से मिलाया जाता है, ताकि छूटे प्रिंट पकड़ में आएँ।' } },
+      { nav: 'parties', el: '#overdueCard',
+        en: { t: 'Collect what\'s owed', b: 'See who owes and for how long. **💬 Remind** opens WhatsApp with the amount and bills typed — you press Send.' },
+        hi: { t: 'बकाया वसूलें', b: 'देखें किसका कितना बकाया है और कब से। **💬 Remind** WhatsApp में रकम और बिल लिखकर खोलता है — आप Send दबाएँ।' } },
+      { nav: 'reports', el: '#prodBody', card: true,
+        en: { t: 'See how it\'s going', b: 'Pick a period and **Run Report** — sales, profit, GST, and **Staff Productivity** for each person.' },
+        hi: { t: 'धंधे का हाल देखें', b: 'समय चुनकर **Run Report** — बिक्री, मुनाफ़ा, GST, और हर व्यक्ति की **Staff Productivity**।' } },
+      TOUR_DEMO, TOUR_HELP
+    ],
+    walkin: [
+      Object.assign({}, TOUR_WELCOME),
+      { nav: 'tickets', el: '#saveTicketBtn', card: true,
+        en: { t: 'Make a job slip', b: 'Pick or type the customer, add a line per item — for printing choose **Single Side** or **Front & Back** — choose machine and operator, then **Save & Print Slip**.' },
+        hi: { t: 'जॉब स्लिप बनाएँ', b: 'ग्राहक चुनें या लिखें, हर आइटम की एक लाइन — प्रिंट के लिए **Single Side** या **Front & Back** — मशीन और ऑपरेटर चुनें, फिर **Save & Print Slip**।' } },
+      { nav: 'tickets', el: '#ticketSearch',
+        en: { t: 'Find any slip', b: 'Type a JT number (**81** or **JT-0081**), name or phone — it searches every date.' },
+        hi: { t: 'कोई भी स्लिप ढूँढें', b: 'JT नंबर (**81** या **JT-0081**), नाम या फ़ोन लिखें — हर तारीख़ में ढूँढता है।' } },
+      { nav: 'machine', el: '#machineBoard',
+        en: { t: 'Where each job is', b: 'The board shows every job\'s stage: Received → In Progress → Post-Press → Ready → Delivered.' },
+        hi: { t: 'कौन-सा जॉब कहाँ है', b: 'बोर्ड पर हर जॉब की स्टेज दिखती है: Received → In Progress → Post-Press → Ready → Delivered।' } },
+      { el: '#floatingTicketsBtn',
+        en: { t: 'Your tasks & active jobs', b: 'This button opens your tasks and the jobs still in progress, from any page.' },
+        hi: { t: 'आपके काम और चालू जॉब', b: 'यह बटन किसी भी पेज से आपके काम और चालू जॉब खोलता है।' } },
+      TOUR_DEMO, TOUR_HELP
+    ],
+    operator: [
+      Object.assign({}, TOUR_WELCOME),
+      { nav: 'machine', el: '#machineBoard',
+        en: { t: 'Your job board', b: 'Press **▶ Start** the moment you begin printing a job — not later. The Konica counter uses this time.' },
+        hi: { t: 'आपका जॉब बोर्ड', b: 'जिस पल प्रिंट शुरू करें, उसी समय **▶ Start** दबाएँ — बाद में नहीं। कोनिका काउंटर इसी समय से गिनता है।' } },
+      { nav: 'machine', el: '#machineBoard',
+        en: { t: 'Move it along', b: 'After printing: **→ Send to Post-Press** for cutting/binding/lamination/packing, or **✓ No finishing — Mark Ready**. Then **Mark Ready** and **Mark Delivered**.' },
+        hi: { t: 'आगे बढ़ाते रहें', b: 'प्रिंट के बाद: कटिंग/बाइंडिंग/लैमिनेशन/पैकिंग के लिए **→ Send to Post-Press**, या **✓ No finishing — Mark Ready**। फिर **Mark Ready** और **Mark Delivered**।' } },
+      { nav: 'machine', el: '#printWastageCard',
+        en: { t: 'Log prints without a slip', b: 'Reprint, test print, paper jam or shop\'s own printing? Log the sheets and reason here so the counter adds up.' },
+        hi: { t: 'बिना स्लिप वाले प्रिंट लिखें', b: 'दोबारा प्रिंट, टेस्ट प्रिंट, पेपर फँसा या दुकान का अपना काम? शीट और कारण यहाँ लिखें ताकि काउंटर मिल जाए।' } },
+      { nav: 'machine', el: '#closeDayCard',
+        en: { t: 'Close the day', b: 'At closing, read the **Total Counter** on the Konica screen and enter it here.' },
+        hi: { t: 'दिन बंद करें', b: 'दुकान बंद करते समय कोनिका की स्क्रीन पर **Total Counter** पढ़कर यहाँ लिखें।' } },
+      { nav: 'tasks', el: '#tasksTableBody', card: true,
+        en: { t: 'Tasks for you', b: 'Press **▶** to take a task and **✓** when it\'s done.' },
+        hi: { t: 'आपके काम', b: 'काम लेने के लिए **▶** और पूरा होने पर **✓** दबाएँ।' } },
+      TOUR_HELP
+    ]
+  };
+
+  const HELP_UI = {
+    en: { help: 'Help', steps: 'How to', tips: 'Good to know', tour: '▶ Take the guided tour', other: 'Help for other tabs', next: 'Next', back: 'Back', finish: 'Finish', skip: 'Skip tour', step: 'Step' },
+    hi: { help: 'मदद', steps: 'कैसे करें', tips: 'ध्यान दें', tour: '▶ गाइडेड टूर शुरू करें', other: 'दूसरे टैब की मदद', next: 'आगे', back: 'पीछे', finish: 'पूरा', skip: 'टूर छोड़ें', step: 'स्टेप' }
+  };
+  let helpLang = 'en';
+  try { if (localStorage.getItem('mc_help_lang') === 'hi') helpLang = 'hi'; } catch (_){}
+  let currentHelpTab = null;
+  const helpMd = s => escHtml(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const helpText = obj => obj[helpLang] || obj.en;
+
+  function syncHelpLangButtons(){
+    document.querySelectorAll('.help-lang button').forEach(b => b.classList.toggle('active', b.dataset.lang === helpLang));
+  }
+  function setHelpLang(lang){
+    helpLang = lang === 'hi' ? 'hi' : 'en';
+    try { localStorage.setItem('mc_help_lang', helpLang); } catch (_){}
+    syncHelpLangButtons();
+    if ($('helpPanel').classList.contains('show')) renderHelp();
+    if ($('tourCard').classList.contains('show')) renderTourStep();
+  }
+  document.querySelectorAll('.help-lang button').forEach(b => b.addEventListener('click', () => setHelpLang(b.dataset.lang)));
+
+  function tourRole(){ return isWalkinOnly ? 'walkin' : (isOperator ? 'operator' : 'business'); }
+  function helpTabsForRole(){
+    return [...document.querySelectorAll('.nav-tab')]
+      .filter(t => HELP[t.dataset.nav] && getComputedStyle(t).display !== 'none')
+      .map(t => t.dataset.nav);
+  }
+
+  function openHelp(tab){
+    const active = document.querySelector('.nav-tab.active');
+    currentHelpTab = tab || (active && HELP[active.dataset.nav] ? active.dataset.nav : helpTabsForRole()[0]);
+    renderHelp();
+    $('helpBackdrop').classList.add('show');
+    $('helpPanel').classList.add('show');
+  }
+  function closeHelp(){
+    $('helpBackdrop').classList.remove('show');
+    $('helpPanel').classList.remove('show');
+  }
+  function renderHelp(){
+    const ui = HELP_UI[helpLang];
+    const h = helpText(HELP[currentHelpTab]);
+    $('helpTitle').textContent = ui.help + ' — ' + h.title;
+    const others = helpTabsForRole().filter(t => t !== currentHelpTab);
+    $('helpBody').innerHTML =
+      '<div class="help-purpose">' + helpMd(h.purpose) + '</div>' +
+      '<h4>' + ui.steps + '</h4><ol>' + h.steps.map(s => '<li>' + helpMd(s) + '</li>').join('') + '</ol>' +
+      (h.tips.length ? '<h4>' + ui.tips + '</h4>' + h.tips.map(t => '<div class="help-tip">' + helpMd(t) + '</div>').join('') : '') +
+      '<button class="add-btn" id="helpStartTour" style="margin-top:16px;"><span>' + ui.tour + '</span><span></span></button>' +
+      (others.length ? '<h4 style="margin-top:22px;">' + ui.other + '</h4><div class="help-other">' +
+        others.map(t => '<button class="btn-sm" data-help-tab="' + t + '">' + escHtml(helpText(HELP[t]).title) + '</button>').join('') + '</div>' : '');
+    $('helpStartTour').addEventListener('click', startTour);
+    $('helpBody').querySelectorAll('[data-help-tab]').forEach(b => b.addEventListener('click', function(){
+      currentHelpTab = this.dataset.helpTab; renderHelp(); $('helpBody').scrollTop = 0;
+    }));
+  }
+  $('helpBtn').addEventListener('click', () => openHelp());
+  $('closeHelp').addEventListener('click', closeHelp);
+  $('helpBackdrop').addEventListener('click', closeHelp);
+
+  // ---- Guided tour ----
+  let tourSteps = [], tourIdx = 0, tourFocusEl = null;
+  const tourSeenKey = () => 'mc_tour_seen_v1_' + currentUserId;
+  function clearTourFocus(){ if (tourFocusEl){ tourFocusEl.classList.remove('tour-focus'); tourFocusEl = null; } }
+  function startTour(){
+    closeHelp();
+    closeFloatingTickets();
+    tourSteps = TOURS[tourRole()].filter(s => !s.el || document.querySelector(s.el));
+    tourIdx = 0;
+    $('tourCard').classList.add('show');
+    renderTourStep();
+  }
+  function renderTourStep(){
+    const ui = HELP_UI[helpLang];
+    const s = tourSteps[tourIdx];
+    clearTourFocus();
+    if (s.nav){
+      const tab = document.querySelector('.nav-tab[data-nav="' + s.nav + '"]');
+      if (tab && !tab.classList.contains('active')) tab.click();
+    }
+    if (s.el){
+      const el = document.querySelector(s.el);
+      const target = el && (s.card ? (el.closest('.card') || el) : el);
+      if (target && target.offsetParent !== null){
+        target.classList.add('tour-focus');
+        tourFocusEl = target;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    const t = helpText(s);
+    $('tourStep').textContent = ui.step + ' ' + (tourIdx + 1) + ' / ' + tourSteps.length;
+    $('tourTitle').textContent = t.t;
+    $('tourText').innerHTML = helpMd(t.b);
+    $('tourBack').style.visibility = tourIdx ? 'visible' : 'hidden';
+    $('tourBack').textContent = ui.back;
+    $('tourNext').textContent = tourIdx === tourSteps.length - 1 ? ui.finish : ui.next;
+    $('tourSkip').textContent = ui.skip;
+  }
+  function endTour(){
+    clearTourFocus();
+    $('tourCard').classList.remove('show');
+    try { localStorage.setItem(tourSeenKey(), '1'); } catch (_){}
+  }
+  $('tourNext').addEventListener('click', () => { if (tourIdx < tourSteps.length - 1){ tourIdx++; renderTourStep(); } else endTour(); });
+  $('tourBack').addEventListener('click', () => { if (tourIdx > 0){ tourIdx--; renderTourStep(); } });
+  $('tourSkip').addEventListener('click', endTour);
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if ($('tourCard').classList.contains('show')) endTour();
+    else if ($('helpPanel').classList.contains('show')) closeHelp();
+  });
+  // Once per person per device, right after their first sign-in has loaded.
+  function maybeStartFirstTour(){
+    let seen = true;
+    try { seen = !!localStorage.getItem(tourSeenKey()); } catch (_){}
+    if (!seen) startTour();
+  }
+  syncHelpLangButtons();
 
   async function refreshEmployeesPanel(){
     if (!isAdmin) return;
