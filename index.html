@@ -1896,9 +1896,16 @@
           <h2 class="collapsible" id="trustedDevicesToggle"><span>📱 Trusted Devices</span><span class="chev">▶</span></h2>
           <div id="trustedDevicesBody" style="display:none; margin-top:18px;">
             <div class="hint" style="margin-bottom:12px;">Each staff account works on one device only — the first device they sign in on. Signing in anywhere else is refused. <b>Reset</b> signs that person out everywhere; the next device they sign in on becomes their trusted one (use it when they change PC/phone or clear the browser).</div>
+            <div class="field" style="margin-bottom:6px;"><label for="tempPwAll">🔑 Temporary password for all staff</label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <input type="text" id="tempPwAll" autocomplete="off" placeholder="At least 6 characters" style="flex:1; min-width:180px;">
+                <button class="btn-sm primary" id="tempPwAllBtn">Set for all staff</button>
+              </div>
+            </div>
+            <div class="hint" style="margin-bottom:14px;">Everyone is logged out, signs in once with this password, and must set their own before they can use the app. Use <b>Temp password</b> on a row for just one person (e.g. someone who forgot theirs).</div>
             <div class="table-scroll"><table class="data-table">
-              <thead><tr><th>Staff</th><th>Role</th><th>Trusted device</th><th>Since</th><th>Last opened</th><th></th></tr></thead>
-              <tbody id="trustedDevicesTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
+              <thead><tr><th>Staff</th><th>Role</th><th>Trusted device</th><th>Since</th><th>Last opened</th><th>Password</th><th></th></tr></thead>
+              <tbody id="trustedDevicesTableBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
             </table></div>
             <div class="status-msg" id="trustedDevicesStatus"></div>
           </div>
@@ -2146,6 +2153,21 @@
 <div class="no-print" id="updateBanner" role="status">
   <span>A new version of MAAN COPIERS is available.</span>
   <button id="updateReloadBtn">Reload now</button>
+</div>
+
+<!-- Must choose own password after signing in with a temporary one set by Azeem -->
+<div class="no-print cpw-backdrop" id="forcePwBackdrop" style="z-index:900;"></div>
+<div class="no-print cpw-panel" id="forcePwPanel" role="dialog" aria-labelledby="forcePwTitle" style="z-index:901; width:380px;">
+  <div class="cpw-head"><span id="forcePwTitle">🔑 Set your own password</span></div>
+  <div class="cpw-body">
+    <div style="font-size:13.5px; line-height:1.55;">You signed in with a temporary password. Choose your own password to continue — you'll use it from now on. Don't share it.</div>
+    <div class="hint" style="margin-top:8px;">आपने अस्थायी पासवर्ड से लॉग इन किया है। आगे बढ़ने के लिए अपना नया पासवर्ड बनाइए — आगे से यही चलेगा।</div>
+    <div class="field" style="margin-top:14px;"><label for="forcePwNew">New password</label><input type="password" id="forcePwNew" autocomplete="new-password" placeholder="At least 6 characters"></div>
+    <div class="field" style="margin-top:12px;"><label for="forcePwConfirm">Type it again</label><input type="password" id="forcePwConfirm" autocomplete="new-password"></div>
+    <button class="add-btn save-btn" id="forcePwSaveBtn" style="margin-top:16px;"><span>Save &amp; continue</span><span></span></button>
+    <div class="status-msg" id="forcePwStatus"></div>
+    <button class="btn-sm" id="forcePwLogoutBtn" style="margin-top:10px; width:100%;">Log out</button>
+  </div>
 </div>
 
 <!-- "Trust this device?" — asked once, the first time an account signs in -->
@@ -2399,6 +2421,8 @@
   document.body.appendChild($('cpwBackdrop'));
   document.body.appendChild($('changePasswordPanel'));
   document.body.appendChild($('trustBackdrop'));
+  document.body.appendChild($('forcePwBackdrop'));
+  document.body.appendChild($('forcePwPanel'));
   document.body.appendChild($('trustPanel'));
   $('changePasswordBtn').addEventListener('click', openChangePassword);
   $('closeChangePassword').addEventListener('click', closeChangePassword);
@@ -2476,6 +2500,46 @@
     }
     return data && data.status === 'blocked' ? blockedDeviceMessage(data) : null;
   }
+  // After a temporary password from Azeem: the person must choose their own before the app opens
+  // (the database also keeps business data closed until they do). Resolves true to continue,
+  // false if they chose Log out.
+  async function ensureOwnPassword(){
+    const { data, error } = await supabaseClient.rpc('password_change_needed');
+    if (error || !data) return true;
+    return new Promise(resolve => {
+      const statusEl = $('forcePwStatus');
+      $('forcePwNew').value = ''; $('forcePwConfirm').value = '';
+      statusEl.className = 'status-msg';
+      $('forcePwBackdrop').classList.add('show');
+      $('forcePwPanel').classList.add('show');
+      $('forcePwNew').focus();
+      const close = ok => {
+        $('forcePwBackdrop').classList.remove('show');
+        $('forcePwPanel').classList.remove('show');
+        $('forcePwSaveBtn').onclick = $('forcePwLogoutBtn').onclick = null;
+        resolve(ok);
+      };
+      $('forcePwLogoutBtn').onclick = () => close(false);
+      $('forcePwSaveBtn').onclick = async function(){
+        const pw = $('forcePwNew').value;
+        if (pw.length < 6){ showStatus(statusEl, 'Password must be at least 6 characters.', false); return; }
+        if (pw !== $('forcePwConfirm').value){ showStatus(statusEl, 'The two passwords don\'t match.', false); return; }
+        this.disabled = true;
+        try {
+          const { error: upErr } = await supabaseClient.auth.updateUser({ password: pw });
+          if (upErr){
+            if (/different|same/i.test(upErr.message || '')) throw new Error('Choose a password different from the temporary one.');
+            throw upErr;
+          }
+          const { data: done, error: doneErr } = await supabaseClient.rpc('complete_password_change');
+          if (doneErr) throw doneErr;
+          if (!done) throw new Error('Choose a password different from the temporary one.');
+          close(true);
+        } catch (err){ showStatus(statusEl, err.message || 'Could not save the password.', false); }
+        finally { this.disabled = false; }
+      };
+    });
+  }
   async function forceSignOut(msg){
     if (realtimeChannel){ supabaseClient.removeChannel(realtimeChannel); realtimeChannel = null; }
     try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (_){}
@@ -2512,6 +2576,7 @@
     }
     const deviceMsg = await claimThisDevice((session.user.email || '').split('@')[0]);
     if (deviceMsg){ await forceSignOut(deviceMsg); return; }
+    if (!(await ensureOwnPassword())){ await forceSignOut(); return; }
     let m;
     try { m = await fetchOrBootstrapMembership(ORG_IDS[appMode]); }
     catch (err){ showAuthGate(err.message || CONNECTION_ERROR_MSG); return; }
@@ -2547,6 +2612,7 @@
       if (error) throw new Error('Invalid username or password');
       const deviceMsg = await claimThisDevice(username);
       if (deviceMsg){ try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (_){} throw new Error(deviceMsg); }
+      if (!(await ensureOwnPassword())){ try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (_){} throw new Error('Logged out.'); }
       const m = await fetchOrBootstrapMembership(ORG_IDS[appMode]);
       if (!m){
         await supabaseClient.auth.signOut();
@@ -5048,8 +5114,23 @@
     await loadTrustedDevices();
   }
 
-  // ---- Trusted devices (Azeem only) ----
+  // ---- Trusted devices + temporary passwords (Azeem only) ----
   toggleCollapsible($('trustedDevicesToggle'), $('trustedDevicesBody'));
+  async function setTempPassword(pw, userIds, who, btn){
+    const statusEl = $('trustedDevicesStatus');
+    if (pw.length < 6){ showStatus(statusEl, 'Password must be at least 6 characters.', false); return false; }
+    if (!window.confirm('Set the temporary password for ' + who + '? They will be logged out everywhere and must choose their own password after signing in.')) return false;
+    btn.disabled = true;
+    const { data, error } = await supabaseClient.rpc('owner_set_temp_password', { p_org_id: currentOrgId, p_password: pw, p_user_ids: userIds });
+    btn.disabled = false;
+    if (error){ showStatus(statusEl, error.message || 'Could not set the password.', false); return false; }
+    showStatus(statusEl, 'Temporary password set for ' + data + ' account' + (data === 1 ? '' : 's') + '. They sign in with it once and then choose their own.', true);
+    await loadTrustedDevices();
+    return true;
+  }
+  $('tempPwAllBtn').addEventListener('click', async function(){
+    if (await setTempPassword($('tempPwAll').value, null, 'ALL staff', this)) $('tempPwAll').value = '';
+  });
   async function loadTrustedDevices(){
     const isOwner = currentUserId === OWNER_ID;
     $('trustedDevicesCard').style.display = isOwner ? '' : 'none';
@@ -5058,11 +5139,20 @@
     const rows = error ? [] : (data || []);
     const tbody = $('trustedDevicesTableBody');
     const when = t => t ? new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '—';
-    if (!rows.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">' + (error ? escHtml(error.message) : 'No staff accounts.') + '</td></tr>'; return; }
+    if (!rows.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + (error ? escHtml(error.message) : 'No staff accounts.') + '</td></tr>'; return; }
     tbody.innerHTML = rows.map(r => '<tr><td class="item-name">' + escHtml(titleCase(r.username) || '—') + '</td><td>' + escHtml(r.role) + '</td>' +
       '<td>' + (r.label ? escHtml(r.label) : '<span class="hint">Not signed in yet — next device they use</span>') + '</td>' +
       '<td>' + when(r.trusted_at) + '</td><td>' + when(r.last_seen) + '</td>' +
-      '<td><button class="btn-sm td-reset" data-uid="' + r.user_id + '" data-name="' + escHtml(titleCase(r.username)) + '" style="color:var(--danger);">Reset</button></td></tr>').join('');
+      '<td>' + (r.must_change_password ? '<span class="status-badge low">Must change</span>' : '<span class="hint">Own password</span>') + '</td>' +
+      '<td><div style="display:flex; gap:6px;">' +
+        '<button class="btn-sm td-temppw" data-uid="' + r.user_id + '" data-name="' + escHtml(titleCase(r.username)) + '">Temp password</button>' +
+        '<button class="btn-sm td-reset" data-uid="' + r.user_id + '" data-name="' + escHtml(titleCase(r.username)) + '" style="color:var(--danger);">Reset device</button>' +
+      '</div></td></tr>').join('');
+    tbody.querySelectorAll('.td-temppw').forEach(b => b.addEventListener('click', async function(){
+      const pw = window.prompt('Temporary password for ' + this.dataset.name + ' (at least 6 characters). Tell it to them — they must change it after signing in:', '');
+      if (pw === null) return;
+      await setTempPassword(pw, [this.dataset.uid], this.dataset.name, this);
+    }));
     tbody.querySelectorAll('.td-reset').forEach(b => b.addEventListener('click', async function(){
       const statusEl = $('trustedDevicesStatus');
       if (!window.confirm('Reset ' + this.dataset.name + '\'s device? They will be signed out everywhere, and the next device they sign in on becomes their trusted one.')) return;
