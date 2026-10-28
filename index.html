@@ -53,7 +53,7 @@
      the Job Status Board) -- but logging/editing a counter reading is still staff-with-
      business-data-access only, same as Mark Paid and Job Costs. Hide the two cards for them
      here rather than leave a panel they'd only hit an RLS rejection on. */
-  body.is-walkin-only #machineCounterStats, body.is-walkin-only #mcCalWrap, body.is-walkin-only #machineCounterSection, body.is-walkin-only #machineCounterLogSection{ display:none !important; }
+  body.is-walkin-only #machineCounterStats, body.is-walkin-only #closeDayCard, body.is-walkin-only #mcCalWrap, body.is-walkin-only #machineCounterSection, body.is-walkin-only #machineCounterLogSection{ display:none !important; }
   body.is-operator .nav-tab:not([data-nav="machine"]):not([data-nav="tasks"]){ display:none !important; }
 
   /* Printing-shop graphics */
@@ -507,6 +507,23 @@
     .board-card{ transition:box-shadow .15s, transform .15s; }
     .board-card:hover{ box-shadow:0 4px 14px rgba(15,37,64,0.10); transform:translateY(-1px); }
   }
+
+  /* Close Day + logged print wastage (Machine tab) */
+  #closeDayCard.nudge{ border-color:var(--warn-border); background:var(--warn-soft); }
+  .mpw-check{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer; margin-top:26px; }
+  .mpw-check input{ width:auto; }
+  /* Overdue Payments (Parties tab) */
+  .od-tiles{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  @media (max-width:640px){ .od-tiles{ grid-template-columns:1fr 1fr; } }
+  .od-tile{ background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .od-tile .od-l{ font-size:11px; font-weight:700; letter-spacing:0.03em; text-transform:uppercase; color:var(--muted); }
+  .od-tile .od-v{ font-size:17px; font-weight:800; margin-top:2px; }
+  .od-tile.warn .od-v{ color:var(--warn); }
+  .od-tile.danger .od-v{ color:var(--danger); }
+  .od-staff{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:700; background:var(--bg); color:var(--muted); border:1px solid var(--border); vertical-align:middle; }
+  .wa-btn{ background:#1FA855; color:#fff; border:none; border-radius:6px; padding:6px 10px; font-family:'Inter'; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .wa-btn:hover{ background:#178A45; }
+  .wa-btn:disabled{ background:var(--border-strong); cursor:not-allowed; }
 
   /* Auth gate */
   #authGate{
@@ -1131,6 +1148,54 @@
          Today's Walk-in Jobs, so the headline numbers don't need digging through the log below. -->
     <div id="machineCounterStats" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
 
+    <!-- End-of-day counter reading. One number, then the app sets it against today's slips and
+         logged wastage. Re-closing the same day just updates it. -->
+    <section class="card" id="closeDayCard">
+      <div class="table-head-row">
+        <h2>🌙 Close Day — KONIKA MINOLTA</h2>
+        <span class="hint" id="closeDayNudge"></span>
+      </div>
+      <div class="hint" style="margin-bottom:12px;">At closing, read the <b>Total Counter</b> on the machine's screen and enter it here. The app compares it with today's slips and any reprints/test prints logged below.</div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field" style="flex:1; min-width:180px; margin:0;"><label for="closeDayTotal">Total Counter now</label><input type="number" id="closeDayTotal" min="0" step="1" placeholder="e.g. 148898"></div>
+        <button class="add-btn save-btn" id="closeDayBtn" style="width:auto; min-width:150px; margin:0;"><span>Close Day</span><span>🌙</span></button>
+      </div>
+      <div class="status-msg" id="closeDayStatus"></div>
+    </section>
+
+    <!-- Prints with no billable slip of their own, logged by whoever ran them. Without this every
+         reprint, test print and jam just shows up as an unexplained counter gap. -->
+    <section class="card" id="printWastageCard">
+      <h2 class="collapsible" id="mpwToggle"><span>🗑 Log Reprint / Test / Spoiled Prints — KONIKA MINOLTA</span><span class="chev">▶</span></h2>
+      <div id="mpwBody" style="display:none; margin-top:18px;">
+        <div class="hint" style="margin-bottom:12px;">Anything that went through the Konica without its own slip: a reprint because of a mistake, test / colour-check prints, jammed or spoiled sheets, the shop's own printing.</div>
+        <div class="row3">
+          <div class="field"><label for="mpwSheets">Sheets</label><input type="number" id="mpwSheets" min="1" step="1"></div>
+          <div class="field"><label for="mpwReason">Reason</label>
+            <select id="mpwReason">
+              <option value="reprint">Reprint (mistake)</option>
+              <option value="test">Test / colour check</option>
+              <option value="spoiled">Spoiled / jammed</option>
+              <option value="internal">Shop's own use</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field"><label for="mpwTicket">For job (optional)</label><input type="text" id="mpwTicket" placeholder="e.g. JT-0879 or 879"></div>
+        </div>
+        <div class="row2">
+          <label class="mpw-check"><input type="checkbox" id="mpwDouble"> Front &amp; Back (2 clicks per sheet)</label>
+          <div class="field"><label for="mpwNote">Note (optional)</label><input type="text" id="mpwNote" maxlength="300" placeholder="e.g. wrong colour, paper jam"></div>
+        </div>
+        <button class="add-btn save-btn" id="mpwSaveBtn"><span>Log Prints</span><span id="mpwClicks">0 counter clicks</span></button>
+        <div class="status-msg" id="mpwStatus"></div>
+      </div>
+      <h3 style="margin:18px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Logged today</h3>
+      <table class="data-table">
+        <thead><tr><th>Time</th><th>By</th><th>Reason</th><th>Job</th><th style="text-align:right;">Clicks</th><th>Note</th><th></th></tr></thead>
+        <tbody id="mpwTableBody"><tr class="empty-row"><td colspan="7">Nothing logged today.</td></tr></tbody>
+      </table>
+    </section>
+
     <!-- Same calendar widget as Stock's Monthly Record — reused wholesale (.cal-head/.cal-grid/
          .cal-day CSS) for date-wise browsing instead of only a flat scrolling log. -->
     <section class="card" id="mcCalWrap">
@@ -1259,6 +1324,36 @@
             </div>
             <div class="status-msg" id="partyStatus"></div>
           </div>
+        </section>
+
+        <!-- Who owes what and for how long, with a one-click WhatsApp reminder. -->
+        <section class="card" id="overdueCard">
+          <div class="table-head-row">
+            <h2>⏰ Overdue Payments</h2>
+            <button class="export-btn" id="overdueExportBtn">⭳ Export to Excel</button>
+          </div>
+          <div class="od-tiles">
+            <div class="od-tile"><div class="od-l">0–30 days</div><div class="od-v" id="odB0">—</div></div>
+            <div class="od-tile"><div class="od-l">31–60 days</div><div class="od-v" id="odB1">—</div></div>
+            <div class="od-tile warn"><div class="od-l">61–90 days</div><div class="od-v" id="odB2">—</div></div>
+            <div class="od-tile danger"><div class="od-l">90+ days</div><div class="od-v" id="odB3">—</div></div>
+          </div>
+          <div class="hint" id="odTotal" style="margin:10px 0 12px;"></div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+            <div class="cat-tabs" id="overdueAgeTabs" style="margin:0;">
+              <button class="cat-tab active" data-odage="all">All</button>
+              <button class="cat-tab" data-odage="30">Over 30 days</button>
+              <button class="cat-tab" data-odage="60">Over 60 days</button>
+              <button class="cat-tab" data-odage="90">Over 90 days</button>
+            </div>
+            <div class="search-wrap"><input type="text" id="overdueSearch" placeholder="Search customer / phone…"></div>
+            <label class="show-inactive-wrap" style="margin:0;"><input type="checkbox" id="overdueIncludeStaff"> Include staff (salary-deducted)</label>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Customer</th><th style="text-align:right;">Owes</th><th style="text-align:right;">0–30</th><th style="text-align:right;">31–60</th><th style="text-align:right;">61–90</th><th style="text-align:right;">90+</th><th>Oldest due</th><th>Reminded</th><th></th></tr></thead>
+            <tbody id="overdueBody"><tr class="empty-row"><td colspan="9">Loading…</td></tr></tbody>
+          </table>
+          <div class="hint" style="margin-top:8px;">Payments clear the oldest bills first, so the ages show what's genuinely still unpaid. 💬 opens WhatsApp with the amount and bill numbers filled in — you check it and press Send.</div>
         </section>
 
         <section class="card">
@@ -2456,7 +2551,9 @@
       refreshTicketsPanel(),
       refreshEmployeesPanel(),
       refreshTasksPanel(),
-      refreshReadyStockPanel()
+      refreshReadyStockPanel(),
+      loadTodaysWastage(),
+      isWalkinOnly ? Promise.resolve() : loadOverdue()
     ]);
     renderPartiesTable();
     renderOutstandingSummary();
@@ -4642,6 +4739,213 @@
     }));
   }
 
+  // ======================================================================
+  // CLOSE DAY — end-of-day Total Counter reading (close_day_reading in the database)
+  // ======================================================================
+  $('closeDayBtn').addEventListener('click', async function(){
+    const statusEl = $('closeDayStatus');
+    const total = parseFloat($('closeDayTotal').value);
+    if (!total || total <= 0){ showStatus(statusEl, 'Enter the Total Counter shown on the machine.', false); return; }
+    this.disabled = true;
+    try {
+      const { data: row, error } = await supabaseClient.rpc('close_day_reading', { p_org_id: currentOrgId, p_machine: MACHINE_COUNTER_MACHINE, p_total: total });
+      if (error) throw error;
+      $('closeDayTotal').value = '';
+      await refreshMachineCounterPanel();
+      const saved = machineCounterReadings.find(r => r.id === row.id);
+      const d = saved ? machineCounterDeltasFor(saved) : null;
+      let msg = 'Day closed at ' + fmtQty(total) + '.';
+      if (d && d.printsToday !== null) msg += ' Since ' + fmtDate(d.prevDate) + ': ' + fmtQty(d.printsToday) + ' printed · ' + offSlipLine(d) + '.';
+      showStatus(statusEl, msg, true);
+    } catch (err){ showStatus(statusEl, err.message || 'Could not close the day.', false); }
+    finally { this.disabled = false; }
+  });
+
+  // ======================================================================
+  // PRINT WASTAGE — reprints / tests / spoiled sheets that never get a billable slip
+  // ======================================================================
+  const PRINT_WASTAGE_REASON = { reprint:'Reprint (mistake)', test:'Test / colour check', spoiled:'Spoiled / jammed', internal:"Shop's own use", other:'Other' };
+  let todaysWastage = [];
+  toggleCollapsible($('mpwToggle'), $('mpwBody'));
+  function mpwClicks(){ return Math.max(0, Math.floor(parseFloat($('mpwSheets').value) || 0)) * ($('mpwDouble').checked ? 2 : 1); }
+  function renderMpwClicks(){ const c = mpwClicks(); $('mpwClicks').textContent = fmtQty(c) + ' counter click' + (c === 1 ? '' : 's'); }
+  $('mpwSheets').addEventListener('input', renderMpwClicks);
+  $('mpwDouble').addEventListener('change', renderMpwClicks);
+
+  async function loadTodaysWastage(){
+    const [y, m, d] = todayISO().split('-').map(Number);
+    const { data, error } = await supabaseClient.from('machine_print_wastage').select('*, job_tickets(ticket_no)')
+      .eq('org_id', currentOrgId).eq('machine', MACHINE_COUNTER_MACHINE)
+      .gte('created_at', new Date(y, m - 1, d).toISOString()).order('created_at', { ascending:false });
+    todaysWastage = error ? [] : (data || []);
+    renderTodaysWastage();
+  }
+  function renderTodaysWastage(){
+    const tbody = $('mpwTableBody');
+    if (!todaysWastage.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Nothing logged today.</td></tr>'; return; }
+    const total = todaysWastage.reduce((s, w) => s + Number(w.sheets) * (w.double_sided ? 2 : 1), 0);
+    tbody.innerHTML = todaysWastage.map(w => {
+      const clicks = Number(w.sheets) * (w.double_sided ? 2 : 1);
+      const canDelete = isAdmin || w.created_by === currentUserId;
+      return '<tr><td>' + fmtTimeOnly(w.created_at) + '</td><td>' + escHtml(staffName(w.created_by) || '—') + '</td>' +
+        '<td>' + escHtml(PRINT_WASTAGE_REASON[w.reason] || w.reason) + '</td><td>' + escHtml(w.job_tickets ? w.job_tickets.ticket_no : '—') + '</td>' +
+        '<td style="text-align:right; font-weight:700;">' + fmtQty(clicks) + (w.double_sided ? '<div class="item-cat">' + fmtQty(w.sheets) + ' sheets F&amp;B</div>' : '') + '</td>' +
+        '<td>' + escHtml(w.note || '—') + '</td>' +
+        '<td>' + (canDelete ? '<div class="row-actions"><button class="mpw-del danger" data-id="' + w.id + '" title="Delete this entry">✕</button></div>' : '') + '</td></tr>';
+    }).join('') + '<tr><td colspan="4" style="text-align:right; font-weight:700;">Total today</td><td style="text-align:right; font-weight:800;">' + fmtQty(total) + '</td><td colspan="2"></td></tr>';
+    tbody.querySelectorAll('.mpw-del').forEach(b => b.addEventListener('click', async function(){
+      if (!window.confirm('Delete this logged entry?')) return;
+      const { error } = await supabaseClient.from('machine_print_wastage').delete().eq('id', this.dataset.id);
+      if (error){ alert(error.message); return; }
+      await loadTodaysWastage();
+      if (!isWalkinOnly) await refreshMachineCounterPanel();
+    }));
+  }
+
+  $('mpwSaveBtn').addEventListener('click', async function(){
+    const statusEl = $('mpwStatus');
+    const sheets = Math.floor(parseFloat($('mpwSheets').value) || 0);
+    if (sheets <= 0){ showStatus(statusEl, 'Enter how many sheets went through the machine.', false); return; }
+    this.disabled = true;
+    try {
+      let ticketId = null;
+      const typed = $('mpwTicket').value.trim();
+      if (typed){
+        const num = typed.match(/(\d{1,6})\s*$/);
+        if (!num) throw new Error('Job number not recognised — type it like JT-0879 or 879.');
+        const ticketNo = 'JT-' + num[1].padStart(4, '0');
+        const { data: tk, error: tkErr } = await supabaseClient.from('job_tickets').select('id').eq('org_id', currentOrgId).eq('ticket_no', ticketNo).maybeSingle();
+        if (tkErr) throw tkErr;
+        if (!tk) throw new Error(ticketNo + ' not found.');
+        ticketId = tk.id;
+      }
+      const double = $('mpwDouble').checked;
+      const { error } = await supabaseClient.from('machine_print_wastage').insert({
+        org_id: currentOrgId, machine: MACHINE_COUNTER_MACHINE, sheets, double_sided: double,
+        reason: $('mpwReason').value, ticket_id: ticketId, note: $('mpwNote').value.trim() || null, created_by: currentUserId
+      });
+      if (error) throw error;
+      showStatus(statusEl, 'Logged ' + fmtQty(sheets * (double ? 2 : 1)) + ' counter clicks as ' + PRINT_WASTAGE_REASON[$('mpwReason').value].toLowerCase() + '.', true);
+      $('mpwSheets').value = ''; $('mpwTicket').value = ''; $('mpwNote').value = ''; $('mpwDouble').checked = false; renderMpwClicks();
+      await loadTodaysWastage();
+      if (!isWalkinOnly) await refreshMachineCounterPanel();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not log this.', false); }
+    finally { this.disabled = false; }
+  });
+
+  // ======================================================================
+  // OVERDUE PAYMENTS — ageing (receivables_aging) + WhatsApp reminder
+  // ======================================================================
+  let overdueRows = [], overdueAge = 'all';
+  async function loadOverdue(){
+    const { data, error } = await supabaseClient.rpc('receivables_aging', { p_org_id: currentOrgId });
+    overdueRows = error ? null : (data || []);
+    renderOverdue();
+  }
+  // WhatsApp needs a full international number: 10-digit Indian mobiles get 91 in front.
+  function waPhone(raw){
+    let d = String(raw || '').replace(/\D/g, '');
+    if (d.length === 11 && d[0] === '0') d = d.slice(1);
+    if (d.length === 10) d = '91' + d;
+    return /^91[6-9]\d{9}$/.test(d) ? d : null;
+  }
+  function overdueMessage(r){
+    const bills = (r.due_invoices || []).slice().reverse(); // oldest first
+    const billed = bills.reduce((sum, b) => sum + Number(b.due), 0);
+    const earlier = Number(r.balance) - billed;  // opening balance, not tied to any bill
+    const lines = (earlier > 0.5 ? ['• Earlier balance — ' + fmtMoney(earlier)] : [])
+      .concat(bills.slice(0, 6).map(b => '• ' + b.invoice_no + (b.ticket_no ? ' (' + b.ticket_no + ')' : '') + ' — ' + fmtDate(b.date) + ' — ' + fmtMoney(b.due)));
+    const more = bills.length > 6 ? '\n…and ' + (bills.length - 6) + ' more bills' : '';
+    return 'Namaste ' + titleCase(r.name) + ',\n\n' +
+      'This is a gentle reminder from ' + (org.name || 'MAAN COPIERS') + '.\n' +
+      'Your pending balance is ' + fmtMoney(r.balance) + '.\n\n' +
+      (lines.length ? lines.join('\n') + more + '\n\n' : '') +
+      'Kindly arrange the payment at your earliest convenience. Thank you!';
+  }
+  function overdueBeyond(r, days){
+    if (days >= 90) return Number(r.d90_plus);
+    if (days >= 60) return Number(r.d61_90) + Number(r.d90_plus);
+    if (days >= 30) return Number(r.d31_60) + Number(r.d61_90) + Number(r.d90_plus);
+    return Number(r.balance);
+  }
+  function filteredOverdue(){
+    if (!overdueRows) return [];
+    const term = $('overdueSearch').value.trim().toLowerCase();
+    const minDays = overdueAge === 'all' ? 0 : Number(overdueAge);
+    return overdueRows
+      .filter(r => $('overdueIncludeStaff').checked || !r.is_staff)
+      .filter(r => !minDays || overdueBeyond(r, minDays) > 0.5)
+      .filter(r => !term || r.name.toLowerCase().includes(term) || (r.phone || '').includes(term))
+      .sort((a, b) => overdueBeyond(b, 30) - overdueBeyond(a, 30) || Number(b.balance) - Number(a.balance));
+  }
+  function renderOverdue(){
+    const tbody = $('overdueBody');
+    if (overdueRows === null){ tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Could not load overdue payments.</td></tr>'; return; }
+    const base = overdueRows.filter(r => $('overdueIncludeStaff').checked || !r.is_staff);
+    const sum = k => base.reduce((s, r) => s + Number(r[k]), 0);
+    $('odB0').textContent = fmtMoney0(sum('d0_30'));
+    $('odB1').textContent = fmtMoney0(sum('d31_60'));
+    $('odB2').textContent = fmtMoney0(sum('d61_90'));
+    $('odB3').textContent = fmtMoney0(sum('d90_plus'));
+    $('odTotal').textContent = fmtMoney0(sum('balance')) + ' owed by ' + base.length + ' customer' + (base.length === 1 ? '' : 's') + '.';
+    const rows = filteredOverdue();
+    if (!rows.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="9">' + (base.length ? 'Nobody matches this filter.' : 'Nobody owes anything right now. 🎉') + '</td></tr>'; return; }
+    const cell = (v, cls) => '<td style="text-align:right;"' + (cls && Number(v) > 0.5 ? ' class="' + cls + '"' : '') + '>' + (Number(v) > 0.5 ? fmtMoney0(v) : '—') + '</td>';
+    const today = new Date(todayISO());
+    tbody.innerHTML = rows.map(r => {
+      const phone = waPhone(r.phone);
+      const days = r.oldest_due ? Math.round((today - new Date(r.oldest_due)) / 86400000) : null;
+      const reminded = r.last_reminder ? (toISODateLocal(r.last_reminder) === todayISO() ? 'today' : fmtDate(toISODateLocal(r.last_reminder))) : '—';
+      return '<tr><td class="item-name">' + escHtml(titleCase(r.name)) + (r.is_staff ? '<span class="od-staff">Staff</span>' : '') +
+          '<div class="item-cat">' + escHtml(r.phone || 'no phone saved') + '</div></td>' +
+        '<td style="text-align:right; font-weight:800;">' + fmtMoney0(r.balance) + '</td>' +
+        cell(r.d0_30) + cell(r.d31_60) + cell(r.d61_90, 'amt-neg') + cell(r.d90_plus, 'amt-neg') +
+        '<td>' + (r.oldest_due ? fmtDate(r.oldest_due) + '<div class="item-cat">' + days + ' days</div>' : 'Opening balance') + '</td>' +
+        '<td>' + reminded + '</td>' +
+        '<td><div style="display:flex; gap:6px;">' +
+          '<button class="wa-btn od-wa" data-id="' + r.party_id + '"' + (phone ? '' : ' disabled title="No valid mobile number saved for this party"') + '>💬 Remind</button>' +
+          '<button class="btn-sm od-open" data-id="' + r.party_id + '">Open</button>' +
+        '</div></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('.od-wa').forEach(b => b.addEventListener('click', async function(){
+      const r = overdueRows.find(x => x.party_id === this.dataset.id);
+      const phone = r && waPhone(r.phone);
+      if (!phone) return;
+      // Open first, synchronously in the click, so the browser doesn't treat it as a popup.
+      window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(overdueMessage(r)), '_blank', 'noopener');
+      const { error } = await supabaseClient.from('party_communications').insert({
+        org_id: currentOrgId, party_id: r.party_id, channel: 'whatsapp',
+        note: 'Payment reminder (WhatsApp) — ' + fmtMoney(r.balance) + ' due', created_by: currentUserId
+      });
+      if (!error){ r.last_reminder = new Date().toISOString(); renderOverdue(); }
+    }));
+    tbody.querySelectorAll('.od-open').forEach(b => b.addEventListener('click', function(){
+      openLedger(this.dataset.id);
+    }));
+  }
+  $('overdueSearch').addEventListener('input', renderOverdue);
+  $('overdueIncludeStaff').addEventListener('change', renderOverdue);
+  document.querySelectorAll('#overdueAgeTabs .cat-tab').forEach(b => b.addEventListener('click', function(){
+    document.querySelectorAll('#overdueAgeTabs .cat-tab').forEach(x => x.classList.remove('active'));
+    this.classList.add('active');
+    overdueAge = this.dataset.odage;
+    renderOverdue();
+  }));
+  $('overdueExportBtn').addEventListener('click', function(){
+    const rows = filteredOverdue();
+    if (!rows.length){ alert('Nothing to export for this filter.'); return; }
+    const data = rows.map(r => ({
+      Customer: titleCase(r.name), Phone: r.phone || '', Staff: r.is_staff ? 'Yes' : '',
+      Owes: Number(r.balance), '0-30 days': Number(r.d0_30), '31-60 days': Number(r.d31_60), '61-90 days': Number(r.d61_90), '90+ days': Number(r.d90_plus),
+      'Oldest due': r.oldest_due || 'Opening balance', 'Last payment': r.last_payment || '', 'Last reminded': r.last_reminder ? toISODateLocal(r.last_reminder) : ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{wch:28},{wch:14},{wch:6},{wch:11},{wch:11},{wch:11},{wch:11},{wch:11},{wch:14},{wch:13},{wch:13}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Overdue');
+    XLSX.writeFile(wb, 'Overdue-Payments-' + todayISO() + '.xlsx');
+  });
+
   async function refreshEmployeesPanel(){
     if (!isAdmin) return;
     await Promise.all([ loadEmployees(), loadWastageRecords(), loadLoginAccounts() ]);
@@ -5057,26 +5361,44 @@
     const gapDays = prev ? Math.round((new Date(r.reading_date) - new Date(prevDate)) / 86400000) : null;
     let estSincePrev = null;
     const exact = r.id ? machineReadingEst[r.id] : null;
+    const wastageSincePrev = prev && exact && exact.wastage_since_prev != null ? Number(exact.wastage_since_prev) : 0;
     if (prev && exact && exact.est_since_prev !== null) estSincePrev = Number(exact.est_since_prev);
     else if (prev){
       estSincePrev = 0;
       Object.keys(machineTicketDailyStats).forEach(d => { if (d > prevDate && d <= r.reading_date) estSincePrev += machineTicketDailyStats[d].sheets; });
     }
-    return { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets, prevDate, gapDays, estSincePrev };
+    return { printsToday, duplexDelta, singleDelta, sheetsDeducted, slipCount, estSheets, prevDate, gapDays, estSincePrev, wastageSincePrev };
   }
   function printsSinceLabel(d){
     return fmtQty(d.printsToday) + (d.gapDays > 1 ? ' since ' + fmtDate(d.prevDate) : '');
   }
   function offSlipLine(d){
     if (d.printsToday === null || d.estSincePrev === null) return '';
-    const off = d.printsToday - d.estSincePrev;
-    return '~' + fmtQty(Math.round(d.estSincePrev)) + ' on slips' + (off > 0 ? ' · ' + fmtQty(Math.round(off)) + ' not on any slip (' + Math.round(off * 100 / d.printsToday) + '%)' : '');
+    const w = d.wastageSincePrev || 0;
+    const off = d.printsToday - d.estSincePrev - w;
+    return '~' + fmtQty(Math.round(d.estSincePrev)) + ' on slips' +
+      (w > 0 ? ' · ' + fmtQty(w) + ' reprint/test/spoiled logged' : '') +
+      (off > 0 ? ' · ' + fmtQty(Math.round(off)) + ' unexplained (' + Math.round(off * 100 / d.printsToday) + '%)' : '');
   }
 
   // Total Counter / Today's Counter headline stat pair -- Total Counter is the latest reading
   // on record, Today's Counter is the delta for today specifically (falling back to the
   // ticket-derived estimate on a day nobody's read the machine yet).
+  function renderCloseDayNudge(){
+    const todayRow = machineCounterReadings.find(r => r.reading_date === todayISO());
+    const est = todayRow ? machineReadingEst[todayRow.id] : null;
+    const card = $('closeDayCard');
+    if (todayRow){
+      $('closeDayNudge').textContent = '✓ Closed today' + (est ? ' at ' + fmtTimeOnly(est.read_at) : '') + ' — ' + fmtQty(todayRow.total_counter);
+      card.classList.remove('nudge');
+    } else {
+      const late = new Date().getHours() >= 19;  // shop PCs run on IST
+      $('closeDayNudge').textContent = late ? '⚠ Not closed yet today' : 'Not closed yet today';
+      card.classList.toggle('nudge', late);
+    }
+  }
   function renderMachineCounterStats(){
+    renderCloseDayNudge();
     const wrap = $('machineCounterStats');
     if (machineCounterReadings.length === 0){ wrap.innerHTML = ''; return; }
     const today = todayISO();
@@ -5088,7 +5410,8 @@
       todaysLabel = d.printsToday === null ? 'first reading' : printsSinceLabel(d);
       todaysSub = offSlipLine(d);
       const after = machineReadingEst[todaysRow.id];
-      if (after && Number(after.est_after) > 0) todaysSub += (todaysSub ? ' · ' : '') + '+~' + fmtQty(Math.round(Number(after.est_after))) + ' printed since this reading (' + after.slips_after + ' slip' + (after.slips_after == 1 ? '' : 's') + ')';
+      const afterTotal = after ? Number(after.est_after) + Number(after.wastage_after || 0) : 0;
+      if (afterTotal > 0) todaysSub += (todaysSub ? ' · ' : '') + '+~' + fmtQty(Math.round(afterTotal)) + ' printed since this reading (' + after.slips_after + ' slip' + (after.slips_after == 1 ? '' : 's') + (Number(after.wastage_after) > 0 ? ' + logged wastage' : '') + ')';
     } else {
       const stats = machineTicketDailyStats[today];
       if (stats && stats.sheets > 0) todaysLabel = '~' + fmtQty(stats.sheets) + ' est.';
@@ -5100,13 +5423,13 @@
     // number, while still being clearly anchored to the last real reading as ground truth.
     const latestEst = machineReadingEst[latest.id];
     let projected = 0;
-    if (latestEst) projected = Number(latestEst.est_after);
+    if (latestEst) projected = Number(latestEst.est_after) + Number(latestEst.wastage_after || 0);
     else Object.keys(machineTicketDailyStats).forEach(day => { if (day > latest.reading_date) projected += machineTicketDailyStats[day].sheets; });
     projected = Math.round(projected);
     const readWhen = latestEst ? fmtDateTime(latestEst.read_at) : fmtDate(latest.reading_date);
     const totalVal = Number(latest.total_counter) + projected;
     const totalSub = projected > 0
-      ? fmtQty(latest.total_counter) + ' read ' + readWhen + ' + ~' + fmtQty(projected) + ' est. from slips since'
+      ? fmtQty(latest.total_counter) + ' read ' + readWhen + ' + ~' + fmtQty(projected) + ' printed since (slips + logged reprints/tests)'
       : 'read ' + readWhen;
     wrap.innerHTML =
       '<div class="stat-card" style="flex:1; min-width:220px;"><div class="s-label">' + MACHINE_COUNTER_MACHINE + ' — Total Counter</div><div class="s-val">' + fmtQty(totalVal) + '</div><div class="item-cat">' + totalSub + '</div></div>' +
@@ -5236,7 +5559,8 @@
         'Prints Since Previous Reading': printsToday === null ? (hasReading ? 'first reading' : '') : printsToday,
         'Previous Reading Date': d.prevDate || '',
         'Est. Sheets Since Previous Reading': d.estSincePrev === null ? '' : d.estSincePrev,
-        'Not On Any Slip': d.estSincePrev === null || printsToday === null ? '' : Math.round(printsToday - d.estSincePrev),
+        'Reprint/Test/Spoiled Logged': d.estSincePrev === null || printsToday === null ? '' : d.wastageSincePrev,
+        'Unexplained': d.estSincePrev === null || printsToday === null ? '' : Math.round(printsToday - d.estSincePrev - d.wastageSincePrev),
         'Duplex Counter': hasReading ? Number(r.duplex_counter) : '', 'Duplex Today': duplexDelta === null ? '' : duplexDelta,
         'Single Counter': hasReading ? Number(r.single_counter) : '', 'Single Today': singleDelta === null ? '' : singleDelta,
         'Sheets Deducted': sheetsDeducted === null ? '' : sheetsDeducted,
@@ -6352,7 +6676,7 @@
   // how a ticket's payment gets restored after being mistakenly deleted) -- reload tickets too
   // so the Job Tickets tab reflects that without needing an unrelated action first.
   async function reloadAfterPayment(){
-    await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts(), loadTickets(), loadPaymentModeLedger() ]);
+    await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts(), loadTickets(), loadPaymentModeLedger(), loadOverdue() ]);
     renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderPaymentInvoiceOptions(); renderInvoicesTable(); renderPaymentCharts();
     renderTicketsTable(); renderTicketStats(); renderMachineBoard();
   }
@@ -6763,7 +7087,7 @@
       if (p?.invoice_id) await recomputeInvoiceStatus(p.invoice_id);
       // recomputeInvoiceStatus() may have just flipped a linked job ticket back to unpaid —
       // reload it too so the Job Tickets tab doesn't keep showing PAID with no payment behind it.
-      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts(), loadTickets(), loadPaymentModeLedger() ]);
+      await Promise.all([ loadPayments(), loadPartiesAndBalances(), loadInvoices(), loadPaymentCharts(), loadTickets(), loadPaymentModeLedger(), loadOverdue() ]);
       renderPaymentsTable(); renderPartiesTable(); renderOutstandingSummary(); renderInvoicesTable(); renderPaymentCharts();
       renderTicketsTable(); renderTicketStats(); renderMachineBoard();
     }));
