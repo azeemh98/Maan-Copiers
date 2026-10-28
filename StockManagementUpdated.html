@@ -523,6 +523,11 @@
   .od-staff{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:700; background:var(--bg); color:var(--muted); border:1px solid var(--border); vertical-align:middle; }
   .wa-btn{ background:#1FA855; color:#fff; border:none; border-radius:6px; padding:6px 10px; font-family:'Inter'; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap; }
   .wa-btn:hover{ background:#178A45; }
+  .wa-btn:disabled{ opacity:0.6; cursor:default; }
+  .board-card .bc-wa, .board-card .bc-addphone{ width:100%; margin-top:6px; padding:7px; font-size:12px; }
+  .board-card .bc-addphone{ background:var(--surface); border:1px dashed var(--border-strong); border-radius:6px; color:var(--muted); font-family:'Inter'; font-weight:600; cursor:pointer; }
+  .board-card .bc-addphone:hover{ color:var(--ink); border-color:var(--ink); }
+  .board-card .bc-told{ font-size:11.5px; color:var(--ok); font-weight:700; margin-top:6px; }
   .wa-btn:disabled{ background:var(--border-strong); cursor:not-allowed; }
 
   /* Help panel + guided tour */
@@ -4407,6 +4412,7 @@
           '<div class="bc-amt">' + fmtMoney(ticketGrandTotal(t)) + ' · ' + timeAgo(t.created_at) + '</div>' +
           (tags ? '<div class="bc-amt">🖨 ' + tags + '</div>' : '') +
           actionHtml +
+          (col.status === 'ready' && !pending ? readyContactHtml(t) : '') +
         '</div>';
       }).join('') || '<div class="board-empty">Nothing here.</div>';
       return '<div class="board-col col-' + col.status + '">' +
@@ -4428,6 +4434,68 @@
         await refreshMachineCounterPanel();
       }
     }));
+
+    wrap.querySelectorAll('.bc-wa').forEach(btn => btn.addEventListener('click', async function(){
+      const t = tickets.find(x => x.id === this.dataset.id);
+      const phone = t && ticketCustomerPhone(t);
+      if (!phone) return;
+      // Open first, synchronously in the click, so the browser doesn't treat it as a popup.
+      window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(ticketReadyMessage(t)), '_blank', 'noopener');
+      this.disabled = true;
+      const { data, error } = await supabaseClient.rpc('mark_ticket_ready_notified', { p_ticket_id: t.id });
+      if (!error){ t.ready_notified_at = data; t.ready_notified_by = currentUserId; }
+      renderMachineBoard();
+    }));
+    wrap.querySelectorAll('.bc-addphone').forEach(btn => btn.addEventListener('click', async function(){
+      const t = tickets.find(x => x.id === this.dataset.id);
+      const entered = window.prompt('Customer mobile number for ' + t.ticket_no + ' (10 digits):', '');
+      if (entered === null || !entered.trim()) return;
+      this.disabled = true;
+      const { data, error } = await supabaseClient.rpc('set_ticket_phone', { p_ticket_id: t.id, p_phone: entered });
+      if (error){ alert(error.message || 'Could not save the number.'); this.disabled = false; return; }
+      t.phone = data;
+      renderMachineBoard();
+    }));
+    loadReadyInvoiceDues(rows.filter(t => t.status === 'ready'));
+  }
+
+  // ---- "Order ready" WhatsApp to the customer ----
+  // Partly-paid amounts live on the bill (invoice), not the ticket, so the Ready column keeps a
+  // small cache of what's still due on each bill for the message.
+  const readyInvoiceDue = {};
+  async function loadReadyInvoiceDues(readyTickets){
+    const ids = readyTickets.map(t => t.invoice_id).filter(Boolean);
+    if (!ids.length) return;
+    const { data, error } = await supabaseClient.from('invoices').select('id, grand_total, amount_paid').in('id', ids);
+    if (error) return;
+    (data || []).forEach(i => { readyInvoiceDue[i.id] = Math.max(0, Number(i.grand_total) - Number(i.amount_paid || 0)); });
+  }
+  function ticketCustomerPhone(t){
+    const party = t.party_id ? parties.find(p => p.id === t.party_id) : null;
+    return waPhone(t.phone) || waPhone(party && party.phone);
+  }
+  function readyContactHtml(t){
+    const told = t.ready_notified_at
+      ? '<div class="bc-told">✓ Customer told ' + (toISODateLocal(t.ready_notified_at) === todayISO() ? '' : fmtDate(toISODateLocal(t.ready_notified_at)) + ' ') +
+        new Date(t.ready_notified_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) +
+        (t.ready_notified_by ? ' · ' + escHtml(staffName(t.ready_notified_by)) : '') + '</div>'
+      : '';
+    if (!ticketCustomerPhone(t)) return '<button class="bc-addphone" data-id="' + t.id + '">📱 Add customer number</button>' + told;
+    return '<button class="wa-btn bc-wa" data-id="' + t.id + '">💬 ' + (t.ready_notified_at ? 'Message again' : 'Tell customer — ready') + '</button>' + told;
+  }
+  function ticketReadyMessage(t){
+    const cust = (t.customer_name || '').trim();
+    const name = cust && !/^walk[\s-]?in$/i.test(cust) ? ' ' + titleCase(cust) : '';
+    const total = ticketGrandTotal(t);
+    const due = t.invoice_id && readyInvoiceDue[t.invoice_id] !== undefined ? readyInvoiceDue[t.invoice_id] : null;
+    let pay;
+    if (t.payment_status === 'paid' || (due !== null && due <= 0.5)) pay = 'Bill amount: ' + fmtMoney(total) + ' — paid ✓';
+    else if (due !== null && due < total - 0.5) pay = 'Bill amount: ' + fmtMoney(total) + '\nBalance to pay: ' + fmtMoney(due);
+    else pay = 'Amount to pay: ' + fmtMoney(total);
+    return 'Namaste' + name + ',\n\n' +
+      'Your order ' + t.ticket_no + ' is ready for pickup at ' + (org.name || 'MAAN COPIERS') + '. ✅\n' +
+      'आपका ऑर्डर तैयार है — कृपया आकर ले जाएँ।\n\n' +
+      pay + '\n\nThank you!';
   }
 
   // ======================================================================
@@ -5273,6 +5341,7 @@
           'Press **▶ Start** at the moment you actually begin printing a job — not later. The Konica counter uses this time.',
           'After printing: **→ Send to Post-Press** for cutting, binding, lamination or packing — or **✓ No finishing — Mark Ready** for plain printouts.',
           '**✓ Mark Ready** when the job is finished, then **✓ Mark Delivered** when the customer collects it.',
+          'On a Ready job, press **💬 Tell customer — ready**: WhatsApp opens with the order number and amount to pay typed in — check it and press Send. No number on the slip? Use **📱 Add customer number** first.',
           'Printed something without a slip (reprint, test, jam, shop\'s own use)? Open **🗑 Log Reprint / Test / Spoiled Prints**, enter the sheets (tick Front & Back if both sides) and the reason.',
           'At closing, read the **Total Counter** on the Konica screen and enter it in **🌙 Close Day**.'
         ],
@@ -5285,6 +5354,7 @@
           'जिस समय सच में प्रिंट शुरू करें, उसी समय **▶ Start** दबाएँ — बाद में नहीं। कोनिका काउंटर इसी समय से गिनता है।',
           'प्रिंट के बाद: कटिंग, बाइंडिंग, लैमिनेशन या पैकिंग के लिए **→ Send to Post-Press** — या सादे प्रिंटआउट के लिए **✓ No finishing — Mark Ready**।',
           'काम पूरा होने पर **✓ Mark Ready**, और ग्राहक के ले जाने पर **✓ Mark Delivered** दबाएँ।',
+          'Ready जॉब पर **💬 Tell customer — ready** दबाएँ: WhatsApp में ऑर्डर नंबर और देने वाली रकम लिखी हुई खुलेगी — देखकर Send दबाएँ। स्लिप पर नंबर नहीं है? पहले **📱 Add customer number** दबाएँ।',
           'बिना स्लिप के कुछ प्रिंट हुआ (दोबारा प्रिंट, टेस्ट, पेपर फँसा, दुकान का अपना काम)? **🗑 Log Reprint / Test / Spoiled Prints** खोलें, शीट की संख्या लिखें (दोनों तरफ़ छपा हो तो Front & Back पर टिक करें) और कारण चुनें।',
           'दुकान बंद करते समय कोनिका की स्क्रीन पर **Total Counter** पढ़ें और **🌙 Close Day** में लिखें।'
         ],
