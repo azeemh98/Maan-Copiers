@@ -575,6 +575,11 @@
   }
   @media print{ .help-panel, .help-backdrop, .tour-card{ display:none !important; } .tour-focus{ outline:none !important; } }
 
+  /* Paper picker on photocopy / printout slip lines */
+  .tk-paper-wrap{ display:flex; align-items:center; gap:6px; margin-top:5px; font-size:11.5px; color:var(--muted); }
+  .tk-paper{ flex:1; min-width:0; padding:4px 6px; font-size:12px; border:1px solid var(--border-strong); border-radius:6px; background:var(--surface); }
+  .svc-paper{ padding:4px 6px; font-size:12px; border:1px solid var(--border-strong); border-radius:6px; max-width:190px; background:var(--surface); }
+
   /* Sheet consumption report */
   .cons-bar-cell{ width:28%; min-width:90px; }
   .cons-bar{ height:9px; border-radius:5px; background:var(--accent); min-width:2px; }
@@ -1061,8 +1066,8 @@
             <button class="add-btn save-btn" id="saveServiceBtn"><span>Save Service</span><span></span></button>
             <div class="status-msg" id="serviceStatus"></div>
             <table class="data-table" style="margin-top:18px;">
-              <thead><tr><th>Service</th><th>Category</th><th>Unit</th><th>Rate</th><th></th></tr></thead>
-              <tbody id="servicesTableBody"><tr class="empty-row"><td colspan="5">Loading…</td></tr></tbody>
+              <thead><tr><th>Service</th><th>Category</th><th>Unit</th><th>Rate</th><th title="Stock this service uses up — e.g. photocopy / printout → the paper. Deducted 1 sheet per quantity; staff can change it on each slip line.">Paper used</th><th></th></tr></thead>
+              <tbody id="servicesTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
             </table>
           </div>
         </section>
@@ -3679,9 +3684,19 @@
   function renderServicesTable(){
     const tbody = $('servicesTableBody');
     const rows = services.filter(s => s.is_active);
-    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No services yet.</td></tr>'; return; }
+    if (rows.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No services yet.</td></tr>'; return; }
     tbody.innerHTML = rows.map(s => '<tr><td class="item-name">' + s.name + '</td><td>' + s.category + '</td><td>' + s.unit + '</td><td>' + fmtMoney(s.rate) + '</td>' +
+      '<td><select class="svc-paper" data-id="' + s.id + '">' + paperOptionsHtml(s.default_material_id || '').replace('No paper — customer\'s own', '— none —') + '</select></td>' +
       '<td><div class="row-actions"><button class="svc-rate" data-id="' + s.id + '" title="Edit rate">✎</button><button class="svc-del danger" data-id="' + s.id + '" title="Deactivate">⦸</button></div></td></tr>').join('');
+    tbody.querySelectorAll('.svc-paper').forEach(sel => sel.addEventListener('change', async function(){
+      const s = services.find(x => x.id === this.dataset.id);
+      this.disabled = true;
+      const { error } = await supabaseClient.from('services').update({ default_material_id: this.value || null }).eq('id', s.id);
+      this.disabled = false;
+      if (error){ alert(error.message); return; }
+      await loadServices(); renderServicesTable(); renderTicketServiceOptions();
+      showStatus($('serviceStatus'), '"' + s.name + '" ' + (this.value ? 'now uses ' + (ticketMaterials.find(m => m.id === this.value) || {}).name + ' from stock.' : 'no longer uses stock.'), true);
+    }));
     tbody.querySelectorAll('.svc-rate').forEach(btn => btn.addEventListener('click', async function(){
       const s = services.find(x => x.id === this.dataset.id);
       const val = window.prompt('New rate for "' + s.name + '" (₹ per ' + s.unit + ')', s.rate);
@@ -3701,7 +3716,27 @@
   }
 
   // ---- Ticket line items ----
-  function newTicketLineRow(){ return { service_id:'', description:'', qty:1, unit:'', rate:0, size:'', sides:'single', autoLinked:false }; }
+  function newTicketLineRow(){ return { service_id:'', paper_id:'', description:'', qty:1, unit:'', rate:0, size:'', sides:'single', autoLinked:false }; }
+  // Photocopy / printout and any other service with a "Paper used" set in Manage Services: the
+  // slip line keeps the service (for the rate) and carries the paper, which is what gets
+  // deducted from stock -- 1 sheet per quantity, like every other line.
+  function serviceDefaultPaper(value){
+    if (!value || value.indexOf('svc:') !== 0) return '';
+    const sv = services.find(x => x.id === value.slice(4));
+    return (sv && sv.default_material_id) || '';
+  }
+  function ticketLineMaterialId(li){
+    if (li.service_id && li.service_id.indexOf('mat:') === 0) return li.service_id.slice(4);
+    if (li.service_id && li.service_id.indexOf('svc:') === 0) return li.paper_id || '';
+    return '';
+  }
+  function paperOptionsHtml(selected){
+    const papers = ticketMaterials.filter(m => PRINT_SHEET_CATEGORIES.includes(String(m.category).toLowerCase()));
+    const cats = Array.from(new Set(papers.map(m => m.category)));
+    return '<option value=""' + (selected ? '' : ' selected') + '>No paper — customer\'s own</option>' +
+      cats.map(c => '<optgroup label="' + escHtml(c) + '">' + papers.filter(m => m.category === c)
+        .map(m => '<option value="' + m.id + '"' + (m.id === selected ? ' selected' : '') + '>' + escHtml(m.name) + '</option>').join('') + '</optgroup>').join('');
+  }
   let selectedTicketPartyId = null;
   // True when selectedTicketPartyId came from noticing the typed name/phone match a saved
   // customer, rather than from an explicit pick in the search box above. Lets later keystrokes
@@ -3733,6 +3768,7 @@
     editingTicketId = ticket.id;
     ticketLineItems = (items && items.length ? items : [{}]).map(li => ({
       service_id: li.service_id ? 'svc:' + li.service_id : (li.material_id ? 'mat:' + li.material_id : ''),
+      paper_id: li.service_id && li.material_id ? li.material_id : '',
       description: li.description || '', qty: Number(li.quantity) || 1, unit: li.unit || '', rate: Number(li.rate) || 0,
       sides: li.print_sides === 'double' ? 'double' : 'single',
       autoLinked: false // an existing saved link is explicit, whether it was originally picked or auto-matched
@@ -3856,8 +3892,9 @@
   // Only speaks up when a linked stock item is genuinely low/out — silent otherwise, since
   // this is a heads-up before finishing the ticket, not a block on creating it.
   function ticketStockHintFor(li){
-    if (!li.service_id || li.service_id.indexOf('mat:') !== 0) return '';
-    const m = ticketMaterials.find(x => x.id === li.service_id.slice(4));
+    const matId = ticketLineMaterialId(li);
+    if (!matId) return '';
+    const m = ticketMaterials.find(x => x.id === matId);
     if (!m) return '';
     const st = statusFor(m);
     if (st === 'out') return '<span class="status-badge out">OUT OF STOCK</span>';
@@ -3870,6 +3907,8 @@
       const amount = li.qty * li.rate;
       return '<tr data-idx="' + idx + '">' +
         '<td><input type="text" class="tk-service" list="tkServiceDatalist" value="' + serviceLabelFor(li.service_id).replace(/"/g,'&quot;') + '" placeholder="Search or leave blank for custom…" autocomplete="off">' +
+          (li.service_id && li.service_id.indexOf('svc:') === 0 && (li.paper_id || serviceDefaultPaper(li.service_id))
+            ? '<label class="tk-paper-wrap">📄 Paper <select class="tk-paper" title="Paper used — deducted from stock (1 sheet per quantity)">' + paperOptionsHtml(li.paper_id) + '</select></label>' : '') +
           '<div class="tk-stock-hint">' + ticketStockHintFor(li) + '</div></td>' +
         '<td><input type="text" class="tk-size" value="' + (li.size || '').replace(/"/g,'&quot;') + '" placeholder="4X5" style="width:64px;"></td>' +
         '<td><input type="text" class="tk-desc" value="' + (li.description || '').replace(/"/g,'&quot;') + '" placeholder="Description"></td>' +
@@ -3886,8 +3925,9 @@
       const idx = parseInt(tr.dataset.idx);
       tr.querySelector('.tk-service').addEventListener('input', function(){
         const match = serviceLookupByLabel[this.value];
-        if (!match){ ticketLineItems[idx].service_id = ''; ticketLineItems[idx].autoLinked = false; return; }
+        if (!match){ ticketLineItems[idx].service_id = ''; ticketLineItems[idx].paper_id = ''; ticketLineItems[idx].autoLinked = false; return; }
         ticketLineItems[idx].service_id = match.value;
+        ticketLineItems[idx].paper_id = serviceDefaultPaper(match.value);
         ticketLineItems[idx].autoLinked = false; // explicit pick from the search box — description-typing won't second-guess it
         ticketLineItems[idx].description = match.name;
         ticketLineItems[idx].unit = match.unit;
@@ -3936,19 +3976,31 @@
         if (li.service_id && !li.autoLinked) return;
         const match = ticketAutoMatchByName[this.value.trim().toLowerCase()];
         if (match){
+          const hadPaperPicker = !!(li.paper_id || serviceDefaultPaper(li.service_id));
           li.service_id = match.value;
+          li.paper_id = serviceDefaultPaper(match.value);
           li.autoLinked = true;
           li.unit = match.unit;
+          if (hadPaperPicker !== !!li.paper_id){ renderTicketLineItems(); const el = $('tkLineItems').querySelector('tr[data-idx="' + idx + '"] .tk-desc'); if (el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } return; }
           if (match.rate !== null) li.rate = match.rate;
           const rateInput = tr.querySelector('.tk-rate');
           if (rateInput) rateInput.value = li.rate;
           updateTicketLineAmount(tr, idx);
         } else if (li.autoLinked){
+          const hadPaper = !!li.paper_id;
           li.service_id = '';
+          li.paper_id = '';
           li.autoLinked = false;
+          if (hadPaper){ renderTicketLineItems(); const el = $('tkLineItems').querySelector('tr[data-idx="' + idx + '"] .tk-desc'); if (el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } return; }
         }
         const hintEl = tr.querySelector('.tk-stock-hint');
         if (hintEl) hintEl.innerHTML = ticketStockHintFor(li);
+      });
+      const paperSel = tr.querySelector('.tk-paper');
+      if (paperSel) paperSel.addEventListener('change', function(){
+        ticketLineItems[idx].paper_id = this.value;
+        const hintEl = tr.querySelector('.tk-stock-hint');
+        if (hintEl) hintEl.innerHTML = ticketStockHintFor(ticketLineItems[idx]);
       });
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.tk-sides').addEventListener('change', function(){ ticketLineItems[idx].sides = this.value; ticketLineItems[idx].sidesManual = true; });
@@ -4036,7 +4088,7 @@
       if (editingTicketId){
         const itemsPayload = validLines.map(li => ({
           service_id: li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : '',
-          material_id: li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : '',
+          material_id: ticketLineMaterialId(li),
           description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || '', rate: li.rate,
           print_sides: li.sides === 'double' ? 'double' : 'single'
         }));
@@ -4067,7 +4119,7 @@
 
       const itemsPayload = validLines.map(li => ({
         service_id: li.service_id && li.service_id.indexOf('svc:') === 0 ? li.service_id.slice(4) : '',
-        material_id: li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : '',
+        material_id: ticketLineMaterialId(li),
         description: li.description.trim() || 'Job', quantity: li.qty, unit: li.unit || '', rate: li.rate,
         print_sides: li.sides === 'double' ? 'double' : 'single'
       }));
@@ -4101,7 +4153,7 @@
       // Built purely for the print preview + deciding whether to refresh the Stock panel below —
       // the actual rows were already inserted server-side above.
       const itemRows = validLines.map(li => {
-        const realMaterialId = li.service_id && li.service_id.indexOf('mat:') === 0 ? li.service_id.slice(4) : null;
+        const realMaterialId = ticketLineMaterialId(li) || null;
         return { material_id: realMaterialId, description: li.description.trim() || 'Job', quantity: li.qty,
           unit: li.unit || null, rate: li.rate, amount: li.qty * li.rate, print_sides: li.sides === 'double' ? 'double' : 'single' };
       });
