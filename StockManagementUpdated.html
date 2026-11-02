@@ -583,6 +583,11 @@
   .cons-table tr.cons-total td{ font-weight:800; border-top:2px solid var(--border-strong); }
   .cons-table td.num, .cons-table th.num{ text-align:right; white-space:nowrap; }
   .cons-dow{ color:var(--faint); font-size:11.5px; margin-left:4px; }
+  .cons-unit{ font-size:0.62em; font-weight:600; color:var(--muted); }
+  .stat-card .s-val > div + div{ font-size:0.72em; margin-top:2px; }
+  .cons-waste-cell{ color:var(--danger); font-size:12px; }
+  .cons-waste-cell > div + div{ margin-top:1px; }
+  .cons-mach{ font-size:12px; color:var(--muted); }
 
   /* Excel import preview */
   .imp-detected{ font-size:12px; color:var(--muted); margin:14px 0 6px; }
@@ -904,15 +909,16 @@
 
         <!-- How much stock was used: per day for a month, or per month for a year. -->
         <section class="card">
-          <h2 class="collapsible" id="consToggle"><span>📊 Sheet Consumption — day &amp; month wise</span><span class="chev">▶</span></h2>
+          <h2 class="collapsible" id="consToggle"><span>📊 Material Consumption — day, month &amp; machine wise</span><span class="chev">▶</span></h2>
           <div id="consBody" style="display:none; margin-top:18px;">
             <div class="cat-tabs" id="consViewTabs">
               <button class="cat-tab active" data-cview="day">Day-wise (one month)</button>
               <button class="cat-tab" data-cview="month">Month-wise (12 months)</button>
             </div>
-            <div class="row3">
+            <div class="row4">
               <div class="field"><label for="consMonth" id="consMonthLabel">Month</label><input type="month" id="consMonth"></div>
-              <div class="field"><label for="consCategory">Stock</label><select id="consCategory"></select></div>
+              <div class="field"><label for="consCategory">Material</label><select id="consCategory"></select></div>
+              <div class="field"><label for="consMachine">Machine</label><select id="consMachine"><option value="">All machines</option></select></div>
               <div class="field"><label for="consItem">Item</label><select id="consItem"><option value="">All items</option></select></div>
             </div>
             <div class="stats-row" style="margin-top:4px;">
@@ -921,7 +927,7 @@
               <div class="stat-card"><div class="s-label" id="consAvgLabel">Average per working day</div><div class="s-val" id="consAvg">—</div></div>
               <div class="stat-card ok"><div class="s-label" id="consPeakLabel">Busiest day</div><div class="s-val" id="consPeak">—</div></div>
             </div>
-            <div class="hint" style="margin:4px 0 10px;"><b>Used on jobs</b> = sheets taken by job slips (returns from edited / cancelled slips taken off). <b>Other use</b> = Stock Out entered by hand. <b>Wastage</b> = spoiled sheets logged in Stock. Stock-count corrections are not counted as use.</div>
+            <div class="hint" style="margin:4px 0 10px;"><b>Used on jobs</b> = stock taken by job slips (returns from edited / cancelled slips taken off). <b>Other use</b> = Stock Out entered by hand. <b>Wastage</b> = spoiled stock logged in Stock. Stock-count corrections are not counted as use. Sheets, sq ft (vinyl, flex, fabric, sun board) and pieces are always totalled separately. Machine = the machine on the job slip.</div>
             <div class="table-head-row">
               <h2 id="consTableTitle">Day by day</h2>
               <button class="export-btn" id="consExportBtn">⭳ Export to Excel</button>
@@ -930,11 +936,24 @@
               <thead id="consHead"></thead>
               <tbody id="consRows"><tr class="empty-row"><td>Loading…</td></tr></tbody>
             </table></div>
+            <h2 style="margin-top:20px;">By machine</h2>
+            <div class="table-scroll"><table class="data-table cons-table">
+              <thead id="consMachHead"></thead>
+              <tbody id="consMachines"><tr class="empty-row"><td>—</td></tr></tbody>
+            </table></div>
             <h2 style="margin-top:20px;">By item <span class="hint" style="font-weight:400;" id="consItemsRange"></span></h2>
             <div class="table-scroll"><table class="data-table cons-table">
-              <thead><tr><th>Item</th><th>Category</th><th class="num">Used on jobs</th><th class="num">Other use</th><th class="num">Wastage</th><th class="num">Total</th><th class="num">Share</th></tr></thead>
-              <tbody id="consItems"><tr class="empty-row"><td colspan="7">—</td></tr></tbody>
+              <thead><tr><th>Item</th><th>Category</th><th class="num">Used on jobs</th><th class="num">Other use</th><th class="num">Wastage</th><th class="num">Total</th><th class="num">Share</th><th>Machines</th></tr></thead>
+              <tbody id="consItems"><tr class="empty-row"><td colspan="8">—</td></tr></tbody>
             </table></div>
+            <div id="consUnlinkedWrap">
+              <h2 style="margin-top:20px;">⚠ Job lines with no stock item linked</h2>
+              <div class="hint" style="margin-bottom:8px;">These services were billed on job slips but aren't tied to a stock item, so the paper / material they used is <b>not</b> deducted or counted above (e.g. photocopy and printout pages). Cutting, designing and courier are left out — they use no material of their own.</div>
+              <div class="table-scroll"><table class="data-table cons-table">
+                <thead><tr><th>Service</th><th>Category</th><th>Machine</th><th class="num">Quantity</th><th class="num">Job lines</th></tr></thead>
+                <tbody id="consUnlinked"><tr class="empty-row"><td colspan="5">—</td></tr></tbody>
+              </table></div>
+            </div>
           </div>
         </section>
 
@@ -2697,7 +2716,7 @@
 
   const DEFAULT_CATALOG = [
     { category: 'Gumming Sheets', unit: 'sheet', items: ['Relcro', 'Fasson 13X19','Fasson 20X30', 'Fasson TP', 'Relcro Vinyl', 'Fasson Vinyl', 'Silver', 'Rainbow', 'Golden', 'Gumming', 'Chromo', 'Half Cut', 'Technova', 'Super'] },
-    { category: 'Vinyl & Flex', unit: 'Rolls/SqFt', items: ['Vinyl 3 Ft', 'Vinyl 4 Ft','Vinyl 5 Ft',  'FL 3 Ft', 'FL 4 Ft', 'FL 5 Ft','FL 6 Ft', 'FL 8 Ft', 'FL 10 Ft', 'BB 3 Ft', 'BB 4 Ft', 'BB 5 Ft', 'BB 6 Ft', 'BB 8 Ft', 'BB 10 Ft', 'BB Matte 10 Ft', 'Vinyl Grey Back 3 Ft', 'Retro FL 3 Ft', 'Retro FL 4 Ft', 'Retro FL 5 Ft', 'Retro FL 6 Ft', 'Translight 3 Ft', 'Glossy Lam 3 Ft', 'Glossy Lam 4 Ft', 'Glossy Lam 5 Ft', 'Matte Lam 4 Ft', 'Matte Lam 3 Ft'] },
+    { category: 'Vinyl & Flex', unit: 'SqFt', items: ['Vinyl 3 Ft', 'Vinyl 4 Ft','Vinyl 5 Ft',  'FL 3 Ft', 'FL 4 Ft', 'FL 5 Ft','FL 6 Ft', 'FL 8 Ft', 'FL 10 Ft', 'BB 3 Ft', 'BB 4 Ft', 'BB 5 Ft', 'BB 6 Ft', 'BB 8 Ft', 'BB 10 Ft', 'BB Matte 10 Ft', 'Vinyl Grey Back 3 Ft', 'Retro FL 3 Ft', 'Retro FL 4 Ft', 'Retro FL 5 Ft', 'Retro FL 6 Ft', 'Translight 3 Ft', 'Glossy Lam 3 Ft', 'Glossy Lam 4 Ft', 'Glossy Lam 5 Ft', 'Matte Lam 4 Ft', 'Matte Lam 3 Ft'] },
     { category: 'Sun Boards', unit: 'SqFt', items: ['Sun Board 3mm 6X3', 'Sun Board 3mm 8X3', 'Sun Board 3mm 8X4', 'Sun Board 5mm 6X3', 'Sun Board 5mm 8X3', 'Sun Board 5mm 8X4'] },
     { category: 'Sheets', unit: 'sheet', items: ['FRC', 'Gold Coin 130', 'Gold Coin 170', 'Gold Coin 250', '250 GSM 11X36', '250 GSM 13X36', 'Gold Coin 300', '300 GSM 13X25', 'Gold Coin 350', '450 GSM 10X23', '450 GSM 13X30 ', '450 GSM 9X30', '450 GSM 13X19', 'ITC 13X19', 'NTR 130', 'NTR 160', 'NTR 200', 'Butter Paper A3', 'Wrapping Paper 11.5X23', 'Translight 13X19', 'Seed Paper 13X19', 'Brown Sheet 13X19', 'High Gloss 13X19', 'Marksheet', 'PVC Sheet'] },
     { category: 'Papers', unit: 'sheet', items: ['A3 100', '70 GSM 11.5X18', '70 GSM 12X17', '80 GSM 12X17', 'Bond 85GSM 12X17', 'Bond 100GSM 12X17', 'Cedar 130 GSM 12X18', 'A4 75 GSM', 'A4 65 GSM', 'Legal', 'Photo Paper A4'] },
@@ -5507,7 +5526,7 @@
           'New kind of paper or material? Open **+ Add New Item Type**, pick a category and unit, and save.',
           '**Current Stock** shows what\'s left; low or out-of-stock items are flagged — reorder those.',
           'The **Monthly Record** calendar shows every movement day by day.',
-          '**📊 Sheet Consumption** shows how many sheets were used each day of a month, or each month of the year — with wastage and a per-item breakdown. **⭳ Export to Excel** downloads it.'
+          '**📊 Material Consumption** shows what was used each day of a month, or each month of the year — sheets, sq ft (vinyl, flex, fabric, sun board) and pieces — with wastage, a per-machine and per-item breakdown, and job lines that aren\'t linked to any stock. **⭳ Export to Excel** downloads it.'
         ],
         tips: [ 'Paper deducted by a slip carries the JT number in its note, so you can trace it back.' ] },
       hi: { title: 'Stock', purpose: 'कच्चा माल — पेपर, कार्ड शीट, स्टिकर, लैमिनेशन, फ़्लेक्स। क्या आया, क्या गया, कितना बचा।',
@@ -5517,7 +5536,7 @@
           'नया पेपर या मटीरियल? **+ Add New Item Type** खोलें, कैटेगरी और यूनिट चुनकर सेव करें।',
           '**Current Stock** में बचा हुआ माल दिखता है; कम या ख़त्म हुए आइटम अलग दिखते हैं — उन्हें मँगवाएँ।',
           '**Monthly Record** कैलेंडर में हर दिन की आवाजाही दिखती है।',
-          '**📊 Sheet Consumption** में दिखता है कि महीने के हर दिन, या साल के हर महीने कितनी शीट लगीं — वेस्टेज और हर आइटम के हिसाब के साथ। **⭳ Export to Excel** से डाउनलोड करें।'
+          '**📊 Material Consumption** में दिखता है कि महीने के हर दिन, या साल के हर महीने कितना माल लगा — शीट, स्क्वायर फ़ीट (विनाइल, फ़्लेक्स, फ़ैब्रिक, सन बोर्ड) और पीस — वेस्टेज, हर मशीन और हर आइटम के हिसाब के साथ। **⭳ Export to Excel** से डाउनलोड करें।'
         ],
         tips: [ 'स्लिप से घटे पेपर के नोट में JT नंबर होता है, जिससे पता चलता है कि किस जॉब में गया।' ] }
     },
@@ -6156,12 +6175,26 @@
 
 
   // ======================================================================
-  // SHEET CONSUMPTION — stock used per day (one month) or per month (12 months), from
-  // sheet_consumption_daily (job slips, hand Stock Out, wastage), with a per-item breakdown.
+  // MATERIAL CONSUMPTION — stock used per day (one month) or per month (12 months), from
+  // sheet_consumption_daily (job slips, hand Stock Out, wastage), split by item and by the
+  // machine on the job slip. Units are never added across kinds: sheets, sq ft and pieces
+  // each get their own total.
   // ======================================================================
   // Same stocked categories the Konica counter treats as printing sheets.
   const PRINT_SHEET_CATEGORIES = ['sheets', 'gumming sheets', 'papers', 'textured sheets'];
-  let consView = 'day', consRows = [], consRange = null, consOpened = false;
+  const CONS_FAMS = [
+    { key: 'sheet', label: 'Sheets', unit: 'sheets' },
+    { key: 'sqft', label: 'Sq ft', unit: 'sq ft' },
+    { key: 'pcs', label: 'Pieces / other', unit: 'pcs' }
+  ];
+  const NOT_ON_SLIP = 'Not on a job slip (wastage / Stock Out)';
+  function consFam(unit){
+    const u = String(unit || '').toLowerCase();
+    if (/sq\s*\.?\s*f(ee)?t|sqft/.test(u)) return 'sqft';
+    if (/sheet/.test(u)) return 'sheet';
+    return 'pcs';
+  }
+  let consView = 'day', consRows = [], consUnlinked = [], consRange = null, consOpened = false, consLastRender = null;
   toggleCollapsible($('consToggle'), $('consBody'));
   $('consToggle').addEventListener('click', () => { if ($('consBody').style.display !== 'none'){ consOpened = true; loadConsumption(); } });
   $('consMonth').value = todayISO().slice(0, 7);
@@ -6174,18 +6207,32 @@
   }));
   $('consMonth').addEventListener('change', loadConsumption);
   $('consCategory').addEventListener('change', () => { renderConsItemSelect(); renderConsumption(); });
+  $('consMachine').addEventListener('change', renderConsumption);
   $('consItem').addEventListener('change', renderConsumption);
 
   function renderConsCategorySelect(){
     const sel = $('consCategory'), prev = sel.value;
-    const cats = Array.from(new Set(materials.map(m => m.category))).sort((a, b) => a.localeCompare(b));
-    sel.innerHTML = '<option value="__print__">Printing sheets (papers, sheets, gumming, textured)</option>' +
+    const cats = Array.from(new Set(materials.map(m => m.category).concat(consRows.map(r => r.category)))).sort((a, b) => a.localeCompare(b));
+    sel.innerHTML = '<option value="__all__">All materials</option>' +
+      '<option value="__print__">Printing sheets (papers, sheets, gumming, textured)</option>' +
       cats.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('');
-    sel.value = prev && [...sel.options].some(o => o.value === prev) ? prev : '__print__';
+    sel.value = prev && [...sel.options].some(o => o.value === prev) ? prev : '__all__';
+  }
+  function renderConsMachineSelect(){
+    const sel = $('consMachine'), prev = sel.value;
+    const machines = Array.from(new Set(consRows.map(r => r.machine).filter(Boolean).concat(consUnlinked.map(r => r.machine).filter(Boolean)))).sort((a, b) => a.localeCompare(b));
+    sel.innerHTML = '<option value="">All machines</option>' + machines.map(m => '<option value="' + escHtml(m) + '">' + escHtml(m) + '</option>').join('') +
+      '<option value="__none__">' + NOT_ON_SLIP + '</option>';
+    sel.value = prev && [...sel.options].some(o => o.value === prev) ? prev : '';
   }
   function consCategoryMatch(cat){
     const v = $('consCategory').value;
+    if (!v || v === '__all__') return true;
     return v === '__print__' ? PRINT_SHEET_CATEGORIES.includes(String(cat).toLowerCase()) : cat === v;
+  }
+  function consMachineMatch(machine){
+    const v = $('consMachine').value;
+    return !v || (v === '__none__' ? !machine : machine === v);
   }
   function renderConsItemSelect(){
     const sel = $('consItem'), prev = sel.value;
@@ -6206,124 +6253,200 @@
   }
   async function loadConsumption(){
     if (!consOpened) return;
-    renderConsCategorySelect();
     const period = consPeriod();
     $('consRows').innerHTML = '<tr class="empty-row"><td>Loading…</td></tr>';
-    let data, error;
-    try { ({ data, error } = await fetchAllPages(() => supabaseClient.rpc('sheet_consumption_daily', { p_org_id: currentOrgId, p_from: period.from, p_to: period.to }).order('day').order('material_id'))); }
-    catch (err){ error = err; }
-    if (error){ consRows = []; consRange = null; $('consRows').innerHTML = '<tr class="empty-row"><td>Could not load consumption.</td></tr>'; return; }
-    consRows = data || []; consRange = period;
+    let res, res2;
+    try {
+      [res, res2] = await Promise.all([
+        fetchAllPages(() => supabaseClient.rpc('sheet_consumption_daily', { p_org_id: currentOrgId, p_from: period.from, p_to: period.to }).order('day').order('material_id').order('machine')),
+        fetchAllPages(() => supabaseClient.rpc('unlinked_service_usage', { p_org_id: currentOrgId, p_from: period.from, p_to: period.to }).order('day').order('name').order('machine'))
+      ]);
+    } catch (err){ res = { error: err }; }
+    if (!res || res.error){ consRows = []; consRange = null; $('consRows').innerHTML = '<tr class="empty-row"><td>Could not load consumption.</td></tr>'; return; }
+    consRows = (res.data || []).map(r => ({ ...r, fam: consFam(r.unit) }));
+    consUnlinked = res2 && !res2.error ? (res2.data || []) : [];
+    consRange = period;
+    renderConsCategorySelect();
+    renderConsMachineSelect();
     renderConsItemSelect();
     renderConsumption();
   }
 
   function consFiltered(){
     const item = $('consItem').value;
-    return consRows.filter(r => consCategoryMatch(r.category) && (!item || r.material_id === item));
+    return consRows.filter(r => consCategoryMatch(r.category) && consMachineMatch(r.machine) && (!item || r.material_id === item));
   }
   const consBlank = () => ({ jobs: 0, other: 0, waste: 0 });
-  const consAdd = (acc, r) => { acc.jobs += Number(r.used_jobs); acc.other += Number(r.used_other); acc.waste += Number(r.wasted); return acc; };
   const consTot = a => a.jobs + a.other + a.waste;
-  function consUnitLabel(rows){
-    const units = new Set(rows.map(r => r.unit));
-    return units.size === 1 ? ' ' + [...units][0] : '';
+  // Totals per unit family: { sheet: {jobs,other,waste}, sqft: {...}, pcs: {...} }
+  function consFamAdd(acc, r){
+    const f = acc[r.fam] || (acc[r.fam] = consBlank());
+    f.jobs += Number(r.used_jobs); f.other += Number(r.used_other); f.waste += Number(r.wasted);
+    return acc;
   }
-  // Rows for the table: every day of the month (to today), or each of the 12 months.
+  const consFamTot = (acc, fam) => acc[fam] ? consTot(acc[fam]) : 0;
+  function consFamText(acc, fams, pick){
+    const parts = fams.map(f => ({ f, v: pick(acc[f.key] || consBlank()) })).filter(p => p.v);
+    return parts.length ? parts.map(p => '<div>' + fmtQty(Math.round(p.v * 100) / 100) + ' <span class="cons-unit">' + p.f.unit + '</span></div>').join('') : '—';
+  }
+  // Rows for the period table: every day of the month (to today), or each of the 12 months.
   function consBuckets(rows){
     const p = consRange, pad = n => String(n).padStart(2, '0'), today = todayISO();
     const out = [];
     if (consView === 'day'){
       const byDay = new Map();
-      rows.forEach(r => consAdd(byDay.get(r.day) || byDay.set(r.day, consBlank()).get(r.day), r));
+      rows.forEach(r => consFamAdd(byDay.get(r.day) || byDay.set(r.day, {}).get(r.day), r));
       const last = new Date(p.y, p.m, 0).getDate();
       for (let d = 1; d <= last; d++){
         const key = p.y + '-' + pad(p.m) + '-' + pad(d);
         if (key > today) break;
-        out.push({ key, label: fmtDate(key), dow: new Date(p.y, p.m - 1, d).toLocaleDateString('en-IN', { weekday: 'short' }), ...(byDay.get(key) || consBlank()), days: byDay.has(key) ? 1 : 0 });
+        out.push({ key, label: fmtDate(key), dow: new Date(p.y, p.m - 1, d).toLocaleDateString('en-IN', { weekday: 'short' }), acc: byDay.get(key) || {}, days: byDay.has(key) ? 1 : 0 });
       }
       return out.reverse();
     }
     const byMonth = new Map();
     rows.forEach(r => {
       const k = String(r.day).slice(0, 7);
-      if (!byMonth.has(k)) byMonth.set(k, { ...consBlank(), daySet: new Set() });
-      consAdd(byMonth.get(k), r); byMonth.get(k).daySet.add(r.day);
+      if (!byMonth.has(k)) byMonth.set(k, { acc: {}, daySet: new Set() });
+      consFamAdd(byMonth.get(k).acc, r); byMonth.get(k).daySet.add(r.day);
     });
     for (let i = 0; i < 12; i++){
       const dt = new Date(p.y, p.m - 1 - i, 1);
       const key = dt.getFullYear() + '-' + pad(dt.getMonth() + 1);
       const b = byMonth.get(key);
-      out.push({ key, label: MONTH_NAMES[dt.getMonth()] + ' ' + dt.getFullYear(), jobs: b ? b.jobs : 0, other: b ? b.other : 0, waste: b ? b.waste : 0, days: b ? b.daySet.size : 0 });
+      out.push({ key, label: MONTH_NAMES[dt.getMonth()] + ' ' + dt.getFullYear(), acc: b ? b.acc : {}, days: b ? b.daySet.size : 0 });
     }
     return out;
   }
   function renderConsumption(){
     if (!consRange) return;
     const rows = consFiltered();
-    const unit = consUnitLabel(rows);
+    const fams = CONS_FAMS.filter(f => rows.some(r => r.fam === f.key));
+    const single = fams.length === 1 ? fams[0] : null;   // one kind of unit -> detailed columns
+    const main = fams[0] || CONS_FAMS[0];                 // drives bars and "busiest"
     const buckets = consBuckets(rows);
-    const total = buckets.reduce((a, b) => { a.jobs += b.jobs; a.other += b.other; a.waste += b.waste; return a; }, consBlank());
-    const grand = consTot(total);
+    const total = rows.reduce(consFamAdd, {});
     const workingDays = new Set(rows.map(r => r.day)).size;
-    const peak = buckets.reduce((best, b) => consTot(b) > (best ? consTot(best) : 0) ? b : best, null);
-    $('consTotal').textContent = fmtQty(grand) + unit;
-    $('consWaste').textContent = fmtQty(total.waste) + (grand ? ' (' + (total.waste * 100 / grand).toFixed(1) + '%)' : '');
+    const peak = buckets.reduce((best, b) => consFamTot(b.acc, main.key) > (best ? consFamTot(best.acc, main.key) : 0) ? b : best, null);
+
+    $('consTotal').innerHTML = consFamText(total, fams, consTot);
+    $('consWaste').innerHTML = consFamText(total, fams, a => a.waste);
     if (consView === 'day'){
       $('consAvgLabel').textContent = 'Average per working day';
-      $('consAvg').textContent = workingDays ? fmtQty(Math.round(grand / workingDays)) + unit : '—';
-      $('consPeakLabel').textContent = 'Busiest day';
-      $('consPeak').textContent = peak ? fmtQty(consTot(peak)) + ' · ' + peak.label.replace(/ \d{4}$/, '') : '—';
+      $('consAvg').innerHTML = workingDays ? consFamText(total, fams, a => Math.round(consTot(a) / workingDays)) : '—';
+      $('consPeakLabel').textContent = 'Busiest day' + (fams.length > 1 ? ' (' + main.unit + ')' : '');
+      $('consPeak').textContent = peak ? fmtQty(consFamTot(peak.acc, main.key)) + ' · ' + peak.label.replace(/ \d{4}$/, '') : '—';
     } else {
-      const active = buckets.filter(b => consTot(b) > 0).length;
+      const active = buckets.filter(b => fams.some(f => consFamTot(b.acc, f.key))).length;
       $('consAvgLabel').textContent = 'Average per month';
-      $('consAvg').textContent = active ? fmtQty(Math.round(grand / active)) + unit : '—';
-      $('consPeakLabel').textContent = 'Busiest month';
-      $('consPeak').textContent = peak ? fmtQty(consTot(peak)) + ' · ' + peak.label : '—';
+      $('consAvg').innerHTML = active ? consFamText(total, fams, a => Math.round(consTot(a) / active)) : '—';
+      $('consPeakLabel').textContent = 'Busiest month' + (fams.length > 1 ? ' (' + main.unit + ')' : '');
+      $('consPeak').textContent = peak ? fmtQty(consFamTot(peak.acc, main.key)) + ' · ' + peak.label : '—';
     }
-    const max = Math.max(1, ...buckets.map(consTot));
-    const first = consView === 'day' ? 'Date' : 'Month';
-    $('consTableTitle').textContent = consView === 'day' ? 'Day by day — ' + MONTH_NAMES[consRange.m - 1] + ' ' + consRange.y : 'Month by month — last 12 months';
-    $('consHead').innerHTML = '<tr><th>' + first + '</th><th class="num">Used on jobs</th><th class="num">Other use</th><th class="num">Wastage</th><th class="num">Total</th>' +
-      (consView === 'month' ? '<th class="num">Days worked</th><th class="num">Avg / day</th>' : '') + '<th class="cons-bar-cell"></th></tr>';
-    const n = v => v ? fmtQty(v) : '—';
-    $('consRows').innerHTML = buckets.length ? buckets.map(b => {
-      const t = consTot(b);
-      return '<tr class="' + (t ? '' : 'cons-zero') + '"><td>' + b.label + (b.dow ? '<span class="cons-dow">' + b.dow + '</span>' : '') + '</td>' +
-        '<td class="num">' + n(b.jobs) + '</td><td class="num">' + n(b.other) + '</td><td class="num">' + n(b.waste) + '</td><td class="num"><b>' + n(t) + '</b></td>' +
-        (consView === 'month' ? '<td class="num">' + (b.days || '—') + '</td><td class="num">' + (b.days ? fmtQty(Math.round(t / b.days)) : '—') + '</td>' : '') +
-        '<td class="cons-bar-cell">' + (t ? '<div class="cons-bar" style="width:' + (t * 100 / max).toFixed(1) + '%"></div>' : '') + '</td></tr>';
-    }).join('') + '<tr class="cons-total"><td>Total</td><td class="num">' + fmtQty(total.jobs) + '</td><td class="num">' + fmtQty(total.other) + '</td><td class="num">' + fmtQty(total.waste) + '</td><td class="num">' + fmtQty(grand) + unit + '</td>' +
-        (consView === 'month' ? '<td class="num">' + workingDays + '</td><td class="num">' + (workingDays ? fmtQty(Math.round(grand / workingDays)) : '—') + '</td>' : '') + '<td></td></tr>'
-      : '<tr class="empty-row"><td colspan="8">Nothing in this period.</td></tr>';
 
-    // per-item breakdown for the whole period
+    // ---- period table ----
+    const n = v => v ? fmtQty(Math.round(v * 100) / 100) : '—';
+    const max = Math.max(1, ...buckets.map(b => consFamTot(b.acc, main.key)));
+    const bar = b => { const v = consFamTot(b.acc, main.key); return '<td class="cons-bar-cell">' + (v ? '<div class="cons-bar" style="width:' + (v * 100 / max).toFixed(1) + '%"></div>' : '') + '</td>'; };
+    $('consTableTitle').textContent = (consView === 'day' ? 'Day by day — ' + MONTH_NAMES[consRange.m - 1] + ' ' + consRange.y : 'Month by month — last 12 months');
+    const first = '<th>' + (consView === 'day' ? 'Date' : 'Month') + '</th>';
+    const monthCols = consView === 'month' ? '<th class="num">Days worked</th>' : '';
+    const labelCell = b => '<td>' + b.label + (b.dow ? '<span class="cons-dow">' + b.dow + '</span>' : '') + '</td>';
+    if (!fams.length){
+      $('consHead').innerHTML = '<tr>' + first + '<th class="num">Used</th></tr>';
+      $('consRows').innerHTML = '<tr class="empty-row"><td colspan="3">Nothing used in this period.</td></tr>';
+    } else if (single){
+      $('consHead').innerHTML = '<tr>' + first + '<th class="num">Used on jobs</th><th class="num">Other use</th><th class="num">Wastage</th><th class="num">Total (' + single.unit + ')</th>' + monthCols + '<th class="cons-bar-cell"></th></tr>';
+      const cell = (b, k) => { const a = b.acc[single.key] || consBlank(); return k === 'tot' ? consTot(a) : a[k]; };
+      const t = total[single.key] || consBlank();
+      $('consRows').innerHTML = buckets.map(b => '<tr class="' + (cell(b, 'tot') ? '' : 'cons-zero') + '">' + labelCell(b) +
+          '<td class="num">' + n(cell(b, 'jobs')) + '</td><td class="num">' + n(cell(b, 'other')) + '</td><td class="num">' + n(cell(b, 'waste')) + '</td><td class="num"><b>' + n(cell(b, 'tot')) + '</b></td>' +
+          (consView === 'month' ? '<td class="num">' + (b.days || '—') + '</td>' : '') + bar(b) + '</tr>').join('') +
+        '<tr class="cons-total"><td>Total</td><td class="num">' + n(t.jobs) + '</td><td class="num">' + n(t.other) + '</td><td class="num">' + n(t.waste) + '</td><td class="num">' + n(consTot(t)) + '</td>' +
+        (consView === 'month' ? '<td class="num">' + workingDays + '</td>' : '') + '<td></td></tr>';
+    } else {
+      $('consHead').innerHTML = '<tr>' + first + fams.map(f => '<th class="num">' + f.label + '</th>').join('') + '<th class="num">Wastage</th>' + monthCols + '<th class="cons-bar-cell">' + main.label + '</th></tr>';
+      $('consRows').innerHTML = buckets.map(b => {
+        const any = fams.some(f => consFamTot(b.acc, f.key));
+        return '<tr class="' + (any ? '' : 'cons-zero') + '">' + labelCell(b) +
+          fams.map(f => '<td class="num">' + n(consFamTot(b.acc, f.key)) + '</td>').join('') +
+          '<td class="num cons-waste-cell">' + consFamText(b.acc, fams, a => a.waste) + '</td>' +
+          (consView === 'month' ? '<td class="num">' + (b.days || '—') + '</td>' : '') + bar(b) + '</tr>';
+      }).join('') +
+        '<tr class="cons-total"><td>Total</td>' + fams.map(f => '<td class="num">' + n(consFamTot(total, f.key)) + '</td>').join('') +
+        '<td class="num cons-waste-cell">' + consFamText(total, fams, a => a.waste) + '</td>' + (consView === 'month' ? '<td class="num">' + workingDays + '</td>' : '') + '<td></td></tr>';
+    }
+
+    // ---- by machine ----
+    const byMachine = new Map();
+    rows.forEach(r => { const k = r.machine || NOT_ON_SLIP; consFamAdd(byMachine.get(k) || byMachine.set(k, {}).get(k), r); });
+    const machines = [...byMachine].sort((a, b) => (a[0] === NOT_ON_SLIP) - (b[0] === NOT_ON_SLIP) || fams.reduce((s, f) => s || consFamTot(b[1], f.key) - consFamTot(a[1], f.key), 0));
+    $('consMachHead').innerHTML = '<tr><th>Machine</th>' + fams.map(f => '<th class="num">' + f.label + '</th>').join('') + '<th class="num">Share of ' + main.unit + '</th></tr>';
+    const mainTotal = consFamTot(total, main.key);
+    $('consMachines').innerHTML = machines.length ? machines.map(([name, acc]) => '<tr><td class="item-name">' + escHtml(name) + '</td>' +
+        fams.map(f => '<td class="num">' + n(consFamTot(acc, f.key)) + '</td>').join('') +
+        '<td class="num">' + (mainTotal && consFamTot(acc, main.key) ? (consFamTot(acc, main.key) * 100 / mainTotal).toFixed(1) + '%' : '—') + '</td></tr>').join('')
+      : '<tr class="empty-row"><td colspan="5">Nothing used in this period.</td></tr>';
+
+    // ---- by item ----
     const byItem = new Map();
     rows.forEach(r => {
-      if (!byItem.has(r.material_id)) byItem.set(r.material_id, { name: r.name, category: r.category, unit: r.unit, ...consBlank() });
-      consAdd(byItem.get(r.material_id), r);
+      if (!byItem.has(r.material_id)) byItem.set(r.material_id, { name: r.name, category: r.category, unit: r.unit, fam: r.fam, ...consBlank(), machines: new Set() });
+      const i = byItem.get(r.material_id);
+      i.jobs += Number(r.used_jobs); i.other += Number(r.used_other); i.waste += Number(r.wasted);
+      if (r.machine) i.machines.add(r.machine);
     });
-    const items = [...byItem.values()].sort((a, b) => consTot(b) - consTot(a));
+    const famOrder = f => CONS_FAMS.findIndex(x => x.key === f);
+    const items = [...byItem.values()].sort((a, b) => famOrder(a.fam) - famOrder(b.fam) || consTot(b) - consTot(a));
     $('consItemsRange').textContent = '— ' + fmtDate(consRange.from) + ' to ' + fmtDate(consRange.to);
-    $('consItems').innerHTML = items.length ? items.map(i => '<tr><td class="item-name">' + escHtml(i.name) + '</td><td>' + escHtml(i.category) + '</td>' +
-      '<td class="num">' + n(i.jobs) + '</td><td class="num">' + n(i.other) + '</td><td class="num">' + n(i.waste) + '</td>' +
-      '<td class="num"><b>' + fmtQty(consTot(i)) + ' ' + escHtml(i.unit) + '</b></td><td class="num">' + (grand ? (consTot(i) * 100 / grand).toFixed(1) + '%' : '—') + '</td></tr>').join('')
-      : '<tr class="empty-row"><td colspan="7">Nothing used in this period.</td></tr>';
-    consLastRender = { buckets, items, total, grand };
+    $('consItems').innerHTML = items.length ? items.map(i => {
+      const famTotal = consFamTot(total, i.fam);
+      return '<tr><td class="item-name">' + escHtml(i.name) + '</td><td>' + escHtml(i.category) + '</td>' +
+        '<td class="num">' + n(i.jobs) + '</td><td class="num">' + n(i.other) + '</td><td class="num">' + n(i.waste) + '</td>' +
+        '<td class="num"><b>' + n(consTot(i)) + '</b> ' + escHtml(i.unit) + '</td>' +
+        '<td class="num">' + (famTotal ? (consTot(i) * 100 / famTotal).toFixed(1) + '%' : '—') + '</td>' +
+        '<td class="cons-mach">' + escHtml([...i.machines].sort().join(', ') || '—') + '</td></tr>';
+    }).join('') : '<tr class="empty-row"><td colspan="8">Nothing used in this period.</td></tr>';
+
+    // ---- services with no stock linked (only when no single item / material category is picked) ----
+    const showUnlinked = !$('consItem').value && ['__all__', '__print__'].includes($('consCategory').value);
+    const unl = new Map();
+    if (showUnlinked) consUnlinked.filter(u => consMachineMatch(u.machine)).forEach(u => {
+      const k = u.name + '|' + (u.unit || '') + '|' + (u.machine || '');
+      if (!unl.has(k)) unl.set(k, { name: u.name, category: u.category, unit: u.unit, machine: u.machine, qty: 0, lines: 0 });
+      const x = unl.get(k); x.qty += Number(u.quantity); x.lines += Number(u.lines);
+    });
+    const unlinked = [...unl.values()].sort((a, b) => b.qty - a.qty);
+    $('consUnlinkedWrap').style.display = showUnlinked ? '' : 'none';
+    $('consUnlinked').innerHTML = unlinked.length ? unlinked.map(u => '<tr><td class="item-name">' + escHtml(u.name) + '</td><td>' + escHtml(u.category) + '</td>' +
+        '<td>' + escHtml(u.machine || '—') + '</td><td class="num">' + n(u.qty) + ' ' + escHtml(u.unit || '') + '</td><td class="num">' + u.lines + '</td></tr>').join('')
+      : '<tr class="empty-row"><td colspan="5">Every job line in this period used a stock item. 👍</td></tr>';
+
+    consLastRender = { buckets, items, machines, unlinked, fams, single, total, any: rows.length > 0 };
   }
-  let consLastRender = null;
+
   $('consExportBtn').addEventListener('click', () => {
-    if (!consLastRender || !consLastRender.grand){ alert('Nothing to export for this period.'); return; }
-    const { buckets, items } = consLastRender;
+    if (!consLastRender || (!consLastRender.any && !consLastRender.unlinked.length)){ alert('Nothing to export for this period.'); return; }
+    const { buckets, items, machines, unlinked, fams, single } = consLastRender;
     const r2 = v => Math.round(v * 100) / 100;
-    const periodRows = buckets.slice().reverse().map(b => ({ [consView === 'day' ? 'Date' : 'Month']: consView === 'day' ? b.key : b.label,
-      'Used on jobs': r2(b.jobs), 'Other use': r2(b.other), Wastage: r2(b.waste), Total: r2(consTot(b)), ...(consView === 'month' ? { 'Days worked': b.days } : {}) }));
-    const itemRows = items.map(i => ({ Item: i.name, Category: i.category, Unit: i.unit, 'Used on jobs': r2(i.jobs), 'Other use': r2(i.other), Wastage: r2(i.waste), Total: r2(consTot(i)) }));
+    const firstCol = consView === 'day' ? 'Date' : 'Month';
+    const periodRows = buckets.slice().reverse().map(b => {
+      const row = { [firstCol]: consView === 'day' ? b.key : b.label };
+      if (single){ const a = b.acc[single.key] || consBlank(); Object.assign(row, { ['Used on jobs (' + single.unit + ')']: r2(a.jobs), 'Other use': r2(a.other), Wastage: r2(a.waste), Total: r2(consTot(a)) }); }
+      else fams.forEach(f => { const a = b.acc[f.key] || consBlank(); row[f.label + ' used'] = r2(consTot(a)); row[f.label + ' wasted'] = r2(a.waste); });
+      if (consView === 'month') row['Days worked'] = b.days;
+      return row;
+    });
+    const itemRows = items.map(i => ({ Item: i.name, Category: i.category, Unit: i.unit, 'Used on jobs': r2(i.jobs), 'Other use': r2(i.other), Wastage: r2(i.waste), Total: r2(consTot(i)), Machines: [...i.machines].sort().join(', ') }));
+    const machineRows = machines.map(([name, acc]) => { const row = { Machine: name }; fams.forEach(f => { row[f.label] = r2(consFamTot(acc, f.key)); }); return row; });
+    const unlinkedRows = unlinked.map(u => ({ Service: u.name, Category: u.category, Machine: u.machine || '', Quantity: r2(u.qty), Unit: u.unit || '', 'Job lines': u.lines }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(periodRows), consView === 'day' ? 'Day by day' : 'Month by month');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'By item');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(machineRows), 'By machine');
+    if (unlinkedRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(unlinkedRows), 'No stock linked');
     const label = consView === 'day' ? consRange.from.slice(0, 7) : consRange.from.slice(0, 7) + '_to_' + consRange.to.slice(0, 7);
-    XLSX.writeFile(wb, 'Sheet-Consumption-' + label + '.xlsx');
+    XLSX.writeFile(wb, 'Material-Consumption-' + label + '.xlsx');
   });
 
   async function refreshEmployeesPanel(){
