@@ -948,7 +948,7 @@
             </table></div>
             <div id="consUnlinkedWrap">
               <h2 style="margin-top:20px;">⚠ Job lines with no stock item linked</h2>
-              <div class="hint" style="margin-bottom:8px;">These services were billed on job slips but aren't tied to a stock item, so the paper / material they used is <b>not</b> deducted or counted above (e.g. photocopy and printout pages). Cutting, designing and courier are left out — they use no material of their own.</div>
+              <div class="hint" style="margin-bottom:8px;">These services were billed on job slips but aren't tied to a stock item, so the paper / material they used is <b>not</b> deducted or counted above (e.g. photocopy and printout pages). Cutting, designing, courier and ONLY PRINT (customer's own paper) are left out — they use no stock of ours.</div>
               <div class="table-scroll"><table class="data-table cons-table">
                 <thead><tr><th>Service</th><th>Category</th><th>Machine</th><th class="num">Quantity</th><th class="num">Job lines</th></tr></thead>
                 <tbody id="consUnlinked"><tr class="empty-row"><td colspan="5">—</td></tr></tbody>
@@ -5502,7 +5502,7 @@
         ],
         tips: [
           'Total Counter = last reading + everything printed since (slips + logged prints). The smaller the "unexplained" number, the better.',
-          'Only paper, card sheets, stickers and textured sheets count on the Konica — cutting, binding and lamination don\'t.'
+          'On the Konica, paper, card sheets, stickers and textured sheets count — and **ONLY PRINT** (customer\'s own paper) too. Set **Front & Back** on the slip when both sides are printed. Cutting, binding and lamination don\'t count.'
         ] },
       hi: { title: 'Machine', purpose: 'जॉब को प्रोडक्शन में आगे बढ़ाएँ, और कोनिका का काउंटर स्लिप से मिलाकर रखें।',
         steps: [
@@ -5515,7 +5515,7 @@
         ],
         tips: [
           'Total Counter = पिछली रीडिंग + उसके बाद का सारा प्रिंट (स्लिप + लॉग किए प्रिंट)। "unexplained" जितना कम, उतना अच्छा।',
-          'कोनिका पर सिर्फ़ पेपर, कार्ड शीट, स्टिकर और टेक्सचर्ड शीट गिनी जाती हैं — कटिंग, बाइंडिंग और लैमिनेशन नहीं।'
+          'कोनिका पर पेपर, कार्ड शीट, स्टिकर, टेक्सचर्ड शीट और **ONLY PRINT** (ग्राहक का अपना पेपर) भी गिना जाता है। दोनों तरफ़ छपे तो स्लिप पर **Front & Back** चुनें। कटिंग, बाइंडिंग और लैमिनेशन नहीं गिने जाते।'
         ] }
     },
     stock: {
