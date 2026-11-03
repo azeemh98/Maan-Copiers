@@ -1342,37 +1342,41 @@
       <div class="status-msg" id="closeDayStatus"></div>
     </section>
 
-    <!-- Prints with no billable slip of their own, logged by whoever ran them. Without this every
-         reprint, test print and jam just shows up as an unexplained counter gap. -->
+    <!-- Wastage logged by whoever ran the job (operators included), material-wise, on any machine.
+         Takes the material out of stock; on the Konica it also explains counter clicks. -->
     <section class="card" id="printWastageCard">
-      <h2 class="collapsible" id="mpwToggle"><span>🗑 Log Reprint / Test / Spoiled Prints — KONIKA MINOLTA</span><span class="chev">▶</span></h2>
+      <h2 class="collapsible" id="mpwToggle"><span>🗑 Log Wastage / Reprint / Test — material wise</span><span class="chev">▶</span></h2>
       <div id="mpwBody" style="display:none; margin-top:18px;">
-        <div class="hint" style="margin-bottom:12px;">Anything that went through the Konica without its own slip: a reprint because of a mistake, test / colour-check prints, jammed or spoiled sheets, the shop's own printing.</div>
+        <div class="hint" style="margin-bottom:12px;">Anything spoiled or run without its own slip — a reprint because of a mistake, test / colour checks, jammed or spoiled sheets, cutting or lamination mistakes, the shop's own use. Pick the machine and the material: it's taken out of stock, and on the Konica it also explains the counter.</div>
         <div class="row3">
-          <div class="field"><label for="mpwSheets">Sheets</label><input type="number" id="mpwSheets" min="1" step="1"></div>
+          <div class="field"><label for="mpwMachine">Machine</label><select id="mpwMachine"></select></div>
+          <div class="field"><label for="mpwMaterial">Material</label><select id="mpwMaterial"></select></div>
+          <div class="field"><label for="mpwSheets" id="mpwQtyLabel">Quantity (sheets)</label><input type="number" id="mpwSheets" min="0.01" step="any"></div>
+        </div>
+        <div class="tk-stock-hint" id="mpwHint" style="margin:-6px 0 8px;"></div>
+        <div class="row3">
           <div class="field"><label for="mpwReason">Reason</label>
             <select id="mpwReason">
+              <option value="spoiled">Spoiled / jammed</option>
               <option value="reprint">Reprint (mistake)</option>
               <option value="test">Test / colour check</option>
-              <option value="spoiled">Spoiled / jammed</option>
+              <option value="cutting">Cutting / lamination error</option>
               <option value="internal">Shop's own use</option>
               <option value="other">Other</option>
             </select>
           </div>
           <div class="field"><label for="mpwTicket">For job (optional)</label><input type="text" id="mpwTicket" placeholder="e.g. JT-0879 or 879"></div>
-        </div>
-        <div class="row2">
-          <label class="mpw-check"><input type="checkbox" id="mpwDouble"> Front &amp; Back (2 clicks per sheet)</label>
           <div class="field"><label for="mpwNote">Note (optional)</label><input type="text" id="mpwNote" maxlength="300" placeholder="e.g. wrong colour, paper jam"></div>
         </div>
-        <button class="add-btn save-btn" id="mpwSaveBtn"><span>Log Prints</span><span id="mpwClicks">0 counter clicks</span></button>
+        <label class="mpw-check" id="mpwDoubleWrap" style="margin:0 0 12px;"><input type="checkbox" id="mpwDouble"> Front &amp; Back (2 Konica clicks per sheet)</label>
+        <button class="add-btn save-btn" id="mpwSaveBtn"><span>Log Wastage</span><span id="mpwClicks"></span></button>
         <div class="status-msg" id="mpwStatus"></div>
       </div>
       <h3 style="margin:18px 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em;">Logged today</h3>
-      <table class="data-table">
-        <thead><tr><th>Time</th><th>By</th><th>Reason</th><th>Job</th><th style="text-align:right;">Clicks</th><th>Note</th><th></th></tr></thead>
-        <tbody id="mpwTableBody"><tr class="empty-row"><td colspan="7">Nothing logged today.</td></tr></tbody>
-      </table>
+      <div class="table-scroll"><table class="data-table">
+        <thead><tr><th>Time</th><th>By</th><th>Machine</th><th>Material</th><th style="text-align:right;">Qty</th><th>Reason</th><th>Job</th><th style="text-align:right;">Konica clicks</th><th>Note</th><th></th></tr></thead>
+        <tbody id="mpwTableBody"><tr class="empty-row"><td colspan="10">Nothing logged today.</td></tr></tbody>
+      </table></div>
     </section>
 
     <!-- Same calendar widget as Stock's Monthly Record — reused wholesale (.cal-head/.cal-grid/
@@ -5324,73 +5328,112 @@
   });
 
   // ======================================================================
-  // PRINT WASTAGE — reprints / tests / spoiled sheets that never get a billable slip
+  // WASTAGE LOG (Machine tab) — material-wise, any machine. Each entry takes the material out of
+  // stock (log_wastage_entry) and, on the Konica with printing paper or the customer's own
+  // paper, also explains counter clicks. Operators and counter staff use this; the Stock tab's
+  // own wastage form stays for admins.
   // ======================================================================
-  const PRINT_WASTAGE_REASON = { reprint:'Reprint (mistake)', test:'Test / colour check', spoiled:'Spoiled / jammed', internal:"Shop's own use", other:'Other' };
+  const PRINT_WASTAGE_REASON = { reprint:'Reprint (mistake)', test:'Test / colour check', spoiled:'Spoiled / jammed', cutting:'Cutting / lamination error', internal:"Shop's own use", other:'Other' };
   let todaysWastage = [];
   toggleCollapsible($('mpwToggle'), $('mpwBody'));
-  function mpwClicks(){ return Math.max(0, Math.floor(parseFloat($('mpwSheets').value) || 0)) * ($('mpwDouble').checked ? 2 : 1); }
-  function renderMpwClicks(){ const c = mpwClicks(); $('mpwClicks').textContent = fmtQty(c) + ' counter click' + (c === 1 ? '' : 's'); }
-  $('mpwSheets').addEventListener('input', renderMpwClicks);
-  $('mpwDouble').addEventListener('change', renderMpwClicks);
+  function mpwMaterial(){ return ticketMaterials.find(m => m.id === $('mpwMaterial').value) || null; }
+  // Same rule as the database: counts on the Konica only for printing paper / sheets, or the customer's own paper.
+  function mpwOnCounter(){
+    if ($('mpwMachine').value !== MACHINE_COUNTER_MACHINE) return false;
+    const m = mpwMaterial();
+    return !m || PRINT_SHEET_CATEGORIES.includes(String(m.category).toLowerCase());
+  }
+  function renderMpwMachineSelect(){
+    const sel = $('mpwMachine'), prev = sel.value;
+    const list = Array.from(new Set([...COMMON_MACHINES, 'EPSON LSeries', ...tickets.map(t => t.machine).filter(m => m && !/[&,]/.test(m))]));
+    sel.innerHTML = list.map(m => '<option value="' + escHtml(m) + '">' + escHtml(m) + '</option>').join('');
+    sel.value = prev && list.includes(prev) ? prev : MACHINE_COUNTER_MACHINE;
+  }
+  function renderMpwMaterialSelect(){
+    const sel = $('mpwMaterial'), prev = sel.value;
+    const cats = Array.from(new Set(ticketMaterials.map(m => m.category)));
+    sel.innerHTML = '<option value="">— Customer\'s own paper (no stock) —</option>' +
+      cats.map(c => '<optgroup label="' + escHtml(c) + '">' + ticketMaterials.filter(m => m.category === c)
+        .map(m => '<option value="' + m.id + '">' + escHtml(m.name) + '</option>').join('') + '</optgroup>').join('');
+    if (prev && ticketMaterials.some(m => m.id === prev)) sel.value = prev;
+    renderMpwSummary();
+  }
+  function renderMpwSummary(){
+    const m = mpwMaterial(), qty = parseFloat($('mpwSheets').value) || 0, onCounter = mpwOnCounter();
+    $('mpwQtyLabel').textContent = 'Quantity' + (m ? ' (' + m.unit + ')' : ' (sheets)');
+    $('mpwDoubleWrap').style.display = onCounter ? '' : 'none';
+    if (!onCounter) $('mpwDouble').checked = false;
+    const parts = [];
+    if (m && qty > 0) parts.push(fmtQty(qty) + ' ' + m.unit + ' out of stock');
+    if (onCounter && qty > 0) parts.push(fmtQty(Math.floor(qty) * ($('mpwDouble').checked ? 2 : 1)) + ' Konica clicks');
+    $('mpwClicks').textContent = parts.join(' · ');
+    $('mpwHint').innerHTML = !m && $('mpwMachine').value !== MACHINE_COUNTER_MACHINE
+      ? 'Pick the material that was wasted.' : (m ? ticketStockHintFor({ service_id: 'mat:' + m.id }) : '');
+  }
+  ['mpwSheets'].forEach(id => $(id).addEventListener('input', renderMpwSummary));
+  ['mpwDouble', 'mpwMachine', 'mpwMaterial'].forEach(id => $(id).addEventListener('change', renderMpwSummary));
 
   async function loadTodaysWastage(){
+    if (!ticketMaterials.length) await loadTicketMaterials();
+    renderMpwMachineSelect();
+    renderMpwMaterialSelect();
     const [y, m, d] = todayISO().split('-').map(Number);
     const { data, error } = await supabaseClient.from('machine_print_wastage').select('*, job_tickets(ticket_no)')
-      .eq('org_id', currentOrgId).eq('machine', MACHINE_COUNTER_MACHINE)
-      .gte('created_at', new Date(y, m - 1, d).toISOString()).order('created_at', { ascending:false });
+      .eq('org_id', currentOrgId).gte('created_at', new Date(y, m - 1, d).toISOString()).order('created_at', { ascending:false });
     todaysWastage = error ? [] : (data || []);
     renderTodaysWastage();
   }
   function renderTodaysWastage(){
     const tbody = $('mpwTableBody');
-    if (!todaysWastage.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Nothing logged today.</td></tr>'; return; }
-    const total = todaysWastage.reduce((s, w) => s + Number(w.sheets) * (w.double_sided ? 2 : 1), 0);
+    if (!todaysWastage.length){ tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Nothing logged today.</td></tr>'; return; }
+    const clicksOf = w => w.on_counter === false ? 0 : Number(w.sheets) * (w.double_sided ? 2 : 1);
+    const totalClicks = todaysWastage.reduce((s, w) => s + clicksOf(w), 0);
     tbody.innerHTML = todaysWastage.map(w => {
-      const clicks = Number(w.sheets) * (w.double_sided ? 2 : 1);
+      const mat = w.material_id ? ticketMaterials.find(x => x.id === w.material_id) : null;
       const canDelete = isAdmin || w.created_by === currentUserId;
+      const clicks = clicksOf(w);
       return '<tr><td>' + fmtTimeOnly(w.created_at) + '</td><td>' + escHtml(staffName(w.created_by) || '—') + '</td>' +
+        '<td>' + escHtml(w.machine) + '</td>' +
+        '<td>' + (w.material_id ? escHtml(mat ? mat.name : 'Stock item') : '<span class="hint">Customer\'s paper</span>') + '</td>' +
+        '<td style="text-align:right; font-weight:700;">' + fmtQty(w.sheets) + (mat ? ' <span class="hint">' + escHtml(mat.unit) + '</span>' : '') + (w.double_sided ? '<div class="item-cat">Front &amp; Back</div>' : '') + '</td>' +
         '<td>' + escHtml(PRINT_WASTAGE_REASON[w.reason] || w.reason) + '</td><td>' + escHtml(w.job_tickets ? w.job_tickets.ticket_no : '—') + '</td>' +
-        '<td style="text-align:right; font-weight:700;">' + fmtQty(clicks) + (w.double_sided ? '<div class="item-cat">' + fmtQty(w.sheets) + ' sheets F&amp;B</div>' : '') + '</td>' +
+        '<td style="text-align:right;">' + (clicks ? fmtQty(clicks) : '—') + '</td>' +
         '<td>' + escHtml(w.note || '—') + '</td>' +
-        '<td>' + (canDelete ? '<div class="row-actions"><button class="mpw-del danger" data-id="' + w.id + '" title="Delete this entry">✕</button></div>' : '') + '</td></tr>';
-    }).join('') + '<tr><td colspan="4" style="text-align:right; font-weight:700;">Total today</td><td style="text-align:right; font-weight:800;">' + fmtQty(total) + '</td><td colspan="2"></td></tr>';
+        '<td>' + (canDelete ? '<div class="row-actions"><button class="mpw-del danger" data-id="' + w.id + '" title="Delete this entry (puts the stock back)">✕</button></div>' : '') + '</td></tr>';
+    }).join('') + '<tr><td colspan="7" style="text-align:right; font-weight:700;">Konica clicks today</td><td style="text-align:right; font-weight:800;">' + fmtQty(totalClicks) + '</td><td colspan="2"></td></tr>';
     tbody.querySelectorAll('.mpw-del').forEach(b => b.addEventListener('click', async function(){
-      if (!window.confirm('Delete this logged entry?')) return;
-      const { error } = await supabaseClient.from('machine_print_wastage').delete().eq('id', this.dataset.id);
-      if (error){ alert(error.message); return; }
-      await loadTodaysWastage();
-      if (!isWalkinOnly) await refreshMachineCounterPanel();
+      if (!window.confirm('Delete this entry? Any stock it took out goes back.')) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.rpc('delete_wastage_entry', { p_id: this.dataset.id });
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await afterWastageChange();
     }));
+  }
+  async function afterWastageChange(){
+    await loadTodaysWastage();
+    if (!isWalkinOnly) await refreshMachineCounterPanel();
+    if (!isWalkinOnly && !isOperator) await refreshStockPanel();
+    else { await loadTicketMaterials(); renderMpwMaterialSelect(); }
   }
 
   $('mpwSaveBtn').addEventListener('click', async function(){
     const statusEl = $('mpwStatus');
-    const sheets = Math.floor(parseFloat($('mpwSheets').value) || 0);
-    if (sheets <= 0){ showStatus(statusEl, 'Enter how many sheets went through the machine.', false); return; }
+    const qty = parseFloat($('mpwSheets').value) || 0;
+    const m = mpwMaterial(), machine = $('mpwMachine').value;
+    if (qty <= 0){ showStatus(statusEl, 'Enter the quantity wasted.', false); return; }
+    if (!m && machine !== MACHINE_COUNTER_MACHINE){ showStatus(statusEl, 'Pick the material that was wasted.', false); return; }
     this.disabled = true;
     try {
-      let ticketId = null;
-      const typed = $('mpwTicket').value.trim();
-      if (typed){
-        const num = typed.match(/(\d{1,6})\s*$/);
-        if (!num) throw new Error('Job number not recognised — type it like JT-0879 or 879.');
-        const ticketNo = 'JT-' + num[1].padStart(4, '0');
-        const { data: tk, error: tkErr } = await supabaseClient.from('job_tickets').select('id').eq('org_id', currentOrgId).eq('ticket_no', ticketNo).maybeSingle();
-        if (tkErr) throw tkErr;
-        if (!tk) throw new Error(ticketNo + ' not found.');
-        ticketId = tk.id;
-      }
-      const double = $('mpwDouble').checked;
-      const { error } = await supabaseClient.from('machine_print_wastage').insert({
-        org_id: currentOrgId, machine: MACHINE_COUNTER_MACHINE, sheets, double_sided: double,
-        reason: $('mpwReason').value, ticket_id: ticketId, note: $('mpwNote').value.trim() || null, created_by: currentUserId
+      const reason = $('mpwReason').value;
+      const { error } = await supabaseClient.rpc('log_wastage_entry', {
+        p_org_id: currentOrgId, p_machine: machine, p_material_id: m ? m.id : null, p_quantity: qty,
+        p_double_sided: $('mpwDouble').checked, p_reason: reason,
+        p_ticket_no: $('mpwTicket').value.trim() || null, p_note: $('mpwNote').value.trim() || null
       });
       if (error) throw error;
-      showStatus(statusEl, 'Logged ' + fmtQty(sheets * (double ? 2 : 1)) + ' counter clicks as ' + PRINT_WASTAGE_REASON[$('mpwReason').value].toLowerCase() + '.', true);
-      $('mpwSheets').value = ''; $('mpwTicket').value = ''; $('mpwNote').value = ''; $('mpwDouble').checked = false; renderMpwClicks();
-      await loadTodaysWastage();
-      if (!isWalkinOnly) await refreshMachineCounterPanel();
+      showStatus(statusEl, 'Logged: ' + (m ? fmtQty(qty) + ' ' + m.unit + ' of ' + m.name : fmtQty(qty) + ' sheets (customer\'s paper)') + ' — ' + PRINT_WASTAGE_REASON[reason].toLowerCase() + ' on ' + machine + '.', true);
+      $('mpwSheets').value = ''; $('mpwTicket').value = ''; $('mpwNote').value = ''; $('mpwDouble').checked = false;
+      await afterWastageChange();
     } catch (err){ showStatus(statusEl, err.message || 'Could not log this.', false); }
     finally { this.disabled = false; }
   });
@@ -5549,7 +5592,7 @@
           'After printing: **→ Send to Post-Press** for cutting, binding, lamination or packing — or **✓ No finishing — Mark Ready** for plain printouts.',
           '**✓ Mark Ready** when the job is finished, then **✓ Mark Delivered** when the customer collects it.',
           'On a Ready job, press **💬 Tell customer — ready**: WhatsApp opens with the order number and amount to pay typed in — check it and press Send. No number on the slip? Use **📱 Add customer number** first.',
-          'Printed something without a slip (reprint, test, jam, shop\'s own use)? Open **🗑 Log Reprint / Test / Spoiled Prints**, enter the sheets (tick Front & Back if both sides) and the reason.',
+          'Something spoiled or run without a slip (reprint, test, jam, cutting / lamination mistake, shop\'s own use)? Open **🗑 Log Wastage**, pick the machine and the material, enter the quantity and the reason (tick Front & Back on the Konica if both sides). It comes out of stock.',
           'At closing, read the **Total Counter** on the Konica screen and enter it in **🌙 Close Day**.'
         ],
         tips: [
@@ -5562,7 +5605,7 @@
           'प्रिंट के बाद: कटिंग, बाइंडिंग, लैमिनेशन या पैकिंग के लिए **→ Send to Post-Press** — या सादे प्रिंटआउट के लिए **✓ No finishing — Mark Ready**।',
           'काम पूरा होने पर **✓ Mark Ready**, और ग्राहक के ले जाने पर **✓ Mark Delivered** दबाएँ।',
           'Ready जॉब पर **💬 Tell customer — ready** दबाएँ: WhatsApp में ऑर्डर नंबर और देने वाली रकम लिखी हुई खुलेगी — देखकर Send दबाएँ। स्लिप पर नंबर नहीं है? पहले **📱 Add customer number** दबाएँ।',
-          'बिना स्लिप के कुछ प्रिंट हुआ (दोबारा प्रिंट, टेस्ट, पेपर फँसा, दुकान का अपना काम)? **🗑 Log Reprint / Test / Spoiled Prints** खोलें, शीट की संख्या लिखें (दोनों तरफ़ छपा हो तो Front & Back पर टिक करें) और कारण चुनें।',
+          'कुछ ख़राब हुआ या बिना स्लिप के चला (दोबारा प्रिंट, टेस्ट, पेपर फँसा, कटिंग / लैमिनेशन की गलती, दुकान का अपना काम)? **🗑 Log Wastage** खोलें, मशीन और माल चुनें, मात्रा और कारण लिखें (कोनिका पर दोनों तरफ़ छपा हो तो Front & Back पर टिक करें)। यह स्टॉक से कम हो जाएगा।',
           'दुकान बंद करते समय कोनिका की स्क्रीन पर **Total Counter** पढ़ें और **🌙 Close Day** में लिखें।'
         ],
         tips: [
@@ -5806,8 +5849,8 @@
         en: { t: 'Move it along', b: 'After printing: **→ Send to Post-Press** for cutting/binding/lamination/packing, or **✓ No finishing — Mark Ready**. Then **Mark Ready** and **Mark Delivered**.' },
         hi: { t: 'आगे बढ़ाते रहें', b: 'प्रिंट के बाद: कटिंग/बाइंडिंग/लैमिनेशन/पैकिंग के लिए **→ Send to Post-Press**, या **✓ No finishing — Mark Ready**। फिर **Mark Ready** और **Mark Delivered**।' } },
       { nav: 'machine', el: '#printWastageCard',
-        en: { t: 'Log prints without a slip', b: 'Reprint, test print, paper jam or shop\'s own printing? Log the sheets and reason here so the counter adds up.' },
-        hi: { t: 'बिना स्लिप वाले प्रिंट लिखें', b: 'दोबारा प्रिंट, टेस्ट प्रिंट, पेपर फँसा या दुकान का अपना काम? शीट और कारण यहाँ लिखें ताकि काउंटर मिल जाए।' } },
+        en: { t: 'Log wastage', b: 'Spoiled sheets, reprint, test print, paper jam, cutting mistake or shop\'s own use? Pick the machine and material, enter the quantity and reason — it comes out of stock and the counter adds up.' },
+        hi: { t: 'वेस्टेज लिखें', b: 'शीट ख़राब हुई, दोबारा प्रिंट, टेस्ट, पेपर फँसा, कटिंग की गलती या दुकान का अपना काम? मशीन और माल चुनें, मात्रा और कारण लिखें — स्टॉक से कम होगा और काउंटर मिल जाएगा।' } },
       { nav: 'machine', el: '#closeDayCard',
         en: { t: 'Close the day', b: 'At closing, read the **Total Counter** on the Konica screen and enter it here.' },
         hi: { t: 'दिन बंद करें', b: 'दुकान बंद करते समय कोनिका की स्क्रीन पर **Total Counter** पढ़कर यहाँ लिखें।' } },
