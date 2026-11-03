@@ -580,6 +580,17 @@
   .tk-paper{ flex:1; min-width:0; padding:4px 6px; font-size:12px; border:1px solid var(--border-strong); border-radius:6px; background:var(--surface); }
   .svc-paper{ padding:4px 6px; font-size:12px; border:1px solid var(--border-strong); border-radius:6px; max-width:190px; background:var(--surface); }
 
+  /* Party-wise monthly business report */
+  .pm-table td.num, .pm-table th.num{ text-align:right; white-space:nowrap; }
+  .pm-table tr.pm-row{ cursor:pointer; }
+  .pm-table tr.pm-row:hover td{ background:var(--accent-soft); }
+  .pm-table tr.pm-row.open td{ background:var(--accent-soft); font-weight:600; }
+  .pm-chev{ display:inline-block; width:14px; font-size:10px; color:var(--muted); }
+  .pm-table tr.pm-sub td{ font-size:12.5px; color:var(--muted); background:var(--bg); }
+  .pm-table tr.pm-sub td:first-child{ padding-left:34px; }
+  .pm-table tr.pm-total td{ font-weight:800; border-top:2px solid var(--border-strong); }
+  .pm-dash{ color:var(--faint); }
+
   /* Sheet consumption report */
   .cons-bar-cell{ width:28%; min-width:90px; }
   .cons-bar{ height:9px; border-radius:5px; background:var(--accent); min-width:2px; }
@@ -2113,6 +2124,38 @@
         <thead><tr><th>Type</th><th>Tax Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total Tax</th></tr></thead>
         <tbody id="gstSummaryBody"><tr class="empty-row"><td colspan="7">Run a report to see GST breakdown.</td></tr></tbody>
       </table>
+    </section>
+
+    <!-- Per customer / supplier, per month: orders, value billed, money received / paid. -->
+    <section class="card">
+      <div class="table-head-row">
+        <h2>🧾 Party-wise Monthly Business</h2>
+        <button class="export-btn" id="pmExportBtn">⭳ Export to Excel</button>
+      </div>
+      <div class="cat-tabs" id="pmTypeTabs">
+        <button class="cat-tab active" data-pmtype="sale">Customers (sales)</button>
+        <button class="cat-tab" data-pmtype="purchase">Suppliers (purchases)</button>
+      </div>
+      <div class="hint" id="pmRangeLabel" style="margin-bottom:10px;">Run a report to see each party's orders and value, month by month.</div>
+      <div class="stats-row">
+        <div class="stat-card"><div class="s-label">Parties with orders</div><div class="s-val" id="pmParties">—</div></div>
+        <div class="stat-card"><div class="s-label">Orders</div><div class="s-val" id="pmOrders">—</div></div>
+        <div class="stat-card ok"><div class="s-label">Value billed</div><div class="s-val" id="pmValue">—</div></div>
+        <div class="stat-card"><div class="s-label" id="pmReceivedLabel">Received</div><div class="s-val" id="pmReceived">—</div></div>
+      </div>
+      <div class="field" style="max-width:320px;"><label for="pmSearch">Find a party</label><input type="text" id="pmSearch" placeholder="Type a name…"></div>
+      <div class="hint" style="margin:-4px 0 8px;">Click a party to see its months.</div>
+      <div class="table-scroll"><table class="data-table pm-table">
+        <thead id="pmHead"></thead>
+        <tbody id="pmBody"><tr class="empty-row"><td colspan="8">Run a report first.</td></tr></tbody>
+      </table></div>
+      <div id="pmGridWrap" style="display:none;">
+        <h2 style="margin-top:20px;">Month by month</h2>
+        <div class="table-scroll"><table class="data-table pm-table">
+          <thead id="pmGridHead"></thead>
+          <tbody id="pmGridBody"></tbody>
+        </table></div>
+      </div>
     </section>
 
     <section class="card">
@@ -6544,6 +6587,158 @@
     XLSX.writeFile(wb, 'Material-Consumption-' + label + '.xlsx');
   });
 
+  // ======================================================================
+  // PARTY-WISE MONTHLY BUSINESS (Reports) — per customer or supplier, per month: orders (bills),
+  // value billed and money received / paid, for the report period. Customers also get a
+  // "Walk-in (no saved party)" row from slips with no party, so the totals cover every sale.
+  // ======================================================================
+  const WALKIN_KEY = '__walkin__';
+  const pmName = r => r.key === WALKIN_KEY ? r.name : titleCase(r.name);
+  let pmType = 'sale', pmData = null, pmExpanded = new Set();
+  document.querySelectorAll('#pmTypeTabs .cat-tab').forEach(b => b.addEventListener('click', function(){
+    document.querySelectorAll('#pmTypeTabs .cat-tab').forEach(x => x.classList.remove('active'));
+    this.classList.add('active');
+    pmType = this.dataset.pmtype; pmExpanded.clear();
+    if (pmData) loadPartyMonthly(pmData.from, pmData.to);
+  }));
+  $('pmSearch').addEventListener('input', renderPartyMonthly);
+
+  function pmMonthsBetween(from, to){
+    const out = [];
+    let [y, m] = from.split('-').map(Number);
+    const [ty, tm] = to.split('-').map(Number);
+    while (y < ty || (y === ty && m <= tm)){ out.push(y + '-' + String(m).padStart(2, '0')); m++; if (m > 12){ m = 1; y++; } }
+    return out;
+  }
+  const pmMonthLabel = k => MONTH_NAMES[Number(k.slice(5)) - 1].slice(0, 3) + ' ' + k.slice(0, 4);
+
+  async function loadPartyMonthly(from, to){
+    $('pmBody').innerHTML = '<tr class="empty-row"><td colspan="8">Loading…</td></tr>';
+    const isSale = pmType === 'sale';
+    let invRes, payRes, tkRes;
+    try {
+      [invRes, payRes, tkRes] = await Promise.all([
+        fetchAllPages(() => supabaseClient.from('invoices').select('id, party_id, invoice_date, grand_total, status, parties(name)')
+          .eq('org_id', currentOrgId).eq('type', pmType).not('status', 'in', '(cancelled,draft)')
+          .gte('invoice_date', from).lte('invoice_date', to).order('id')),
+        fetchAllPages(() => supabaseClient.from('payments').select('id, party_id, payment_date, amount, direction')
+          .eq('org_id', currentOrgId).eq('direction', isSale ? 'in' : 'out').gte('payment_date', from).lte('payment_date', to).order('id')),
+        isSale ? fetchAllPages(() => supabaseClient.from('job_tickets').select('id, created_at, subtotal, gst_amount, round_off, payment_status')
+          .eq('org_id', currentOrgId).is('party_id', null).neq('status', 'cancelled')
+          .gte('created_at', from + 'T00:00:00+05:30').lte('created_at', to + 'T23:59:59.999+05:30').order('id')) : Promise.resolve({ data: [] })
+      ]);
+    } catch (err){ invRes = { error: err }; }
+    if (!invRes || invRes.error || (payRes && payRes.error)){ $('pmBody').innerHTML = '<tr class="empty-row"><td colspan="8">Could not load party business.</td></tr>'; pmData = null; return; }
+
+    const months = pmMonthsBetween(from, to);
+    const byParty = new Map();
+    const partyName = id => { const p = parties.find(x => x.id === id); return p ? p.name : null; };
+    const get = (key, name) => {
+      if (!byParty.has(key)) byParty.set(key, { key, name, orders: 0, value: 0, received: 0, last: null, months: {} });
+      return byParty.get(key);
+    };
+    const month = (rec, k) => rec.months[k] || (rec.months[k] = { orders: 0, value: 0, received: 0 });
+    (invRes.data || []).forEach(i => {
+      const key = i.party_id || WALKIN_KEY;
+      const rec = get(key, i.party_id ? ((i.parties && i.parties.name) || partyName(i.party_id) || 'Unknown party') : 'Walk-in (no saved party)');
+      const mk = String(i.invoice_date).slice(0, 7);
+      rec.orders++; rec.value += Number(i.grand_total) || 0;
+      month(rec, mk).orders++; month(rec, mk).value += Number(i.grand_total) || 0;
+      if (!rec.last || i.invoice_date > rec.last) rec.last = i.invoice_date;
+    });
+    (payRes.data || []).forEach(pm => {
+      if (!pm.party_id) return;
+      const rec = get(pm.party_id, partyName(pm.party_id) || 'Unknown party');
+      const mk = String(pm.payment_date).slice(0, 7);
+      rec.received += Number(pm.amount) || 0; month(rec, mk).received += Number(pm.amount) || 0;
+    });
+    (tkRes.data || []).forEach(t => {
+      const rec = get(WALKIN_KEY, 'Walk-in (no saved party)');
+      const day = toISODateLocal(t.created_at), mk = day.slice(0, 7), v = ticketGrandTotal(t);
+      rec.orders++; rec.value += v; month(rec, mk).orders++; month(rec, mk).value += v;
+      if (t.payment_status === 'paid'){ rec.received += v; month(rec, mk).received += v; }
+      if (!rec.last || day > rec.last) rec.last = day;
+    });
+    pmData = { from, to, months, rows: [...byParty.values()] };
+    renderPartyMonthly();
+  }
+
+  function pmFiltered(){
+    if (!pmData) return [];
+    const term = $('pmSearch').value.trim().toLowerCase();
+    return pmData.rows.filter(r => !term || r.name.toLowerCase().includes(term))
+      .sort((a, b) => (a.key === WALKIN_KEY) - (b.key === WALKIN_KEY) || b.value - a.value || b.received - a.received);
+  }
+  function renderPartyMonthly(){
+    if (!pmData) return;
+    const isSale = pmType === 'sale';
+    const rows = pmFiltered();
+    const all = pmData.rows;
+    const tot = all.reduce((t, r) => { t.orders += r.orders; t.value += r.value; t.received += r.received; return t; }, { orders: 0, value: 0, received: 0 });
+    const active = all.filter(r => r.orders > 0 && r.key !== WALKIN_KEY).length;
+    $('pmParties').textContent = fmtQty(active);
+    $('pmOrders').textContent = fmtQty(tot.orders);
+    $('pmValue').textContent = fmtMoney0(tot.value);
+    $('pmReceivedLabel').textContent = isSale ? 'Received' : 'Paid out';
+    $('pmReceived').textContent = fmtMoney0(tot.received);
+    $('pmRangeLabel').textContent = (isSale ? 'Customers' : 'Suppliers') + ' — ' + fmtDate(pmData.from) + ' to ' + fmtDate(pmData.to) +
+      '. Value = bills (incl. GST); ' + (isSale ? 'received' : 'paid') + ' = payments dated in the period.';
+
+    // ---- by party, each expandable into its months ----
+    $('pmHead').innerHTML = '<tr><th>' + (isSale ? 'Customer' : 'Supplier') + '</th><th class="num">Orders</th><th class="num">Value</th><th class="num">' + (isSale ? 'Received' : 'Paid') + '</th>' +
+      '<th class="num">Avg order</th><th class="num">Months active</th><th class="num">Share</th><th>Last order</th></tr>';
+    $('pmBody').innerHTML = rows.length ? rows.map(r => {
+      const monthsActive = Object.values(r.months).filter(x => x.orders).length;
+      const open = pmExpanded.has(r.key);
+      let html = '<tr class="pm-row' + (open ? ' open' : '') + '" data-key="' + escHtml(r.key) + '"><td class="item-name"><span class="pm-chev">' + (open ? '▼' : '▶') + '</span> ' + escHtml(pmName(r)) + '</td>' +
+        '<td class="num">' + (r.orders || '—') + '</td><td class="num"><b>' + (r.value ? fmtMoney0(r.value) : '—') + '</b></td><td class="num">' + (r.received ? fmtMoney0(r.received) : '—') + '</td>' +
+        '<td class="num">' + (r.orders ? fmtMoney0(r.value / r.orders) : '—') + '</td><td class="num">' + (monthsActive || '—') + '</td>' +
+        '<td class="num">' + (tot.value && r.value ? (r.value * 100 / tot.value).toFixed(1) + '%' : '—') + '</td><td>' + (r.last ? fmtDate(r.last) : '—') + '</td></tr>';
+      if (open) html += pmData.months.slice().reverse().filter(k => r.months[k]).map(k => {
+        const x = r.months[k];
+        return '<tr class="pm-sub"><td>' + pmMonthLabel(k) + '</td><td class="num">' + (x.orders || '—') + '</td><td class="num">' + (x.value ? fmtMoney0(x.value) : '—') + '</td>' +
+          '<td class="num">' + (x.received ? fmtMoney0(x.received) : '—') + '</td><td class="num">' + (x.orders ? fmtMoney0(x.value / x.orders) : '—') + '</td><td colspan="3"></td></tr>';
+      }).join('');
+      return html;
+    }).join('') + '<tr class="pm-total"><td>Total</td><td class="num">' + fmtQty(rows.reduce((s, r) => s + r.orders, 0)) + '</td><td class="num">' + fmtMoney0(rows.reduce((s, r) => s + r.value, 0)) + '</td>' +
+      '<td class="num">' + fmtMoney0(rows.reduce((s, r) => s + r.received, 0)) + '</td><td colspan="4"></td></tr>'
+      : '<tr class="empty-row"><td colspan="8">' + (all.length ? 'No party matches the search.' : 'No ' + (isSale ? 'sales' : 'purchases') + ' in this period.') + '</td></tr>';
+    $('pmBody').querySelectorAll('.pm-row').forEach(tr => tr.addEventListener('click', function(){
+      const k = this.dataset.key;
+      if (pmExpanded.has(k)) pmExpanded.delete(k); else pmExpanded.add(k);
+      renderPartyMonthly();
+    }));
+
+    // ---- party x month grid (value, with order count underneath) ----
+    const months = pmData.months;
+    $('pmGridWrap').style.display = months.length > 1 ? '' : 'none';
+    if (months.length > 1){
+      $('pmGridHead').innerHTML = '<tr><th>' + (isSale ? 'Customer' : 'Supplier') + '</th>' + months.map(k => '<th class="num">' + pmMonthLabel(k) + '</th>').join('') + '<th class="num">Total</th></tr>';
+      const colTot = months.map(k => rows.reduce((s, r) => s + (r.months[k] ? r.months[k].value : 0), 0));
+      $('pmGridBody').innerHTML = rows.filter(r => r.orders).map(r => '<tr><td class="item-name">' + escHtml(pmName(r)) + '</td>' +
+        months.map(k => { const x = r.months[k]; return '<td class="num">' + (x && x.value ? fmtMoney0(x.value) + '<div class="item-cat">' + x.orders + ' order' + (x.orders === 1 ? '' : 's') + '</div>' : '<span class="pm-dash">—</span>') + '</td>'; }).join('') +
+        '<td class="num"><b>' + fmtMoney0(r.value) + '</b></td></tr>').join('') +
+        '<tr class="pm-total"><td>Total</td>' + colTot.map(v => '<td class="num">' + fmtMoney0(v) + '</td>').join('') + '<td class="num">' + fmtMoney0(colTot.reduce((a, b) => a + b, 0)) + '</td></tr>';
+    }
+  }
+
+  $('pmExportBtn').addEventListener('click', () => {
+    if (!pmData || !pmData.rows.length){ alert('Run a report with some ' + (pmType === 'sale' ? 'sales' : 'purchases') + ' in it first.'); return; }
+    const isSale = pmType === 'sale', who = isSale ? 'Customer' : 'Supplier', rec = isSale ? 'Received' : 'Paid';
+    const rows = pmFiltered();
+    const r0 = v => Math.round(v * 100) / 100;
+    const summary = rows.map(r => ({ [who]: pmName(r), Orders: r.orders, Value: r0(r.value), [rec]: r0(r.received),
+      'Avg order': r.orders ? r0(r.value / r.orders) : 0, 'Months active': Object.values(r.months).filter(x => x.orders).length, 'Last order': r.last || '' }));
+    const monthly = [];
+    rows.forEach(r => pmData.months.forEach(k => { const x = r.months[k]; if (x) monthly.push({ Month: pmMonthLabel(k), [who]: pmName(r), Orders: x.orders, Value: r0(x.value), [rec]: r0(x.received) }); }));
+    const grid = rows.filter(r => r.orders).map(r => { const row = { [who]: pmName(r) }; pmData.months.forEach(k => { row[pmMonthLabel(k)] = r.months[k] ? r0(r.months[k].value) : 0; }); row.Total = r0(r.value); return row; });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'By ' + who.toLowerCase());
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(monthly), 'Month-wise');
+    if (pmData.months.length > 1) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(grid), 'Grid');
+    XLSX.writeFile(wb, (isSale ? 'Customer' : 'Supplier') + '-Business-' + pmData.from + '_to_' + pmData.to + '.xlsx');
+  });
+
   async function refreshEmployeesPanel(){
     if (!isAdmin) return;
     await Promise.all([ loadEmployees(), loadWastageRecords(), loadLoginAccounts() ]);
@@ -8960,6 +9155,7 @@
   async function runReport(){
     const { from, to } = reportRange();
     loadStaffProductivity(from, to);
+    loadPartyMonthly(from, to);
     const [{ data: saleInv }, { data: purInv }, { data: expRows }, { data: payRows }] = await Promise.all([
       fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
       fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
