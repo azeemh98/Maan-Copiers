@@ -287,6 +287,7 @@
   .li-table td{ padding:5px 6px; vertical-align:middle; }
   .li-table input, .li-table select{ padding:7px 8px; font-size:12.5px; }
   .li-table .li-amt{ text-align:right; font-weight:700; white-space:nowrap; }
+  .li-table .li-amt .tk-amt{ width:100px; text-align:right; font-weight:700; }
   .li-remove{ background:none; border:none; color:var(--faint); cursor:pointer; font-size:15px; }
   .li-remove:hover{ color:var(--danger); }
   .totals-box{ margin-left:auto; width:280px; max-width:100%; }
@@ -3965,7 +3966,7 @@
           '<option value="double"' + (li.sides === 'double' ? ' selected' : '') + '>Front &amp; Back</option>' +
         '</select></td>' +
         '<td><input type="number" class="tk-rate" value="' + li.rate + '" min="0" step="0.01" style="width:85px;"></td>' +
-        '<td class="li-amt">' + fmtMoney(amount) + '</td>' +
+        '<td class="li-amt"><input type="number" class="tk-amt" value="' + (Math.round(amount * 100) / 100) + '" min="0" step="0.01" title="Know only the total? Type it here — the rate is worked out (amount ÷ quantity)"></td>' +
         '<td><button class="li-remove" title="Remove line">✕</button></td></tr>';
     }).join('');
     tbody.querySelectorAll('tr').forEach(tr => {
@@ -4052,13 +4053,24 @@
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.tk-sides').addEventListener('change', function(){ ticketLineItems[idx].sides = this.value; ticketLineItems[idx].sidesManual = true; });
       tr.querySelector('.tk-rate').addEventListener('input', function(){ ticketLineItems[idx].rate = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
+      // Typing the total works the rate out (amount ÷ quantity, to 4 decimals so the line
+      // still comes back to the typed total); quantity and rate keep working as before.
+      tr.querySelector('.tk-amt').addEventListener('input', function(){
+        const li = ticketLineItems[idx];
+        const amt = parseFloat(this.value) || 0;
+        if (!(li.qty > 0)) return;
+        li.rate = Math.round(amt / li.qty * 10000) / 10000;
+        tr.querySelector('.tk-rate').value = li.rate;
+        updateTicketTotal();
+      });
       tr.querySelector('.li-remove').addEventListener('click', function(){ ticketLineItems.splice(idx, 1); if (ticketLineItems.length === 0) ticketLineItems.push(newTicketLineRow()); renderTicketLineItems(); updateTicketTotal(); });
     });
     updateTicketTotal();
   }
   function updateTicketLineAmount(tr, idx){
     const li = ticketLineItems[idx];
-    tr.querySelector('.li-amt').textContent = fmtMoney(li.qty * li.rate);
+    const amtInput = tr.querySelector('.tk-amt');
+    if (amtInput && document.activeElement !== amtInput) amtInput.value = Math.round(li.qty * li.rate * 100) / 100;
     updateTicketTotal();
   }
   function computeTicketTotal(){ return ticketLineItems.reduce((s,li) => s + li.qty * li.rate, 0); }
@@ -5604,7 +5616,7 @@
       en: { title: 'Walk-in Jobs', purpose: 'Every job slip (JT) for customers — create, find, print and track it.',
         steps: [
           'In **New Walk-in Job Ticket**, search a saved customer — or just type a walk-in name and phone.',
-          'Add one line per item: pick the service or paper, then quantity and rate. For printing choose **Single Side** or **Front & Back** (writing F&B in the description sets it for you).',
+          'Add one line per item: pick the service or paper, then quantity and rate. Know only the total? Type it in **Amount** and the rate is worked out. For printing choose **Single Side** or **Front & Back** (writing F&B in the description sets it for you).',
           'Choose the **Machine** and **Operator**, then press **Save & Print Slip**. The slip prints with who took the job, the operator and the machine.',
           'Find any old slip: type the JT number (like **81** or **JT-0081**), customer name or phone in the search box — it searches every date.',
           'Use **All staff** to see one person\'s slips, and the ◀ ▶ arrows or the date box to see another day.',
@@ -5617,7 +5629,7 @@
       hi: { title: 'Walk-in Jobs', purpose: 'ग्राहकों की हर जॉब स्लिप (JT) — बनाना, ढूँढना, प्रिंट करना और ट्रैक करना।',
         steps: [
           '**New Walk-in Job Ticket** में सेव किया हुआ ग्राहक ढूँढें — या वॉक-इन ग्राहक का नाम और फ़ोन लिख दें।',
-          'हर आइटम की एक लाइन जोड़ें: सर्विस या पेपर चुनें, फिर मात्रा और रेट। प्रिंटिंग के लिए **Single Side** या **Front & Back** चुनें (डिस्क्रिप्शन में F&B लिखने पर यह अपने-आप चुन जाता है)।',
+          'हर आइटम की एक लाइन जोड़ें: सर्विस या पेपर चुनें, फिर मात्रा और रेट। सिर्फ़ कुल रकम पता है? उसे **Amount** में लिखें, रेट अपने-आप निकल आएगा। प्रिंटिंग के लिए **Single Side** या **Front & Back** चुनें (डिस्क्रिप्शन में F&B लिखने पर यह अपने-आप चुन जाता है)।',
           '**Machine** और **Operator** चुनें, फिर **Save & Print Slip** दबाएँ। स्लिप पर जॉब लेने वाले, ऑपरेटर और मशीन का नाम छपता है।',
           'कोई भी पुरानी स्लिप ढूँढें: सर्च बॉक्स में JT नंबर (जैसे **81** या **JT-0081**), ग्राहक का नाम या फ़ोन लिखें — यह हर तारीख में ढूँढता है।',
           '**All staff** से किसी एक व्यक्ति की स्लिप देखें, और ◀ ▶ तीर या तारीख बॉक्स से दूसरे दिन की।',
