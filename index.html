@@ -1508,7 +1508,7 @@
         <label class="qr-switch" id="qrAutoPrintWrap" title="New orders print by themselves on this PC — only one computer can do this"><input type="checkbox" id="qrAutoPrint"> Auto-print new orders on this computer</label>
         <span class="hint" id="qrAutoPrintWho"></span>
         <button class="btn-sm" id="qrPosterBtn">🖨 Shop QR poster</button>
-        <button class="btn-sm" id="qrResetBtn" style="display:none; color:var(--danger);" title="Azeem only: delete all QR orders and files, optionally make a new QR code">🧹 Reset QR</button>
+        <button class="btn-sm" id="qrResetBtn" style="display:none; color:var(--danger);" title="Azeem only: delete all QR orders and files, count starts again from #1. The QR code does not change.">🧹 Reset QR count</button>
       </div>
       <div class="hint" style="margin-top:8px;">Auto-print opens the print window for each order. To print with no window at all, start Chrome on the counter PC with <b>--kiosk-printing</b> (shortcut target: <code>chrome.exe --kiosk-printing</code>). Word, PowerPoint and iPhone (HEIC) files can't be laid out in the browser — use ⬇ to download and print them. Customer files are deleted when you press <b>✓ Ready</b> (printing done), and any left over are cleared every hour.</div>
     </section>
@@ -1532,7 +1532,7 @@
           </div>
           <div class="field" id="qrCodeWrap"><label>Shop code (in the poster's QR)</label>
             <div style="display:flex; gap:8px; align-items:center;"><code id="qrCodeShow" style="font-size:15px; font-weight:700;"></code>
-            <button class="btn-sm" id="qrNewCodeBtn" title="Old posters stop working — print the new poster">New code</button></div>
+            <span class="hint">🔒 Locked — the poster is up at the shop</span></div>
           </div>
         </div>
         <div class="field" id="qrWifiNameWrap"><label for="qrSetWifiName">Shop Wi-Fi name (shown to customers &amp; on the poster)</label><input type="text" id="qrSetWifiName" maxlength="40" placeholder="e.g. MAAN_COPIERS"></div>
@@ -7353,11 +7353,12 @@
     }, isNew ? 600 : 300);
   }
 
-  // ---- Reset (Azeem only): delete all QR orders + customer files, optionally a new QR code ----
+  // ---- Reset (Azeem only): delete all QR orders + customer files and start the count from #1.
+  // The QR code itself never changes — the poster is stuck up at the shop. ----
   $('qrResetBtn').addEventListener('click', async function(){
     if (currentUserId !== OWNER_ID) return;
-    if (!window.confirm('Reset QR print?\n\nThis permanently deletes ALL QR orders and every customer file still stored. It cannot be undone.\n\nJob slips, bills, payments and stock are not touched.')) return;
-    const newCode = window.confirm('Also make a NEW QR code?\n\nOK = new code: the posters already stuck up stop working — print the new poster afterwards.\nCancel = keep the current QR code.');
+    if (!window.confirm('Reset QR orders?\n\nThis permanently deletes ALL QR orders and customer files, and the order count starts again from #1. It cannot be undone.\n\nThe QR code on the poster stays the same. Job slips, bills, payments and stock are not touched.')) return;
+    const newCode = false;
     this.disabled = true;
     try {
       // Stored files first, through the storage service (the hourly cleanup catches anything missed).
@@ -7437,14 +7438,6 @@
     $('qrWifiNameWrap').style.display = v === 'wifi' ? '' : 'none';
   }
   $('qrSetAccess').addEventListener('change', qrAccessUi);
-  $('qrNewCodeBtn').addEventListener('click', async function(e){
-    e.preventDefault();
-    if (!window.confirm('Make a new shop code? The QR posters already stuck up will stop working — print the new poster right after.')) return;
-    const { error } = await supabaseClient.from('qr_print_settings').update({ shop_code: qrNewCode(), updated_at: new Date().toISOString() }).eq('org_id', currentOrgId);
-    if (error){ alert(error.message); return; }
-    await loadQrPanel();
-    showStatus($('qrSettingsStatus'), 'New code saved — now print the new poster (🖨 Shop QR poster).', true);
-  });
   $('qrSetAllowColor').addEventListener('change', function(){ if (qrSettings) qrSettings.allow_color = this.checked; renderQrSettings(); });
   $('qrSaveSettings').addEventListener('click', async function(){
     const statusEl = $('qrSettingsStatus');
