@@ -1508,6 +1508,7 @@
         <label class="qr-switch" id="qrAutoPrintWrap" title="New orders print by themselves on this PC — only one computer can do this"><input type="checkbox" id="qrAutoPrint"> Auto-print new orders on this computer</label>
         <span class="hint" id="qrAutoPrintWho"></span>
         <button class="btn-sm" id="qrPosterBtn">🖨 Shop QR poster</button>
+        <button class="btn-sm" id="qrResetBtn" style="display:none; color:var(--danger);" title="Azeem only: delete all QR orders and files, optionally make a new QR code">🧹 Reset QR</button>
       </div>
       <div class="hint" style="margin-top:8px;">Auto-print opens the print window for each order. To print with no window at all, start Chrome on the counter PC with <b>--kiosk-printing</b> (shortcut target: <code>chrome.exe --kiosk-printing</code>). Word, PowerPoint and iPhone (HEIC) files can't be laid out in the browser — use ⬇ to download and print them. Customer files are deleted when you press <b>✓ Ready</b> (printing done), and any left over are cleared every hour.</div>
     </section>
@@ -7042,6 +7043,7 @@
       ? (qrAutoPrintOn() ? 'Auto-print: THIS computer' : 'Auto-print is on another computer: ' + (s.autoprint_label || 'unknown') + (s.autoprint_since ? ' (since ' + timeAgo(s.autoprint_since) + ')' : ''))
       : 'Auto-print is off on every computer';
     $('qrSettingsCard').style.display = isAdmin || isTicketApprover ? '' : 'none';
+    $('qrResetBtn').style.display = currentUserId === OWNER_ID ? '' : 'none';
     $('qrAdminSettings').style.display = isAdmin ? '' : 'none';
     $('qrSettingsTitle').textContent = isAdmin ? '⚙ QR Print settings & rates' : '₹ QR Print rates';
     $('qrSaveLabel').textContent = isAdmin ? 'Save QR settings' : 'Save rates';
@@ -7350,6 +7352,26 @@
       }
     }, isNew ? 600 : 300);
   }
+
+  // ---- Reset (Azeem only): delete all QR orders + customer files, optionally a new QR code ----
+  $('qrResetBtn').addEventListener('click', async function(){
+    if (currentUserId !== OWNER_ID) return;
+    if (!window.confirm('Reset QR print?\n\nThis permanently deletes ALL QR orders and every customer file still stored. It cannot be undone.\n\nJob slips, bills, payments and stock are not touched.')) return;
+    const newCode = window.confirm('Also make a NEW QR code?\n\nOK = new code: the posters already stuck up stop working — print the new poster afterwards.\nCancel = keep the current QR code.');
+    this.disabled = true;
+    try {
+      // Stored files first, through the storage service (the hourly cleanup catches anything missed).
+      const { data: fileRows } = await supabaseClient.from('qr_print_order_files').select('file_path').eq('org_id', currentOrgId).is('file_removed_at', null);
+      const paths = (fileRows || []).map(f => f.file_path);
+      for (let i = 0; i < paths.length; i += 100) await supabaseClient.storage.from(QR_BUCKET).remove(paths.slice(i, i + 100));
+      const { data, error } = await supabaseClient.rpc('qr_print_reset', { p_org_id: currentOrgId, p_new_code: newCode });
+      if (error) throw error;
+      await loadQrPanel();
+      showToast('🧹 QR print reset', data.orders_deleted + ' order' + (data.orders_deleted === 1 ? '' : 's') + ' and ' + paths.length + ' file' + (paths.length === 1 ? '' : 's') + ' deleted' + (newCode ? ' · new QR code made' : ''));
+      if (newCode) alert('New QR code made. Press "🖨 Shop QR poster" and replace the poster on the counter — the old QR no longer works.');
+    } catch (err){ alert(err.message || 'Could not reset QR print.'); }
+    finally { this.disabled = false; }
+  });
 
   // ---- shop poster (A4) ----
   $('qrPosterBtn').addEventListener('click', async function(){
