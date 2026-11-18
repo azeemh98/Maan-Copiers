@@ -1505,7 +1505,8 @@
         <span class="hint" id="qrNetInfo"></span>
         <span style="flex:1;"></span>
         <label class="qr-switch" title="Tick on the counter PC (and any staff phone on the shop Wi-Fi). It records the shop's network so only customers inside the shop can order."><input type="checkbox" id="qrShopDevice"> This device is in the shop</label>
-        <label class="qr-switch" id="qrAutoPrintWrap" title="New orders print by themselves on this PC"><input type="checkbox" id="qrAutoPrint"> Auto-print new orders</label>
+        <label class="qr-switch" id="qrAutoPrintWrap" title="New orders print by themselves on this PC — only one computer can do this"><input type="checkbox" id="qrAutoPrint"> Auto-print new orders on this computer</label>
+        <span class="hint" id="qrAutoPrintWho"></span>
         <button class="btn-sm" id="qrPosterBtn">🖨 Shop QR poster</button>
       </div>
       <div class="hint" style="margin-top:8px;">Auto-print opens the print window for each order. To print with no window at all, start Chrome on the counter PC with <b>--kiosk-printing</b> (shortcut target: <code>chrome.exe --kiosk-printing</code>). Word, PowerPoint and iPhone (HEIC) files can't be laid out in the browser — use ⬇ to download and print them. Customer files are deleted when you press <b>✓ Ready</b> (printing done), and any left over are cleared every hour.</div>
@@ -6985,7 +6986,9 @@
   let qrOrders = [], qrSettings = null, qrRates = [], qrLoadedOnce = false, qrBusy = new Set();
   const qrLabel = n => '#' + String(n).padStart(3, '0');
   const qrIsShopDevice = () => { try { return localStorage.getItem('mc_qr_shop_device_' + currentOrgId) === '1'; } catch (_){ return false; } };
-  const qrAutoPrintOn = () => { try { return localStorage.getItem('mc_qr_autoprint_' + currentOrgId) === '1'; } catch (_){ return false; } };
+  // Only one computer auto-prints: the one recorded in the database. Each order is also claimed
+  // (New -> Printing) before it's auto-printed, so even a mix-up can never print it twice.
+  const qrAutoPrintOn = () => !!(qrSettings && qrSettings.autoprint_device && qrSettings.autoprint_device === getDeviceId());
   const qrPrintUrl = () => {
     const q = [];
     if (appMode === 'demo') q.push('org=demo');
@@ -7032,19 +7035,28 @@
       : (s.require_code ? 'Only customers who scan the shop poster can order (secret code in the QR).' : 'Anyone with the link can order.'));
     $('qrShopDevice').checked = qrIsShopDevice();
     $('qrAutoPrint').checked = qrAutoPrintOn();
-    $('qrAutoPrintWrap').style.opacity = qrIsShopDevice() ? '' : '0.5';
+    $('qrAutoPrintWho').textContent = s && s.autoprint_device
+      ? (qrAutoPrintOn() ? 'Auto-print: THIS computer' : 'Auto-print is on another computer: ' + (s.autoprint_label || 'unknown') + (s.autoprint_since ? ' (since ' + timeAgo(s.autoprint_since) + ')' : ''))
+      : 'Auto-print is off on every computer';
     $('qrSettingsCard').style.display = isAdmin ? '' : 'none';
   }
   $('qrShopDevice').addEventListener('change', async function(){
     try { localStorage.setItem('mc_qr_shop_device_' + currentOrgId, this.checked ? '1' : '0'); } catch (_){}
     if (this.checked) await qrRegisterNetwork(false);
-    else { $('qrAutoPrint').checked = false; try { localStorage.setItem('mc_qr_autoprint_' + currentOrgId, '0'); } catch (_){} }
     renderQrTop();
   });
-  $('qrAutoPrint').addEventListener('change', function(){
-    if (this.checked && !qrIsShopDevice()){ this.checked = false; alert('Tick "This device is in the shop" first — auto-print runs on the counter PC.'); return; }
-    try { localStorage.setItem('mc_qr_autoprint_' + currentOrgId, this.checked ? '1' : '0'); } catch (_){}
-    if (this.checked) showToast('🖨 Auto-print ON', 'New QR orders print by themselves on this PC.');
+  $('qrAutoPrint').addEventListener('change', async function(){
+    const on = this.checked;
+    if (on && qrSettings && qrSettings.autoprint_device && !qrAutoPrintOn() &&
+        !window.confirm('Auto-print is on "' + (qrSettings.autoprint_label || 'another computer') + '".\n\nMove it to THIS computer? The other one will stop auto-printing.')){ this.checked = false; return; }
+    this.disabled = true;
+    const label = getDeviceLabel() + ' · ' + (staffName(currentUserId) || 'staff');
+    const { data, error } = await supabaseClient.rpc('qr_print_set_autoprint', { p_org_id: currentOrgId, p_device: getDeviceId(), p_label: label, p_on: on });
+    this.disabled = false;
+    if (error){ alert(error.message); this.checked = !on; return; }
+    if (qrSettings){ qrSettings.autoprint_device = data.device; qrSettings.autoprint_label = data.label; qrSettings.autoprint_since = on ? new Date().toISOString() : null; }
+    renderQrTop();
+    showToast(on ? '🖨 Auto-print ON — this computer' : 'Auto-print OFF', on ? 'Only this computer prints new QR orders.' : '');
   });
   // The shop's public internet address changes now and then; a shop device refreshes it (now,
   // and every 20 minutes) so "shop Wi-Fi only" keeps matching.
@@ -7308,6 +7320,15 @@
       });
     } catch (_){}
   }
+  async function qrAutoPrint(o){
+    const { data, error } = await supabaseClient.from('qr_print_orders').update({ status: 'printing' }).eq('id', o.id).eq('status', 'new').select('id');
+    if (error || !data || !data.length) return;   // someone else already took it
+    o.status = 'printing';
+    qrBusy.add(o.id); renderQrBoard();
+    try { await qrPrintOrder(o); }
+    catch (err){ showToast('⚠ Auto-print failed ' + qrLabel(o.order_no), err.message || ''); }
+    finally { qrBusy.delete(o.id); renderQrBoard(); }
+  }
   let qrRefreshTimer = null;
   async function onQrOrderChange(payload){
     clearTimeout(qrRefreshTimer);
@@ -7318,7 +7339,7 @@
         const o = qrOrders.find(x => x.id === payload.new.id);
         qrDing();
         showToast('🖨 New QR order ' + (o ? qrLabel(o.order_no) : ''), o ? fmtMoney(o.amount) + ' · ' + o.files.length + ' file' + (o.files.length === 1 ? '' : 's') : '');
-        if (o && qrAutoPrintOn() && qrIsShopDevice() && o.status === 'new') qrAction(o, 'print');
+        if (o && qrAutoPrintOn() && o.status === 'new') qrAutoPrint(o);
       }
     }, isNew ? 600 : 300);
   }
