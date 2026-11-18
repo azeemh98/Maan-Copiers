@@ -670,7 +670,10 @@
       const st = await rpc('qr_print_order_status', { p_id: doneOrder.id });
       if (st){
         Object.assign(doneOrder, st); renderDone();
-        if (['ready', 'delivered', 'cancelled'].includes(st.status)) savePass(null);
+        if (['ready', 'delivered', 'cancelled'].includes(st.status)){
+          savePass(null);
+          try { localStorage.setItem(STORE_KEY, JSON.stringify(loadSaved().filter(x => x.id !== doneOrder.id))); } catch (_){}
+        }
         if (['delivered', 'cancelled'].includes(st.status)) clearInterval(pollTimer);
       }
     } catch (_){}
@@ -697,10 +700,17 @@
   }
 
   function loadSaved(){ try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (_){ return []; } }
+  // Only orders still being worked on stay on this phone. Once an order is Ready / Collected /
+  // Cancelled, or the shop has deleted it, it is forgotten here for good.
   async function renderMyOrders(){
     const saved = loadSaved().filter(o => o.date === todayIST());
-    if (!saved.length){ $('myOrders').classList.add('hidden'); return; }
-    const rows = await Promise.all(saved.map(async o => { try { return Object.assign({}, o, await rpc('qr_print_order_status', { p_id: o.id })); } catch (_){ return o; } }));
+    const checked = await Promise.all(saved.map(async o => {
+      try { const st = await rpc('qr_print_order_status', { p_id: o.id }); return st ? Object.assign({}, o, st) : null; }
+      catch (_){ return o; }   // offline: keep it for now
+    }));
+    const rows = checked.filter(o => o && ['new', 'printing'].includes(o.status || 'new'));
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(rows.map(o => ({ id: o.id, order_no: o.order_no, amount: o.amount, method: o.method, date: o.date })))); } catch (_){}
+    if (!rows.length){ $('myOrders').classList.add('hidden'); return; }
     const label = { new: 'Received', printing: 'Printing', ready: 'Ready ✓', delivered: 'Collected', cancelled: 'Cancelled' };
     $('myOrdersList').innerHTML = rows.map((o, i) => '<div class="my-order" data-i="' + i + '"><b>' + orderLabel(o.order_no) + '</b><span>' + money(o.amount) + '</span>' +
       '<span class="pill ' + (o.status === 'ready' ? 'ok' : 'wait') + '">' + (label[o.status] || 'Received') + '</span></div>').join('');
