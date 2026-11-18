@@ -1514,8 +1514,9 @@
     <div class="qr-board" id="qrBoard"><div class="hint">Loading…</div></div>
 
     <section class="card" id="qrSettingsCard" style="margin-top:14px;">
-      <h2 class="collapsible" id="qrSettingsToggle"><span>⚙ QR Print settings &amp; rates</span><span class="chev">▶</span></h2>
+      <h2 class="collapsible" id="qrSettingsToggle"><span id="qrSettingsTitle">⚙ QR Print settings &amp; rates</span><span class="chev">▶</span></h2>
       <div id="qrSettingsBody" style="display:none; margin-top:16px;">
+        <div id="qrAdminSettings">
         <div class="row2">
           <label class="mpw-check" style="margin:0;"><input type="checkbox" id="qrSetEnabled"> Accept QR orders (customers can order)</label>
           <label class="mpw-check" style="margin:0;"><input type="checkbox" id="qrSetTicket"> On Delivered, add it to job slips (stock, Konica &amp; reports)</label>
@@ -1541,9 +1542,10 @@
           <div class="field"><label for="qrSetColorMachine">Colour machine</label><input type="text" id="qrSetColorMachine" list="tkMachineDatalist"></div>
         </div>
         <label class="mpw-check" style="margin:4px 0 10px;"><input type="checkbox" id="qrSetAllowColor"> Allow colour printing on QR</label>
+        </div>
         <div class="hint" style="margin-bottom:6px;">Rates are ₹ per printed side. Price = sides × rate × copies. Set a rate to 0 to hide that size.</div>
         <div class="table-scroll"><table class="data-table qr-rates"><thead id="qrRatesHead"></thead><tbody id="qrRatesBody"></tbody></table></div>
-        <button class="add-btn save-btn" id="qrSaveSettings" style="margin-top:14px;"><span>Save QR settings</span><span></span></button>
+        <button class="add-btn save-btn" id="qrSaveSettings" style="margin-top:14px;"><span id="qrSaveLabel">Save QR settings</span><span></span></button>
         <div class="status-msg" id="qrSettingsStatus"></div>
       </div>
     </section>
@@ -7038,7 +7040,10 @@
     $('qrAutoPrintWho').textContent = s && s.autoprint_device
       ? (qrAutoPrintOn() ? 'Auto-print: THIS computer' : 'Auto-print is on another computer: ' + (s.autoprint_label || 'unknown') + (s.autoprint_since ? ' (since ' + timeAgo(s.autoprint_since) + ')' : ''))
       : 'Auto-print is off on every computer';
-    $('qrSettingsCard').style.display = isAdmin ? '' : 'none';
+    $('qrSettingsCard').style.display = isAdmin || isTicketApprover ? '' : 'none';
+    $('qrAdminSettings').style.display = isAdmin ? '' : 'none';
+    $('qrSettingsTitle').textContent = isAdmin ? '⚙ QR Print settings & rates' : '₹ QR Print rates';
+    $('qrSaveLabel').textContent = isAdmin ? 'Save QR settings' : 'Save rates';
   }
   $('qrShopDevice').addEventListener('change', async function(){
     try { localStorage.setItem('mc_qr_shop_device_' + currentOrgId, this.checked ? '1' : '0'); } catch (_){}
@@ -7381,7 +7386,7 @@
   toggleCollapsible($('qrSettingsToggle'), $('qrSettingsBody'));
   const QR_PAPERS = ['A4', 'A3', 'Letter', 'Legal'];
   function renderQrSettings(){
-    if (!isAdmin) return;
+    if (!isAdmin && !isTicketApprover) return;
     const s = qrSettings || {};
     $('qrSetEnabled').checked = !!s.enabled;
     $('qrSetAccess').value = s.wifi_only ? 'wifi' : (s.require_code ? 'code' : 'open');
@@ -7418,11 +7423,21 @@
   $('qrSetAllowColor').addEventListener('change', function(){ if (qrSettings) qrSettings.allow_color = this.checked; renderQrSettings(); });
   $('qrSaveSettings').addEventListener('click', async function(){
     const statusEl = $('qrSettingsStatus');
-    if (!requireAdmin(statusEl)) return;
+    if (!isAdmin && !isTicketApprover){ showStatus(statusEl, 'Only admins or Azad can change QR rates.', false); return; }
     const upi = $('qrSetUpi').value.trim();
-    if (upi && !/^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(upi)){ showStatus(statusEl, 'UPI ID looks wrong — it should look like name@okhdfc.', false); return; }
+    if (isAdmin && upi && !/^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(upi)){ showStatus(statusEl, 'UPI ID looks wrong — it should look like name@okhdfc.', false); return; }
     this.disabled = true;
     try {
+      if (!isAdmin){
+        // Slip approvers (Azad) save the rates only.
+        const rows = [...document.querySelectorAll('.qr-rate')].map(inp => ({ org_id: currentOrgId, color: inp.dataset.c, paper: inp.dataset.p,
+          duplex: inp.dataset.d === 'true', rate: Math.max(0, parseFloat(inp.value) || 0) }));
+        const { error: rErr } = await supabaseClient.from('qr_print_rates').upsert(rows, { onConflict: 'org_id,color,paper,duplex' });
+        if (rErr) throw rErr;
+        showStatus(statusEl, 'Rates saved. A rate of 0 hides that size.', true);
+        await loadQrPanel();
+        return;
+      }
       const access = $('qrSetAccess').value;
       const patch = { org_id: currentOrgId, enabled: $('qrSetEnabled').checked, wifi_only: access === 'wifi', require_code: access === 'code',
         shop_code: access === 'code' ? ((qrSettings && qrSettings.shop_code) || qrNewCode()) : ((qrSettings && qrSettings.shop_code) || null),
