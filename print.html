@@ -152,7 +152,7 @@
   <div id="loading" class="card muted" style="text-align:center;">Loading…</div>
 
   <div id="closed" class="hidden">
-    <div class="banner warn"><b>QR printing is closed right now</b>Please ask at the counter — we'll be happy to help.</div>
+    <div class="banner warn" id="closedMsg"><b>QR printing is closed right now</b>Please ask at the counter — we'll be happy to help.</div>
   </div>
 
   <div id="netWarn" class="banner warn hidden"></div>
@@ -241,7 +241,10 @@
   const SUPABASE_URL = 'https://yymwifdmuwmhlfwgcjrj.supabase.co';
   const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl5bXdpZmRtdXdtaGxmd2djanJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NzAxNzUsImV4cCI6MjEwMjU0NjE3NX0.U4jLF_BozUCZshspeUKO4PkASF2sPXem_gcsBsq7HtU';
   const ORGS = { live: 'd7334fe5-1e03-4092-8f43-555113fcda96', demo: 'd7334fe5-1e03-4092-8f43-555113fcda97' };
-  const ORG = new URLSearchParams(location.search).get('org') === 'demo' ? ORGS.demo : ORGS.live;
+  const PARAMS = new URLSearchParams(location.search);
+  const ORG = PARAMS.get('org') === 'demo' ? ORGS.demo : ORGS.live;
+  // Shop code from the poster's QR (?k=...): only people who scanned it in the shop can order.
+  const CODE = (PARAMS.get('k') || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
   const BUCKET = 'qr-print-files';
   const MAX_SIZE = 50 * 1024 * 1024;
   const PAPERS = ['A4', 'A3', 'Letter', 'Legal'];
@@ -275,9 +278,13 @@
 
   // ---------- start ----------
   async function init(){
-    try { config = await rpc('qr_print_public_config', { p_org_id: ORG }); }
+    try { config = await rpc('qr_print_public_config', { p_org_id: ORG, p_code: CODE || null }); }
     catch (err){ config = null; }
     $('loading').classList.add('hidden');
+    if (config && config.enabled && config.code_ok === false){
+      $('closedMsg').innerHTML = '<b>Scan the QR code at the counter</b>To print, scan the QR poster at the ' + esc(config.shop_name || 'shop') + ' counter with your phone camera.';
+      $('closed').classList.remove('hidden'); renderMyOrders(); return;
+    }
     if (!config || !config.enabled){ $('closed').classList.remove('hidden'); renderMyOrders(); return; }
     renderNetwork();
     $('viewUpload').classList.remove('hidden');
@@ -291,7 +298,7 @@
       (config.wifi_name ? ' — join <b style="display:inline;">' + esc(config.wifi_name) + '</b>' : '') +
       ', then tap below.<div style="margin-top:10px;"><button class="btn ghost" id="netRetry" style="min-height:44px; padding:10px 16px;">I\'m connected — check again</button></div>';
     $('netRetry').onclick = async () => {
-      try { config = await rpc('qr_print_public_config', { p_org_id: ORG }); } catch (_){}
+      try { config = await rpc('qr_print_public_config', { p_org_id: ORG, p_code: CODE || null }); } catch (_){}
       renderNetwork();
       if (config && config.on_shop_network) toast('Connected ✓ — you can print now.');
     };
@@ -332,7 +339,7 @@
   function safeName(n){ return n.replace(/[^\w.\-]+/g, '_').replace(/_+/g, '_').slice(-80) || 'file'; }
   function uuid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)); }
   function startUpload(item){
-    item.path = ORG + '/' + uuid() + '/' + safeName(item.name);
+    item.path = ORG + '/' + (CODE ? CODE + '-' : '') + uuid() + '/' + safeName(item.name);
     item.failed = false; item.pct = 0;
     const xhr = new XMLHttpRequest();
     xhr.open('POST', SUPABASE_URL + '/storage/v1/object/' + BUCKET + '/' + item.path.split('/').map(encodeURIComponent).join('/'));
@@ -572,7 +579,7 @@
     sending = true; closeSheet(); $('sending').classList.remove('hidden');
     try {
       const res = await rpc('qr_print_submit', { payload: {
-        org_id: ORG, payment_method: method,
+        org_id: ORG, code: CODE || null, payment_method: method,
         customer_name: $('cName').value.trim() || null, customer_phone: $('cPhone').value.trim() || null, notes: $('cNote').value.trim() || null,
         files: files.map(f => ({ file_path: f.path, file_name: f.name, pages: f.pages, page_range: f.s.range || null,
           color: f.s.color, paper: f.s.paper, duplex: f.s.duplex, copies: f.s.copies, pps: f.s.pps }))

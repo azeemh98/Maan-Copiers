@@ -1520,9 +1520,19 @@
           <label class="mpw-check" style="margin:0;"><input type="checkbox" id="qrSetTicket"> On Delivered, add it to job slips (stock, Konica &amp; reports)</label>
         </div>
         <div class="row2" style="margin-top:12px;">
-          <label class="mpw-check" style="margin:0;"><input type="checkbox" id="qrSetWifiOnly"> Only from the shop Wi-Fi</label>
-          <div class="field"><label for="qrSetWifiName">Shop Wi-Fi name (shown to customers &amp; on the poster)</label><input type="text" id="qrSetWifiName" maxlength="40" placeholder="e.g. MAAN_COPIERS"></div>
+          <div class="field"><label for="qrSetAccess">Who can order</label>
+            <select id="qrSetAccess">
+              <option value="code">Customers who scan the shop poster (secret code in the QR)</option>
+              <option value="wifi">Only phones on the shop Wi-Fi</option>
+              <option value="open">Anyone with the link</option>
+            </select>
+          </div>
+          <div class="field" id="qrCodeWrap"><label>Shop code (in the poster's QR)</label>
+            <div style="display:flex; gap:8px; align-items:center;"><code id="qrCodeShow" style="font-size:15px; font-weight:700;"></code>
+            <button class="btn-sm" id="qrNewCodeBtn" title="Old posters stop working — print the new poster">New code</button></div>
+          </div>
         </div>
+        <div class="field" id="qrWifiNameWrap"><label for="qrSetWifiName">Shop Wi-Fi name (shown to customers &amp; on the poster)</label><input type="text" id="qrSetWifiName" maxlength="40" placeholder="e.g. MAAN_COPIERS"></div>
         <div class="row3">
           <div class="field"><label for="qrSetUpi">Shop UPI ID (blank = pay at counter only)</label><input type="text" id="qrSetUpi" maxlength="60" placeholder="e.g. maancopiers@okhdfc"></div>
           <div class="field"><label for="qrSetUpiName">UPI payee name (as on the bank QR)</label><input type="text" id="qrSetUpiName" maxlength="60" placeholder="e.g. M/S.SOULFUL EVENTS"></div>
@@ -5825,7 +5835,7 @@
     qr: {
       en: { title: 'QR Orders', purpose: 'Walk-in customers scan the shop QR, upload their file, choose settings and pay — the order arrives here and goes to the printer.',
         steps: [
-          'On the counter PC tick **This device is in the shop** (it records the shop Wi-Fi so only customers inside the shop can order) and **Auto-print new orders**.',
+          'On the counter PC tick **Auto-print new orders** (and **This device is in the shop**). Only customers who scan the poster can order — its QR carries a secret shop code.',
           'A new order rings and appears under **New**. With auto-print it prints by itself; otherwise press **🖨 Print**. Check the **B&W** badge and the chips (paper, double-sided, pages per sheet, copies).',
           'When the prints are done press **✓ Ready** — the customer\'s page shows Ready, WhatsApp opens with the message if they gave a number, and the uploaded file is deleted so storage never fills up (reprint before pressing Ready if needed).',
           'Customer shows the order number → take the money (or check the UPI payment) → **✓ Delivered**. It becomes a job slip and the file is deleted.',
@@ -5838,7 +5848,7 @@
         ] },
       hi: { title: 'QR Orders', purpose: 'ग्राहक दुकान का QR स्कैन करके फ़ाइल अपलोड करता है, सेटिंग चुनता है और पेमेंट करता है — ऑर्डर यहाँ आता है और सीधा प्रिंटर पर जाता है।',
         steps: [
-          'काउंटर PC पर **This device is in the shop** (इससे दुकान का Wi-Fi सेव होता है, ताकि सिर्फ़ दुकान के अंदर के ग्राहक ऑर्डर कर सकें) और **Auto-print new orders** पर टिक करें।',
+          'काउंटर PC पर **Auto-print new orders** (और **This device is in the shop**) पर टिक करें। सिर्फ़ पोस्टर का QR स्कैन करने वाले ग्राहक ऑर्डर कर सकते हैं — QR में दुकान का गुप्त कोड होता है।',
           'नया ऑर्डर आने पर घंटी बजती है और **New** में दिखता है। Auto-print चालू हो तो अपने-आप प्रिंट होगा, वरना **🖨 Print** दबाएँ। **B&W** और बाकी चिप्स (पेपर, दोनों तरफ़, एक शीट पर कितने पेज, कॉपी) देख लें।',
           'प्रिंट हो जाए तो **✓ Ready** दबाएँ — ग्राहक के पेज पर Ready दिखेगा, नंबर दिया हो तो WhatsApp मैसेज खुलेगा, और अपलोड की गई फ़ाइल डिलीट हो जाएगी ताकि स्टोरेज न भरे (दोबारा प्रिंट करना हो तो Ready से पहले करें)।',
           'ग्राहक ऑर्डर नंबर दिखाए → पैसे लें (या UPI चेक करें) → **✓ Delivered**। यह जॉब स्लिप बन जाएगा और फ़ाइल डिलीट हो जाएगी।',
@@ -6976,7 +6986,17 @@
   const qrLabel = n => '#' + String(n).padStart(3, '0');
   const qrIsShopDevice = () => { try { return localStorage.getItem('mc_qr_shop_device_' + currentOrgId) === '1'; } catch (_){ return false; } };
   const qrAutoPrintOn = () => { try { return localStorage.getItem('mc_qr_autoprint_' + currentOrgId) === '1'; } catch (_){ return false; } };
-  const qrPrintUrl = () => location.origin + '/print.html' + (appMode === 'demo' ? '?org=demo' : '');
+  const qrPrintUrl = () => {
+    const q = [];
+    if (appMode === 'demo') q.push('org=demo');
+    if (qrSettings && qrSettings.require_code && qrSettings.shop_code) q.push('k=' + qrSettings.shop_code);
+    return location.origin + '/print.html' + (q.length ? '?' + q.join('&') : '');
+  };
+  function qrNewCode(){
+    const abc = 'abcdefghjkmnpqrstuvwxyz23456789', a = new Uint32Array(10);
+    crypto.getRandomValues(a);
+    return Array.from(a, n => abc[n % abc.length]).join('');
+  }
 
   function qrLoadScript(src, globalName){
     if (window[globalName]) return Promise.resolve(window[globalName]);
@@ -7009,7 +7029,7 @@
     $('qrStatusChip').textContent = s && s.enabled ? 'QR printing ON' : 'QR printing OFF';
     $('qrNetInfo').textContent = !s ? '' : (s.wifi_only
       ? (nets.length ? 'Shop network: ' + nets[0].net + ' (seen ' + timeAgo(nets[0].seen) + ')' : 'No shop network recorded yet — tick "This device is in the shop" on the counter PC.')
-      : 'Orders accepted from any network.');
+      : (s.require_code ? 'Only customers who scan the shop poster can order (secret code in the QR).' : 'Anyone with the link can order.'));
     $('qrShopDevice').checked = qrIsShopDevice();
     $('qrAutoPrint').checked = qrAutoPrintOn();
     $('qrAutoPrintWrap').style.opacity = qrIsShopDevice() ? '' : '0.5';
@@ -7343,7 +7363,9 @@
     if (!isAdmin) return;
     const s = qrSettings || {};
     $('qrSetEnabled').checked = !!s.enabled;
-    $('qrSetWifiOnly').checked = s.wifi_only !== false;
+    $('qrSetAccess').value = s.wifi_only ? 'wifi' : (s.require_code ? 'code' : 'open');
+    $('qrCodeShow').textContent = s.shop_code || '—';
+    qrAccessUi();
     $('qrSetWifiName').value = s.wifi_name || '';
     $('qrSetUpi').value = s.upi_id || '';
     $('qrSetUpiName').value = s.upi_name || '';
@@ -7358,6 +7380,20 @@
       [['bw', false], ['bw', true]].concat(showColor ? [['color', false], ['color', true]] : []).map(([c, d]) =>
         '<td><input type="number" min="0" step="0.5" class="qr-rate" data-c="' + c + '" data-p="' + p + '" data-d="' + d + '" value="' + rate(c, p, d) + '" style="width:90px;"></td>').join('') + '</tr>').join('');
   }
+  function qrAccessUi(){
+    const v = $('qrSetAccess').value;
+    $('qrCodeWrap').style.display = v === 'code' ? '' : 'none';
+    $('qrWifiNameWrap').style.display = v === 'wifi' ? '' : 'none';
+  }
+  $('qrSetAccess').addEventListener('change', qrAccessUi);
+  $('qrNewCodeBtn').addEventListener('click', async function(e){
+    e.preventDefault();
+    if (!window.confirm('Make a new shop code? The QR posters already stuck up will stop working — print the new poster right after.')) return;
+    const { error } = await supabaseClient.from('qr_print_settings').update({ shop_code: qrNewCode(), updated_at: new Date().toISOString() }).eq('org_id', currentOrgId);
+    if (error){ alert(error.message); return; }
+    await loadQrPanel();
+    showStatus($('qrSettingsStatus'), 'New code saved — now print the new poster (🖨 Shop QR poster).', true);
+  });
   $('qrSetAllowColor').addEventListener('change', function(){ if (qrSettings) qrSettings.allow_color = this.checked; renderQrSettings(); });
   $('qrSaveSettings').addEventListener('click', async function(){
     const statusEl = $('qrSettingsStatus');
@@ -7366,7 +7402,9 @@
     if (upi && !/^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(upi)){ showStatus(statusEl, 'UPI ID looks wrong — it should look like name@okhdfc.', false); return; }
     this.disabled = true;
     try {
-      const patch = { org_id: currentOrgId, enabled: $('qrSetEnabled').checked, wifi_only: $('qrSetWifiOnly').checked,
+      const access = $('qrSetAccess').value;
+      const patch = { org_id: currentOrgId, enabled: $('qrSetEnabled').checked, wifi_only: access === 'wifi', require_code: access === 'code',
+        shop_code: access === 'code' ? ((qrSettings && qrSettings.shop_code) || qrNewCode()) : ((qrSettings && qrSettings.shop_code) || null),
         wifi_name: $('qrSetWifiName').value.trim() || null, upi_id: upi || null, upi_name: $('qrSetUpiName').value.trim() || null, allow_color: $('qrSetAllowColor').checked,
         bw_machine: $('qrSetBwMachine').value.trim() || 'CANON 8505', color_machine: $('qrSetColorMachine').value.trim() || 'KONIKA MINOLTA',
         create_ticket_on_delivery: $('qrSetTicket').checked, updated_at: new Date().toISOString() };
