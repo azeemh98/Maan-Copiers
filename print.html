@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#D7262E">
+<title>MAAN COPIERS — Print it. Skip the queue.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --red:#D7262E; --red-dark:#B01E25; --red-soft:#FDECEC; --ink:#1A1D23; --muted:#606A78; --faint:#98A1AE;
+    --bg:#F5F6F8; --card:#FFFFFF; --line:#E4E7EC; --ok:#178A4C; --ok-soft:#E6F5EC; --warn:#9A6A12; --warn-soft:#FFF4DE;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body{ margin:0; background:var(--bg); color:var(--ink); font-family:'Inter', -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing:antialiased; }
+  body{ padding-bottom:110px; }
+  button{ font-family:inherit; }
+  .hdr{ background:var(--card); border-bottom:1px solid var(--line); padding:14px 16px 12px; position:sticky; top:0; z-index:20; }
+  .hdr-in{ max-width:560px; margin:0 auto; display:flex; align-items:center; gap:10px; }
+  .mark{ width:36px; height:36px; border-radius:9px; background:var(--red); color:#fff; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:15px; letter-spacing:-0.02em; flex-shrink:0; }
+  .brand{ font-weight:800; font-size:16px; letter-spacing:-0.01em; }
+  .tag{ font-size:12px; color:var(--muted); margin-top:1px; }
+  main{ max-width:560px; margin:0 auto; padding:14px 16px; }
+  .card{ background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px; box-shadow:0 1px 2px rgba(20,24,31,0.05); border:1px solid var(--line); }
+  h2{ font-size:16px; margin:0 0 10px; }
+  .hidden{ display:none !important; }
+  .muted{ color:var(--muted); font-size:13px; line-height:1.5; }
+
+  .steps{ display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:700; color:var(--faint); margin:2px 0 12px; }
+  .steps span.on{ color:var(--red); }
+  .steps span.done{ color:var(--ok); }
+  .steps i{ flex:1; height:2px; background:var(--line); border-radius:2px; }
+
+  .drop{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:2px dashed #F2B8BB; background:var(--red-soft); border-radius:16px; padding:34px 16px; text-align:center; cursor:pointer; }
+  .drop .ico{ width:56px; height:56px; border-radius:16px; background:var(--red); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; }
+  .drop b{ font-size:17px; }
+  .how{ display:flex; gap:8px; margin-top:12px; }
+  .how div{ flex:1; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 6px; text-align:center; font-size:12px; font-weight:700; }
+  .how div em{ display:block; font-style:normal; font-size:20px; margin-bottom:2px; }
+
+  .file{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .file:last-child{ border-bottom:none; }
+  .file.sel{ background:var(--red-soft); margin:0 -16px; padding:10px 16px; }
+  .file .fi{ width:38px; height:38px; border-radius:9px; background:#F0F2F5; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:var(--muted); flex-shrink:0; }
+  .file .fn{ flex:1; min-width:0; }
+  .file .fn b{ display:block; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .file .fn small{ color:var(--muted); font-size:12px; }
+  .bar{ height:5px; background:#EEF0F3; border-radius:4px; overflow:hidden; margin-top:5px; }
+  .bar i{ display:block; height:100%; background:var(--red); width:0; transition:width .2s; }
+  .file .x{ background:none; border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:12.5px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .pages-in{ width:70px; padding:6px 8px; border:1.5px solid var(--red); border-radius:8px; font-size:14px; font-family:inherit; }
+
+  .preview{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .sheet-wrap{ background:#E9ECF0; border-radius:12px; padding:14px; width:100%; display:flex; justify-content:center; }
+  canvas#pv{ background:#fff; box-shadow:0 4px 14px rgba(20,24,31,0.15); max-width:100%; }
+  canvas#pv.bw{ filter:grayscale(1); }
+  .pv-nav{ display:flex; align-items:center; gap:12px; font-size:13px; font-weight:700; }
+  .pv-nav button{ border:1px solid var(--line); background:#fff; border-radius:10px; width:40px; height:36px; font-size:16px; cursor:pointer; }
+  .pv-none{ padding:40px 10px; text-align:center; color:var(--muted); font-size:13px; }
+
+  .opt{ margin-top:14px; }
+  .opt > label{ display:block; font-size:12.5px; font-weight:700; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.03em; }
+  .seg{ display:flex; background:#F0F2F5; border-radius:12px; padding:4px; gap:4px; }
+  .seg button{ flex:1; border:none; background:transparent; border-radius:9px; padding:11px 4px; font-weight:700; font-size:14px; color:var(--muted); cursor:pointer; min-height:44px; }
+  .seg button.on{ background:#fff; color:var(--red); box-shadow:0 1px 3px rgba(20,24,31,0.12); }
+  .seg button:disabled{ opacity:0.35; }
+  .chip-fixed{ display:inline-flex; align-items:center; gap:6px; background:#F0F2F5; border-radius:999px; padding:9px 14px; font-weight:700; font-size:14px; }
+  .row{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .switch{ position:relative; width:52px; height:30px; flex-shrink:0; }
+  .switch input{ opacity:0; width:0; height:0; }
+  .switch span{ position:absolute; inset:0; background:#D3D8DF; border-radius:30px; transition:.2s; cursor:pointer; }
+  .switch span:before{ content:''; position:absolute; width:24px; height:24px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+  .switch input:checked + span{ background:var(--red); }
+  .switch input:checked + span:before{ transform:translateX(22px); }
+  .switch input:disabled + span{ opacity:0.4; }
+  .stepper{ display:flex; align-items:center; border:1.5px solid var(--line); border-radius:12px; overflow:hidden; }
+  .stepper button{ width:46px; height:44px; border:none; background:#fff; font-size:22px; font-weight:700; color:var(--red); cursor:pointer; }
+  .stepper output{ width:46px; text-align:center; font-weight:800; font-size:16px; }
+  .tiles{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; }
+  .tiles button{ border:1.5px solid var(--line); background:#fff; border-radius:12px; padding:10px 4px 8px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--muted); min-height:64px; }
+  .tiles button.on{ border-color:var(--red); color:var(--red); background:var(--red-soft); }
+  .tiles .g{ display:grid; gap:2px; width:22px; height:30px; }
+  .tiles .g i{ background:currentColor; opacity:0.55; border-radius:1px; }
+  details{ margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+  summary{ font-weight:700; font-size:14px; cursor:pointer; color:var(--red); list-style:none; }
+  summary::-webkit-details-marker{ display:none; }
+  .field{ margin-top:10px; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; color:var(--muted); margin-bottom:5px; }
+  .field input, .field textarea{ width:100%; border:1.5px solid var(--line); border-radius:10px; padding:11px 12px; font-size:15px; font-family:inherit; background:#fff; }
+  .field input:focus, .field textarea:focus{ outline:none; border-color:var(--red); }
+  .hint{ font-size:12px; color:var(--faint); margin-top:4px; }
+  .add-more{ width:100%; margin-top:10px; border:1.5px dashed var(--line); background:#fff; border-radius:12px; padding:12px; font-weight:700; color:var(--red); cursor:pointer; font-size:14px; }
+
+  .paybar{ position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid var(--line); box-shadow:0 -6px 20px rgba(20,24,31,0.08); padding:10px 16px calc(10px + env(safe-area-inset-bottom)); z-index:30; }
+  .paybar-in{ max-width:560px; margin:0 auto; display:flex; align-items:center; gap:12px; }
+  .paybar .tot{ flex:1; min-width:0; }
+  .paybar .tot b{ font-size:22px; display:block; }
+  .paybar .tot small{ font-size:12px; color:var(--muted); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .btn{ border:none; background:var(--red); color:#fff; font-weight:800; font-size:15px; border-radius:14px; padding:15px 18px; cursor:pointer; min-height:52px; }
+  .btn:disabled{ background:#E9A3A6; cursor:default; }
+  .btn.ghost{ background:#fff; color:var(--red); border:1.5px solid var(--red); }
+  .btn.block{ width:100%; }
+
+  .banner{ border-radius:14px; padding:14px; font-size:14px; line-height:1.5; margin-bottom:12px; }
+  .banner.warn{ background:var(--warn-soft); color:var(--warn); }
+  .banner.err{ background:var(--red-soft); color:var(--red-dark); }
+  .banner b{ display:block; font-size:15px; margin-bottom:4px; }
+
+  .sheet-bg{ position:fixed; inset:0; background:rgba(20,24,31,0.45); z-index:40; }
+  .bsheet{ position:fixed; left:0; right:0; bottom:0; background:#fff; border-radius:22px 22px 0 0; padding:18px 16px calc(18px + env(safe-area-inset-bottom)); z-index:41; max-width:560px; margin:0 auto; }
+  .bsheet h3{ margin:0 0 4px; font-size:18px; }
+  .pay-opt{ display:flex; align-items:center; gap:12px; width:100%; border:1.5px solid var(--line); background:#fff; border-radius:14px; padding:14px; margin-top:10px; text-align:left; cursor:pointer; }
+  .pay-opt b{ display:block; font-size:15px; }
+  .pay-opt small{ color:var(--muted); font-size:12.5px; }
+  .pay-opt .pi{ width:42px; height:42px; border-radius:12px; background:var(--red-soft); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+
+  .overlay{ position:fixed; inset:0; background:rgba(255,255,255,0.96); z-index:50; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:30px; text-align:center; }
+  .overlay .bar{ width:220px; height:8px; }
+  .overlay .bar i{ width:100%; animation:prog 1.6s ease-in-out infinite; }
+  @keyframes prog{ 0%{ transform:translateX(-100%); } 100%{ transform:translateX(100%); } }
+
+  .done-no{ font-size:64px; font-weight:800; color:var(--red); letter-spacing:-0.02em; line-height:1; margin:6px 0; text-align:center; }
+  .track{ display:flex; justify-content:space-between; position:relative; margin:18px 4px 6px; }
+  .track:before{ content:''; position:absolute; left:14px; right:14px; top:13px; height:3px; background:var(--line); }
+  .track .st{ position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; font-size:11.5px; font-weight:700; color:var(--faint); width:25%; }
+  .track .st i{ width:28px; height:28px; border-radius:50%; background:#fff; border:3px solid var(--line); display:flex; align-items:center; justify-content:center; font-style:normal; font-size:13px; }
+  .track .st.done{ color:var(--ok); }
+  .track .st.done i{ border-color:var(--ok); background:var(--ok); color:#fff; }
+  .track .st.now{ color:var(--red); }
+  .track .st.now i{ border-color:var(--red); }
+  .kv{ display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .kv:last-child{ border-bottom:none; }
+  .pill{ display:inline-block; border-radius:999px; padding:3px 10px; font-size:12px; font-weight:700; }
+  .pill.ok{ background:var(--ok-soft); color:var(--ok); }
+  .pill.wait{ background:var(--warn-soft); color:var(--warn); }
+  .my-order{ display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .my-order:last-child{ border-bottom:none; }
+  .upi-box{ display:flex; align-items:center; gap:8px; background:#F5F6F8; border-radius:12px; padding:10px 12px; margin-top:10px; }
+  .upi-box div{ flex:1; min-width:0; }
+  .upi-box small{ display:block; font-size:11.5px; color:var(--muted); }
+  .upi-box b{ display:block; font-size:14px; word-break:break-all; }
+  .upi-box button{ border:1.5px solid var(--red); color:var(--red); background:#fff; border-radius:9px; padding:8px 12px; font-weight:700; cursor:pointer; flex-shrink:0; }
+  .toast{ position:fixed; left:50%; top:76px; transform:translateX(-50%); background:var(--ink); color:#fff; padding:11px 16px; border-radius:12px; font-size:13.5px; z-index:60; max-width:calc(100% - 32px); box-shadow:0 8px 20px rgba(0,0,0,0.2); }
+  @media (max-width:380px){ .done-no{ font-size:54px; } .seg button{ font-size:13px; } }
+</style>
+</head>
+<body>
+<header class="hdr"><div class="hdr-in"><div class="mark">M</div><div><div class="brand">MAAN COPIERS</div><div class="tag">Print it. Skip the queue.</div></div></div></header>
+
+<main>
+  <div id="loading" class="card muted" style="text-align:center;">Loading…</div>
+
+  <div id="closed" class="hidden">
+    <div class="banner warn"><b>QR printing is closed right now</b>Please ask at the counter — we'll be happy to help.</div>
+  </div>
+
+  <div id="netWarn" class="banner warn hidden"></div>
+
+  <!-- Step 1: upload -->
+  <section id="viewUpload" class="hidden">
+    <div id="myOrders" class="card hidden"><h2>Your orders today</h2><div id="myOrdersList"></div></div>
+    <label class="drop" for="fileInput">
+      <span class="ico">⬆</span>
+      <b>Tap to select file</b>
+      <span class="muted">PDF, photos, Word or PowerPoint · up to 50 MB</span>
+    </label>
+    <div class="how"><div><em>📤</em>Upload</div><div><em>⚙️</em>Settings</div><div><em>🏪</em>Collect</div></div>
+  </section>
+  <input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.doc,.docx,.ppt,.pptx,application/pdf,image/*">
+
+  <!-- Step 2: settings -->
+  <section id="viewSettings" class="hidden">
+    <div class="steps"><span class="done">Upload ✓</span><i></i><span class="on">Settings</span><i></i><span>Pay</span></div>
+    <div class="card" style="padding-top:6px; padding-bottom:6px;"><div id="fileList"></div></div>
+    <button class="add-more" id="addMoreBtn">+ Add another file</button>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="preview">
+        <div class="sheet-wrap"><canvas id="pv" class="bw" width="10" height="10"></canvas><div id="pvNone" class="pv-none hidden"></div></div>
+        <div class="pv-nav"><button id="pvPrev" aria-label="Previous">‹</button><span id="pvLabel">1 / 1</span><button id="pvNext" aria-label="Next">›</button></div>
+      </div>
+
+      <div class="opt"><label>Colour</label><div id="colorWrap"></div></div>
+      <div class="opt"><label>Paper size</label><div class="seg" id="paperSeg"></div></div>
+      <div class="opt row"><div><b style="font-size:15px;">Double-sided</b><div class="hint">Print on both sides of the paper</div></div><label class="switch"><input type="checkbox" id="duplex"><span></span></label></div>
+      <div class="opt row"><b style="font-size:15px;">Copies</b><div class="stepper"><button id="cMinus" aria-label="Fewer copies">−</button><output id="copies">1</output><button id="cPlus" aria-label="More copies">+</button></div></div>
+      <div class="opt"><label>Pages per sheet</label><div class="tiles" id="ppsTiles"></div></div>
+
+      <details id="more">
+        <summary>More options</summary>
+        <div class="field"><label for="range">Pages to print</label><input id="range" placeholder="All — or e.g. 1-3,5,8" inputmode="numeric"><div class="hint" id="rangeHint">Leave blank to print every page.</div></div>
+        <div class="field"><label for="cName">Your name (optional)</label><input id="cName" maxlength="80" autocomplete="name"></div>
+        <div class="field"><label for="cPhone">Mobile number (optional — we WhatsApp you when it's ready)</label><input id="cPhone" inputmode="tel" maxlength="14" autocomplete="tel"></div>
+        <div class="field"><label for="cNote">Note for the shop (optional)</label><textarea id="cNote" rows="2" maxlength="300"></textarea></div>
+      </details>
+    </div>
+  </section>
+
+  <!-- Step 3: done -->
+  <section id="viewDone" class="hidden">
+    <div class="card" style="text-align:center;">
+      <div class="muted">Your order number</div>
+      <div class="done-no" id="doneNo">#000</div>
+      <div style="font-weight:700;">Show this number at the counter</div>
+      <div class="track" id="track"></div>
+      <div class="muted" id="trackMsg"></div>
+    </div>
+    <div class="card">
+      <div class="kv"><span>Amount</span><b id="doneAmt">₹0</b></div>
+      <div class="kv"><span>Payment</span><span id="donePay"></span></div>
+    </div>
+    <div class="card hidden" id="doneUpiCard">
+      <div class="muted" style="margin-bottom:6px;">If your UPI app didn't open, pay <b id="doneUpiAmt"></b> to:</div>
+      <div class="upi-box" style="margin-top:0;"><div><small class="upiName"></small><b class="upiId"></b></div><button class="upiCopy">Copy</button></div>
+      <div class="muted" style="margin-top:8px;">Add your order number <b id="doneUpiNo"></b> in the payment note, and show the payment screen at the counter.</div>
+    </div>
+    <button class="btn block ghost hidden" id="upiAgainBtn" style="margin-bottom:10px;">Open UPI app to pay</button>
+    <button class="btn block" id="anotherBtn">Print another file</button>
+  </section>
+</main>
+
+<div class="paybar hidden" id="paybar"><div class="paybar-in">
+  <div class="tot"><b id="total">₹0</b><small id="summary"></small></div>
+  <button class="btn" id="payBtn" disabled>Pay &amp; send to counter</button>
+</div></div>
+
+<div class="sheet-bg hidden" id="sheetBg"></div>
+<div class="bsheet hidden" id="paySheet">
+  <h3>Total <span id="sheetTotal"></span></h3>
+  <div class="muted">Choose how you'll pay. Your file goes to the counter right away.</div>
+  <button class="pay-opt hidden" id="payUpi"><span class="pi">📱</span><span><b>Pay now with UPI</b><small>GPay, PhonePe, Paytm or any UPI app</small></span></button>
+  <div class="upi-box hidden" id="sheetUpiBox"><div><small>Or pay to UPI ID (<span class="upiName"></span>)</small><b class="upiId"></b></div><button class="upiCopy">Copy</button></div>
+  <button class="pay-opt" id="payCounter"><span class="pi">🏪</span><span><b>Pay at counter</b><small>Cash or UPI when you collect</small></span></button>
+</div>
+
+<div class="overlay hidden" id="sending"><b style="font-size:18px;">Sending to counter…</b><div class="bar"><i></i></div><div class="muted">Please keep this page open.</div></div>
+
+<script>
+(function(){
+  const SUPABASE_URL = 'https://yymwifdmuwmhlfwgcjrj.supabase.co';
+  const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl5bXdpZmRtdXdtaGxmd2djanJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NzAxNzUsImV4cCI6MjEwMjU0NjE3NX0.U4jLF_BozUCZshspeUKO4PkASF2sPXem_gcsBsq7HtU';
+  const ORGS = { live: 'd7334fe5-1e03-4092-8f43-555113fcda96', demo: 'd7334fe5-1e03-4092-8f43-555113fcda97' };
+  const ORG = new URLSearchParams(location.search).get('org') === 'demo' ? ORGS.demo : ORGS.live;
+  const BUCKET = 'qr-print-files';
+  const MAX_SIZE = 50 * 1024 * 1024;
+  const PAPERS = ['A4', 'A3', 'Letter', 'Legal'];
+  const PAPER_RATIO = { A4: 297 / 210, A3: 297 / 210, Letter: 11 / 8.5, Legal: 14 / 8.5 };
+  const PPS = [1, 2, 4, 9];
+  const STORE_KEY = 'mc_qr_orders_' + ORG;
+  const EXT_MIME = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', heif: 'image/heif',
+    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const money = n => '₹' + (Math.round(Number(n) * 100) / 100).toLocaleString('en-IN');
+  const orderLabel = n => '#' + String(n).padStart(3, '0');
+  const todayIST = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+
+  let config = null, files = [], cur = 0, pvSide = 0, sending = false, doneOrder = null, pollTimer = null;
+
+  // ---------- server ----------
+  async function rpc(name, body){
+    const res = await fetch(SUPABASE_URL + '/rest/v1/rpc/' + name, {
+      method: 'POST', headers: { apikey: ANON, Authorization: 'Bearer ' + ANON, 'Content-Type': 'application/json' }, body: JSON.stringify(body || {})
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && (data.message || data.error)) || 'Something went wrong — please try again.');
+    return data;
+  }
+  function toast(msg){
+    const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4200);
+  }
+
+  // ---------- start ----------
+  async function init(){
+    try { config = await rpc('qr_print_public_config', { p_org_id: ORG }); }
+    catch (err){ config = null; }
+    $('loading').classList.add('hidden');
+    if (!config || !config.enabled){ $('closed').classList.remove('hidden'); renderMyOrders(); return; }
+    renderNetwork();
+    $('viewUpload').classList.remove('hidden');
+    renderMyOrders();
+  }
+  function renderNetwork(){
+    const w = $('netWarn');
+    if (config.on_shop_network){ w.classList.add('hidden'); return; }
+    w.classList.remove('hidden');
+    w.innerHTML = '<b>Connect to the shop Wi-Fi first</b>QR printing works only inside the shop' +
+      (config.wifi_name ? ' — join <b style="display:inline;">' + esc(config.wifi_name) + '</b>' : '') +
+      ', then tap below.<div style="margin-top:10px;"><button class="btn ghost" id="netRetry" style="min-height:44px; padding:10px 16px;">I\'m connected — check again</button></div>';
+    $('netRetry').onclick = async () => {
+      try { config = await rpc('qr_print_public_config', { p_org_id: ORG }); } catch (_){}
+      renderNetwork();
+      if (config && config.on_shop_network) toast('Connected ✓ — you can print now.');
+    };
+  }
+  const rateFor = (color, paper, duplex) => {
+    const r = (config.rates || []).find(x => x.color === color && x.paper === paper && x.duplex === duplex);
+    return r ? Number(r.rate) : null;
+  };
+  const papersAvailable = color => PAPERS.filter(p => rateFor(color, p, false) !== null || rateFor(color, p, true) !== null);
+
+  // ---------- files ----------
+  $('fileInput').addEventListener('change', function(){
+    const picked = Array.from(this.files || []);
+    this.value = '';
+    if (!config || !config.enabled) return;
+    if (!config.on_shop_network){ toast('Please connect to the shop Wi-Fi first.'); renderNetwork(); return; }
+    let added = 0;
+    picked.forEach(f => {
+      if (files.length >= 10){ toast('Up to 10 files per order.'); return; }
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      if (!EXT_MIME[ext]){ toast(f.name + ': this file type can\'t be printed here.'); return; }
+      if (f.size > MAX_SIZE){ toast(f.name + ' is over 50 MB.'); return; }
+      const kind = ext === 'pdf' ? 'pdf' : (['jpg', 'jpeg', 'png'].includes(ext) ? 'image' : (['heic', 'heif'].includes(ext) ? 'heic' : 'doc'));
+      const color = 'bw';
+      const paper = papersAvailable(color)[0] || 'A4';
+      const item = { id: Math.random().toString(36).slice(2), file: f, name: f.name, ext, mime: EXT_MIME[ext], kind,
+        pages: kind === 'image' || kind === 'heic' ? 1 : null, pct: 0, uploaded: false, failed: false, path: null,
+        s: { color, paper, duplex: false, copies: 1, pps: 1, range: '' }, pdf: null, img: null, thumbs: {} };
+      files.push(item); added++;
+      startUpload(item);
+      if (kind === 'pdf') countPdf(item);
+      if (kind === 'image'){ const im = new Image(); im.onload = () => { item.img = im; if (files[cur] === item) drawPreview(); }; im.src = URL.createObjectURL(f); }
+    });
+    if (added){ cur = files.length - 1; pvSide = 0; showSettings(); }
+  });
+  $('addMoreBtn').addEventListener('click', () => $('fileInput').click());
+
+  function safeName(n){ return n.replace(/[^\w.\-]+/g, '_').replace(/_+/g, '_').slice(-80) || 'file'; }
+  function uuid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)); }
+  function startUpload(item){
+    item.path = ORG + '/' + uuid() + '/' + safeName(item.name);
+    item.failed = false; item.pct = 0;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', SUPABASE_URL + '/storage/v1/object/' + BUCKET + '/' + item.path.split('/').map(encodeURIComponent).join('/'));
+    xhr.setRequestHeader('apikey', ANON);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + ANON);
+    xhr.setRequestHeader('Content-Type', item.mime);
+    xhr.setRequestHeader('x-upsert', 'false');
+    xhr.upload.onprogress = e => { if (e.lengthComputable){ item.pct = Math.round(e.loaded * 100 / e.total); renderFiles(); } };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300){ item.uploaded = true; item.pct = 100; }
+      else { item.failed = true; toast('Upload failed for ' + item.name + ' — tap Retry.'); }
+      renderFiles(); renderTotals();
+    };
+    xhr.onerror = () => { item.failed = true; toast('Upload failed — check the Wi-Fi and tap Retry.'); renderFiles(); renderTotals(); };
+    xhr.send(item.file);
+  }
+
+  let pdfjsReady = null;
+  function loadPdfJs(){
+    if (pdfjsReady) return pdfjsReady;
+    pdfjsReady = new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      sc.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; resolve(window.pdfjsLib); };
+      sc.onerror = reject; document.head.appendChild(sc);
+    });
+    return pdfjsReady;
+  }
+  async function countPdf(item){
+    try {
+      const lib = await loadPdfJs();
+      item.pdf = await lib.getDocument({ data: await item.file.arrayBuffer() }).promise;
+      item.pages = item.pdf.numPages;
+    } catch (err){ item.pages = null; item.pdfError = true; }
+    renderFiles(); renderTotals(); if (files[cur] === item) drawPreview();
+  }
+
+  // ---------- price ----------
+  function parseRange(range, pages){
+    const v = String(range || '').toLowerCase().replace(/\s/g, '');
+    if (!v || v === 'all') return { list: Array.from({ length: pages }, (_, i) => i + 1) };
+    if (v.length > 100 || !/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(v)) return { error: 'Use pages like 1-3,5,8' };
+    const seen = new Set(), list = [];
+    for (const part of v.split(',')){
+      const [a, b0] = part.split('-').map(Number); const b = isNaN(b0) ? a : b0;
+      if (a < 1 || b > pages || a > b) return { error: 'Pages ' + part + ' are outside 1-' + pages };
+      for (let p = a; p <= b; p++) if (!seen.has(p)){ seen.add(p); list.push(p); }
+    }
+    return { list };
+  }
+  function calc(item){
+    if (!item.pages) return null;
+    const r = parseRange(item.s.range, item.pages);
+    if (r.error) return { error: r.error };
+    const rate = rateFor(item.s.color, item.s.paper, item.s.duplex);
+    const sides = Math.ceil(r.list.length / item.s.pps);
+    const sheets = item.s.duplex ? Math.ceil(sides / 2) : sides;
+    return { list: r.list, sides, sheets, rate, amount: rate === null ? null : sides * rate * item.s.copies };
+  }
+
+  // ---------- render ----------
+  function showSettings(){
+    $('viewUpload').classList.add('hidden'); $('viewDone').classList.add('hidden');
+    $('viewSettings').classList.remove('hidden'); $('paybar').classList.remove('hidden');
+    renderFiles(); renderOptions(); renderTotals(); drawPreview();
+  }
+  function renderFiles(){
+    $('fileList').innerHTML = files.map((f, i) => {
+      const c = calc(f);
+      const status = f.failed ? '<span style="color:var(--red); font-weight:700;">Upload failed</span>'
+        : (f.uploaded ? (f.pages ? f.pages + ' page' + (f.pages === 1 ? '' : 's') + (c && !c.error ? ' · ' + c.sheets + ' sheet' + (c.sheets === 1 ? '' : 's') + ' × ' + f.s.copies : '') : 'Uploaded ✓')
+        : 'Uploading ' + esc(f.name) + '… ' + f.pct + '%');
+      const needPages = !f.pages && (f.kind === 'doc' || f.pdfError);
+      return '<div class="file' + (i === cur ? ' sel' : '') + '" data-i="' + i + '">' +
+        '<div class="fi">' + esc(f.ext.toUpperCase().slice(0, 4)) + '</div>' +
+        '<div class="fn"><b>' + esc(f.name) + '</b><small>' + status + '</small>' +
+          (!f.uploaded && !f.failed ? '<div class="bar"><i style="width:' + f.pct + '%"></i></div>' : '') +
+          (needPages ? '<div style="margin-top:6px; display:flex; align-items:center; gap:8px; font-size:12.5px;">How many pages? <input class="pages-in" data-i="' + i + '" type="number" min="1" max="2000" inputmode="numeric"></div>' : '') +
+        '</div>' +
+        (f.failed ? '<button class="x" data-retry="' + i + '">Retry</button>' : '<button class="x" data-change="' + i + '">Change</button>') +
+      '</div>';
+    }).join('');
+    $('fileList').querySelectorAll('.file').forEach(el => el.addEventListener('click', e => {
+      if (e.target.closest('button') || e.target.tagName === 'INPUT') return;
+      cur = Number(el.dataset.i); pvSide = 0; renderFiles(); renderOptions(); renderTotals(); drawPreview();
+    }));
+    $('fileList').querySelectorAll('[data-retry]').forEach(b => b.addEventListener('click', () => { const f = files[Number(b.dataset.retry)]; startUpload(f); renderFiles(); }));
+    $('fileList').querySelectorAll('[data-change]').forEach(b => b.addEventListener('click', () => {
+      const i = Number(b.dataset.change);
+      if (!window.confirm('Remove "' + files[i].name + '" from this order?')) return;
+      files.splice(i, 1);
+      if (!files.length){ resetToUpload(); return; }
+      cur = Math.min(cur, files.length - 1); pvSide = 0; showSettings();
+    }));
+    $('fileList').querySelectorAll('.pages-in').forEach(inp => inp.addEventListener('change', function(){
+      const n = parseInt(this.value, 10);
+      const f = files[Number(this.dataset.i)];
+      f.pages = n >= 1 && n <= 2000 ? n : null;
+      renderFiles(); renderTotals(); drawPreview();
+    }));
+  }
+  function renderOptions(){
+    const f = files[cur]; if (!f) return;
+    const s = f.s;
+    $('colorWrap').innerHTML = config.allow_color
+      ? '<div class="seg"><button data-c="bw" class="' + (s.color === 'bw' ? 'on' : '') + '">Black &amp; white</button><button data-c="color" class="' + (s.color === 'color' ? 'on' : '') + '">Full colour</button></div>'
+      : '<span class="chip-fixed">⚫ Black &amp; white</span>';
+    $('colorWrap').querySelectorAll('[data-c]').forEach(b => b.onclick = () => { s.color = b.dataset.c; fixPaper(f); renderOptions(); renderTotals(); drawPreview(); });
+    const avail = papersAvailable(s.color);
+    $('paperSeg').innerHTML = PAPERS.map(p => '<button data-p="' + p + '" class="' + (s.paper === p ? 'on' : '') + '"' + (avail.includes(p) ? '' : ' disabled') + '>' + p + '</button>').join('');
+    $('paperSeg').querySelectorAll('[data-p]').forEach(b => b.onclick = () => { s.paper = b.dataset.p; fixPaper(f); renderOptions(); renderTotals(); drawPreview(); });
+    const canDuplex = rateFor(s.color, s.paper, true) !== null, canSingle = rateFor(s.color, s.paper, false) !== null;
+    $('duplex').checked = s.duplex; $('duplex').disabled = !(canDuplex && canSingle);
+    $('copies').textContent = s.copies;
+    $('ppsTiles').innerHTML = PPS.map(n => {
+      const g = n === 1 ? [1, 1] : n === 2 ? [1, 2] : n === 4 ? [2, 2] : [3, 3];
+      return '<button data-n="' + n + '" class="' + (s.pps === n ? 'on' : '') + '"><span class="g" style="grid-template-columns:repeat(' + g[0] + ',1fr); grid-template-rows:repeat(' + g[1] + ',1fr);">' + '<i></i>'.repeat(n) + '</span>' + (n === 1 ? '1 page' : n + ' pages') + '</button>';
+    }).join('');
+    $('ppsTiles').querySelectorAll('[data-n]').forEach(b => b.onclick = () => { s.pps = Number(b.dataset.n); pvSide = 0; renderOptions(); renderTotals(); renderFiles(); drawPreview(); });
+    $('range').value = s.range;
+    $('rangeHint').textContent = f.pages ? 'Leave blank to print all ' + f.pages + ' pages.' : 'Leave blank to print every page.';
+  }
+  function fixPaper(f){
+    const s = f.s, avail = papersAvailable(s.color);
+    if (!avail.includes(s.paper)) s.paper = avail[0] || 'A4';
+    if (rateFor(s.color, s.paper, s.duplex) === null) s.duplex = !s.duplex;
+  }
+  $('duplex').addEventListener('change', function(){ const f = files[cur]; f.s.duplex = this.checked; renderTotals(); renderFiles(); drawPreview(); });
+  $('cMinus').addEventListener('click', () => { const f = files[cur]; if (f.s.copies > 1){ f.s.copies--; renderOptions(); renderTotals(); renderFiles(); } });
+  $('cPlus').addEventListener('click', () => { const f = files[cur]; if (f.s.copies < 200){ f.s.copies++; renderOptions(); renderTotals(); renderFiles(); } });
+  $('range').addEventListener('input', function(){
+    const f = files[cur]; f.s.range = this.value; pvSide = 0;
+    const c = calc(f);
+    $('rangeHint').textContent = c && c.error ? c.error : (c ? c.list.length + ' of ' + f.pages + ' pages selected.' : '');
+    $('rangeHint').style.color = c && c.error ? 'var(--red)' : '';
+    renderTotals(); renderFiles(); drawPreview();
+  });
+
+  function renderTotals(){
+    let total = 0, ready = files.length > 0, problem = '';
+    files.forEach(f => {
+      const c = calc(f);
+      if (!f.uploaded){ ready = false; problem = problem || (f.failed ? 'An upload failed — tap Retry' : 'Uploading…'); }
+      if (!c){ ready = false; problem = problem || 'Enter the page count'; return; }
+      if (c.error){ ready = false; problem = problem || c.error; return; }
+      if (c.amount === null){ ready = false; problem = problem || 'This size isn\'t available'; return; }
+      total += c.amount;
+    });
+    $('total').textContent = money(total);
+    const f = files[cur], c = f && calc(f);
+    $('summary').textContent = problem ? problem : (c && !c.error
+      ? c.sheets + ' sheet' + (c.sheets === 1 ? '' : 's') + ' · ' + (f.s.color === 'bw' ? 'B&W' : 'Colour') + ' · ' + f.s.paper + ' · ' + (f.s.duplex ? 'Double' : 'Single') + (f.s.copies > 1 ? ' · ×' + f.s.copies : '') + (files.length > 1 ? ' · ' + files.length + ' files' : '')
+      : '');
+    $('payBtn').disabled = !ready || sending;
+  }
+
+  // ---------- live preview ----------
+  async function pageBitmap(item, n){
+    if (item.thumbs[n]) return item.thumbs[n];
+    const page = await item.pdf.getPage(n);
+    const vp = page.getViewport({ scale: 1 });
+    const scale = Math.min(2, 360 / Math.max(vp.width, vp.height));
+    const v2 = page.getViewport({ scale });
+    const c = document.createElement('canvas'); c.width = Math.ceil(v2.width); c.height = Math.ceil(v2.height);
+    await page.render({ canvasContext: c.getContext('2d'), viewport: v2 }).promise;
+    item.thumbs[n] = c;
+    return c;
+  }
+  let drawToken = 0;
+  async function drawPreview(){
+    const token = ++drawToken;
+    const f = files[cur], cv = $('pv'), none = $('pvNone');
+    if (!f) return;
+    const c = calc(f);
+    const canPreview = (f.kind === 'pdf' && f.pdf) || (f.kind === 'image' && f.img);
+    if (!canPreview || !c || c.error){
+      cv.classList.add('hidden'); none.classList.remove('hidden');
+      none.textContent = f.kind === 'doc' || f.kind === 'heic' ? 'Preview isn\'t available for this file type — it will be printed as you sent it.'
+        : (c && c.error ? c.error : 'Preparing preview…');
+      $('pvLabel').textContent = c && !c.error ? '1 / ' + c.sides : '–';
+      return;
+    }
+    cv.classList.remove('hidden'); none.classList.add('hidden');
+    cv.classList.toggle('bw', f.s.color === 'bw');
+    pvSide = Math.max(0, Math.min(pvSide, c.sides - 1));
+    $('pvLabel').textContent = (pvSide + 1) + ' / ' + c.sides;
+    const W = Math.min(300, $('viewSettings').clientWidth - 70), H = Math.round(W * PAPER_RATIO[f.s.paper]);
+    const dpr = window.devicePixelRatio || 1;
+    const off = document.createElement('canvas'); off.width = W * dpr; off.height = H * dpr;
+    const ctx = off.getContext('2d'); ctx.scale(dpr, dpr);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    const pps = f.s.pps, grid = pps === 1 ? [1, 1] : pps === 2 ? [1, 2] : pps === 4 ? [2, 2] : [3, 3];
+    const pad = pps === 1 ? 6 : 4, cw = (W - pad * 2) / grid[0], ch = (H - pad * 2) / grid[1];
+    const pages = c.list.slice(pvSide * pps, pvSide * pps + pps);
+    for (let i = 0; i < pages.length; i++){
+      const src = f.kind === 'image' ? f.img : await pageBitmap(f, pages[i]);
+      if (token !== drawToken) return;
+      const col = i % grid[0], row = Math.floor(i / grid[0]);
+      const x0 = pad + col * cw + 2, y0 = pad + row * ch + 2, w = cw - 4, h = ch - 4;
+      const sw = src.width, sh = src.height;
+      const sNo = Math.min(w / sw, h / sh), sRot = Math.min(w / sh, h / sw);
+      ctx.save();
+      if (pps > 1 && sRot > sNo * 1.05){
+        const dw = sh * sRot, dh = sw * sRot;
+        ctx.translate(x0 + (w - dw) / 2 + dw, y0 + (h - dh) / 2); ctx.rotate(Math.PI / 2);
+        ctx.drawImage(src, 0, 0, sw * sRot, sh * sRot);
+      } else {
+        const dw = sw * sNo, dh = sh * sNo;
+        ctx.drawImage(src, x0 + (w - dw) / 2, y0 + (h - dh) / 2, dw, dh);
+      }
+      ctx.restore();
+      if (pps > 1){ ctx.strokeStyle = '#E3E6EA'; ctx.strokeRect(pad + col * cw, pad + row * ch, cw, ch); }
+    }
+    cv.width = off.width; cv.height = off.height; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    cv.getContext('2d').drawImage(off, 0, 0);
+  }
+  $('pvPrev').addEventListener('click', () => { if (pvSide > 0){ pvSide--; drawPreview(); } });
+  $('pvNext').addEventListener('click', () => { const c = calc(files[cur]); if (c && !c.error && pvSide < c.sides - 1){ pvSide++; drawPreview(); } });
+
+  // ---------- pay + send ----------
+  $('payBtn').addEventListener('click', () => {
+    const phone = $('cPhone').value.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+    if (phone && !/^[6-9]\d{9}$/.test(phone)){ $('more').open = true; toast('Enter a 10-digit mobile number (or leave it empty).'); $('cPhone').focus(); return; }
+    $('sheetTotal').textContent = $('total').textContent;
+    $('payUpi').classList.toggle('hidden', !config.upi_id);
+    $('sheetUpiBox').classList.toggle('hidden', !config.upi_id);
+    fillUpi();
+    $('sheetBg').classList.remove('hidden'); $('paySheet').classList.remove('hidden');
+  });
+  $('sheetBg').addEventListener('click', closeSheet);
+  function closeSheet(){ $('sheetBg').classList.add('hidden'); $('paySheet').classList.add('hidden'); }
+  $('payUpi').addEventListener('click', () => submit('upi'));
+  $('payCounter').addEventListener('click', () => submit('counter'));
+
+  async function submit(method){
+    if (sending) return;
+    sending = true; closeSheet(); $('sending').classList.remove('hidden');
+    try {
+      const res = await rpc('qr_print_submit', { payload: {
+        org_id: ORG, payment_method: method,
+        customer_name: $('cName').value.trim() || null, customer_phone: $('cPhone').value.trim() || null, notes: $('cNote').value.trim() || null,
+        files: files.map(f => ({ file_path: f.path, file_name: f.name, pages: f.pages, page_range: f.s.range || null,
+          color: f.s.color, paper: f.s.paper, duplex: f.s.duplex, copies: f.s.copies, pps: f.s.pps }))
+      }});
+      const saved = loadSaved().filter(o => o.date === todayIST());
+      saved.unshift({ id: res.id, order_no: res.order_no, amount: res.amount, method, date: todayIST() });
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(saved.slice(0, 10))); } catch (_){}
+      showDone({ id: res.id, order_no: res.order_no, amount: res.amount, payment_method: method, payment_status: method === 'upi' ? 'claimed' : 'unpaid', status: 'new' });
+      if (method === 'upi') openUpi(res);
+    } catch (err){ toast(err.message); }
+    finally { sending = false; $('sending').classList.add('hidden'); renderTotals(); }
+  }
+  function upiLink(o){
+    return 'upi://pay?pa=' + encodeURIComponent(config.upi_id) + '&pn=' + encodeURIComponent(config.upi_name || 'MAAN COPIERS') + '&am=' + Number(o.amount).toFixed(2) +
+      '&cu=INR&tn=' + encodeURIComponent('MAAN QR ' + orderLabel(o.order_no));
+  }
+  function openUpi(o){ if (config && config.upi_id) window.location.href = upiLink(o); }
+  // The UPI ID is also shown with a Copy button: some UPI apps refuse payment links to bank
+  // merchant IDs, so the customer can always pay by entering it by hand.
+  function fillUpi(){
+    document.querySelectorAll('.upiId').forEach(el => { el.textContent = (config && config.upi_id) || ''; });
+    document.querySelectorAll('.upiName').forEach(el => { el.textContent = (config && config.upi_name) || ''; });
+  }
+  document.querySelectorAll('.upiCopy').forEach(b => b.addEventListener('click', async e => {
+    e.stopPropagation();
+    const id = (config && config.upi_id) || '';
+    try { await navigator.clipboard.writeText(id); toast('UPI ID copied — paste it in your UPI app.'); }
+    catch (_){ window.prompt('Copy this UPI ID:', id); }
+  }));
+
+  // ---------- order status ----------
+  const STAGES = [['new', 'Received'], ['printing', 'Printing'], ['ready', 'Ready'], ['delivered', 'Collected']];
+  function showDone(o){
+    doneOrder = o;
+    $('viewUpload').classList.add('hidden'); $('viewSettings').classList.add('hidden'); $('paybar').classList.add('hidden');
+    $('viewDone').classList.remove('hidden');
+    window.scrollTo({ top: 0 });
+    renderDone();
+    clearInterval(pollTimer);
+    pollTimer = setInterval(pollDone, 5000);
+  }
+  function renderDone(){
+    const o = doneOrder;
+    $('doneNo').textContent = orderLabel(o.order_no);
+    const idx = o.status === 'cancelled' ? -1 : STAGES.findIndex(s => s[0] === o.status);
+    $('track').innerHTML = STAGES.map((s, i) => '<div class="st ' + (i < idx || (i === idx && i === 3) ? 'done' : (i === idx ? 'now' : '')) + '"><i>' + (i < idx || (i === idx && i === 3) ? '✓' : i + 1) + '</i>' + s[1] + '</div>').join('');
+    $('trackMsg').textContent = o.status === 'cancelled' ? 'This order was cancelled — please ask at the counter.'
+      : o.status === 'ready' ? 'Your prints are ready — collect them at the counter.' : o.status === 'delivered' ? 'Collected. Thank you!' : 'We\'ll update this page as your order moves.';
+    $('doneAmt').textContent = money(o.amount);
+    $('donePay').innerHTML = o.payment_status === 'paid' ? '<span class="pill ok">Paid ✓</span>'
+      : o.payment_method === 'upi' ? '<span class="pill wait">UPI — show your payment at the counter</span>' : '<span class="pill wait">Pay at counter</span>';
+    const upiDue = o.payment_method === 'upi' && o.payment_status !== 'paid' && config && config.upi_id;
+    $('upiAgainBtn').classList.toggle('hidden', !upiDue);
+    $('doneUpiCard').classList.toggle('hidden', !upiDue);
+    if (upiDue){ fillUpi(); $('doneUpiAmt').textContent = money(o.amount); $('doneUpiNo').textContent = orderLabel(o.order_no); }
+  }
+  async function pollDone(){
+    if (document.hidden || !doneOrder) return;
+    try {
+      const st = await rpc('qr_print_order_status', { p_id: doneOrder.id });
+      if (st){ Object.assign(doneOrder, st); renderDone(); if (['delivered', 'cancelled'].includes(st.status)) clearInterval(pollTimer); }
+    } catch (_){}
+  }
+  $('upiAgainBtn').addEventListener('click', () => openUpi(doneOrder));
+  $('anotherBtn').addEventListener('click', () => { clearInterval(pollTimer); doneOrder = null; resetToUpload(); });
+  function resetToUpload(){
+    files = []; cur = 0; pvSide = 0;
+    $('viewSettings').classList.add('hidden'); $('viewDone').classList.add('hidden'); $('paybar').classList.add('hidden');
+    if (config && config.enabled) $('viewUpload').classList.remove('hidden');
+    renderMyOrders();
+  }
+
+  function loadSaved(){ try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (_){ return []; } }
+  async function renderMyOrders(){
+    const saved = loadSaved().filter(o => o.date === todayIST());
+    if (!saved.length){ $('myOrders').classList.add('hidden'); return; }
+    const rows = await Promise.all(saved.map(async o => { try { return Object.assign({}, o, await rpc('qr_print_order_status', { p_id: o.id })); } catch (_){ return o; } }));
+    const label = { new: 'Received', printing: 'Printing', ready: 'Ready ✓', delivered: 'Collected', cancelled: 'Cancelled' };
+    $('myOrdersList').innerHTML = rows.map((o, i) => '<div class="my-order" data-i="' + i + '"><b>' + orderLabel(o.order_no) + '</b><span>' + money(o.amount) + '</span>' +
+      '<span class="pill ' + (o.status === 'ready' ? 'ok' : 'wait') + '">' + (label[o.status] || 'Received') + '</span></div>').join('');
+    $('myOrdersList').querySelectorAll('.my-order').forEach(el => el.addEventListener('click', () => showDone(rows[Number(el.dataset.i)])));
+    if (config && config.enabled) $('myOrders').classList.remove('hidden');
+    else { $('myOrders').classList.remove('hidden'); $('closed').after($('myOrders')); }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
