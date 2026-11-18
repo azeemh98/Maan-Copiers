@@ -625,6 +625,9 @@
   .qr-tab-badge{ background:var(--danger); color:#fff; border-radius:9px; font-size:10.5px; font-weight:800; padding:1px 6px; margin-left:4px; }
   .qr-rates td.num, .qr-rates th.num{ text-align:right; }
 
+  /* Advance on slips: recording money is for staff who handle payments */
+  body.is-walkin-only #tkAdvanceWrap{ display:none !important; }
+
   /* Stock & wastage editing: admins only (also enforced by the database) */
   body:not(.is-admin) .stock-admin-only,
   body:not(.is-admin) #panel-stock .quick-in, body:not(.is-admin) #panel-stock .quick-out,
@@ -1160,6 +1163,13 @@
             <div class="t-row" id="tkGstRow" style="display:none;"><span id="tkGstLabel">GST</span><span id="tkGstVal">₹0</span></div>
             <div class="t-row" id="tkRoundOffRow" style="display:none;"><span>Round off</span><span id="tkRoundOffVal">₹0</span></div>
             <div class="t-row grand"><span>Total</span><span id="tkGrandTotal">₹0</span></div>
+            <div class="t-row" id="tkAdvanceRow" style="display:none;"><span id="tkAdvanceLabel">Advance</span><span id="tkAdvanceVal"></span></div>
+            <div class="t-row" id="tkBalanceRow" style="display:none; font-weight:800;"><span>Balance due</span><span id="tkBalanceVal"></span></div>
+          </div>
+          <!-- Advance taken when the job is booked / approved: recorded against the slip's bill and printed on the slip. -->
+          <div class="row2" id="tkAdvanceWrap" style="margin-top:12px;">
+            <div class="field"><label for="tkAdvance" id="tkAdvanceInputLabel">Advance received (₹, optional)</label><input type="number" id="tkAdvance" min="0" step="0.01" placeholder="0"></div>
+            <div class="field"><label for="tkAdvanceMode">Advance paid by</label><select id="tkAdvanceMode"><option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option></select></div>
           </div>
           <div class="row2" style="margin-top:14px;">
             <div class="field"><label for="tkExpected">Expected ready (optional)</label><input type="datetime-local" id="tkExpected"></div>
@@ -1498,7 +1508,7 @@
         <label class="qr-switch" id="qrAutoPrintWrap" title="New orders print by themselves on this PC"><input type="checkbox" id="qrAutoPrint"> Auto-print new orders</label>
         <button class="btn-sm" id="qrPosterBtn">🖨 Shop QR poster</button>
       </div>
-      <div class="hint" style="margin-top:8px;">Auto-print opens the print window for each order. To print with no window at all, start Chrome on the counter PC with <b>--kiosk-printing</b> (shortcut target: <code>chrome.exe --kiosk-printing</code>). Word, PowerPoint and iPhone (HEIC) files can't be laid out in the browser — use ⬇ to download and print them.</div>
+      <div class="hint" style="margin-top:8px;">Auto-print opens the print window for each order. To print with no window at all, start Chrome on the counter PC with <b>--kiosk-printing</b> (shortcut target: <code>chrome.exe --kiosk-printing</code>). Word, PowerPoint and iPhone (HEIC) files can't be laid out in the browser — use ⬇ to download and print them. Customer files are deleted when you press <b>✓ Ready</b> (printing done), and any left over are cleared every hour.</div>
     </section>
     <div class="qr-board" id="qrBoard"><div class="hint">Loading…</div></div>
 
@@ -3886,7 +3896,7 @@
   // in the name/phone fields keep re-checking (and un-link if they no longer match) without
   // ever overriding a deliberate search-box pick.
   let autoLinkedTicketParty = false;
-  let editingTicketId = null;
+  let editingTicketId = null, editingTicketPaid = 0;
   function resetTicketForm(){
     ticketLineItems = [newTicketLineRow()];
     renderTicketLineItems();
@@ -3894,7 +3904,9 @@
     $('tkPartySearch').value = ''; selectedTicketPartyId = null; autoLinkedTicketParty = false;
     $('tkMachine').value = ''; $('tkOperator').value = '';
     $('tkGstPct').value = '0';
-    editingTicketId = null;
+    $('tkAdvance').value = ''; $('tkAdvanceMode').value = 'cash';
+    $('tkAdvanceInputLabel').textContent = 'Advance received (₹, optional)';
+    editingTicketId = null; editingTicketPaid = 0;
     $('tkFormTitle').textContent = 'New Walk-in Job Ticket';
     $('saveTicketLabel').textContent = 'Save & Print Slip';
     $('cancelTicketEditBtn').style.display = 'none';
@@ -3909,6 +3921,9 @@
     const { data: items, error } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticket.id).order('id');
     if (error){ alert(error.message); return; }
     editingTicketId = ticket.id;
+    editingTicketPaid = Number(ticket.amount_paid) || 0;
+    $('tkAdvance').value = ''; $('tkAdvanceMode').value = 'cash';
+    $('tkAdvanceInputLabel').textContent = editingTicketPaid > 0 ? 'More advance received now (₹, optional) — ' + fmtMoney(editingTicketPaid) + ' already paid' : 'Advance received (₹, optional)';
     ticketLineItems = (items && items.length ? items : [{}]).map(li => ({
       service_id: li.service_id ? 'svc:' + li.service_id : (li.material_id ? 'mat:' + li.material_id : ''),
       paper_id: li.service_id && li.material_id ? li.material_id : '',
@@ -4194,8 +4209,17 @@
     $('tkRoundOffRow').style.display = Math.abs(roundOff) > 0.001 ? 'flex' : 'none';
     $('tkRoundOffVal').textContent = fmtMoney(roundOff);
     $('tkGrandTotal').textContent = fmtMoney(grand);
+    const adv = Math.max(0, parseFloat($('tkAdvance').value) || 0);
+    const paidBefore = editingTicketId ? editingTicketPaid : 0;
+    const paidTotal = paidBefore + adv;
+    $('tkAdvanceRow').style.display = paidTotal > 0 ? 'flex' : 'none';
+    $('tkAdvanceLabel').textContent = paidBefore > 0 ? 'Paid so far' + (adv > 0 ? ' (incl. this advance)' : '') : 'Advance';
+    $('tkAdvanceVal').textContent = fmtMoney(paidTotal);
+    $('tkBalanceRow').style.display = paidTotal > 0 ? 'flex' : 'none';
+    $('tkBalanceVal').textContent = fmtMoney(Math.max(0, grand - paidTotal));
     $('tkTotalPreview').textContent = fmtMoney(grand);
   }
+  $('tkAdvance').addEventListener('input', updateTicketTotal);
   $('tkGstPct').addEventListener('change', updateTicketTotal);
   // The amount actually owed/collected includes GST and round-off — every place that shows or
   // charges "the ticket amount" (list rows, Mark Paid, the printed slip, party statements)
@@ -4223,6 +4247,12 @@
     const statusEl = $('ticketStatus');
     const validLines = ticketLineItems.filter(li => li.qty > 0 && (li.description.trim() || li.service_id));
     if (validLines.length === 0){ showStatus(statusEl, 'Add at least one job line.', false); return; }
+    const advance = isWalkinOnly ? 0 : Math.max(0, Math.round((parseFloat($('tkAdvance').value) || 0) * 100) / 100);
+    const advanceMode = $('tkAdvanceMode').value;
+    if (advance > 0){
+      const grandNow = computeTicketTotal() + computeTicketGstAmount(computeTicketTotal());
+      if (advance + (editingTicketId ? editingTicketPaid : 0) > Math.round(grandNow) + 0.5){ showStatus(statusEl, 'The advance is more than the slip total.', false); return; }
+    }
 
     if (!editingTicketId){
       const dup = findRecentDuplicateTicket(computeTicketTotal());
@@ -4260,7 +4290,12 @@
           p_gst_pct: parseFloat($('tkGstPct').value) || 0
         });
         if (error) throw error;
-        showStatus(statusEl, 'Ticket updated.', true);
+        if (advance > 0){
+          const { data: fresh, error: fErr } = await supabaseClient.from('job_tickets').select('*').eq('id', editingTicketId).single();
+          if (fErr) throw fErr;
+          await recordTicketPayment(fresh, advanceMode, advance);
+        }
+        showStatus(statusEl, 'Ticket updated.' + (advance > 0 ? ' Advance ' + fmtMoney(advance) + ' recorded.' : ''), true);
         resetTicketForm();
         await refreshTicketsPanel();
         await refreshStockPanel(); // edited items may have changed which stock got deducted
@@ -4298,6 +4333,10 @@
         p_is_approved: isTicketApprover
       });
       if (tkErr) throw tkErr;
+      if (advance > 0){
+        try { await recordTicketPayment(tkRow, advanceMode, advance); }
+        catch (advErr){ alert(tkRow.ticket_no + ' was created, but the advance could not be recorded: ' + (advErr.message || advErr) + '\nRecord it with ₹ in the jobs list.'); }
+      }
       const ticketNo = tkRow.ticket_no;
       const grandTotal = Number(tkRow.subtotal) + Number(tkRow.gst_amount) + Number(tkRow.round_off);
 
@@ -4563,7 +4602,8 @@
           '<td>' + (t.customer_name || 'Walk-in') + (t.phone ? '<div class="item-cat">' + t.phone + '</div>' : '') + '</td>' +
           '<td>' + fmtMoney(ticketGrandTotal(t)) + (Number(t.gst_amount) > 0 ? '<div class="item-cat">incl. GST ' + fmtMoney(t.gst_amount) + '</div>' : '') + '</td>' +
           '<td><select class="tk-status" data-id="' + t.id + '">' + statusOptionsHtml(t.status) + '</select></td>' +
-          '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span></td>' +
+          '<td><span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + t.payment_status.toUpperCase() + '</span>' +
+            (t.payment_status !== 'paid' && Number(t.amount_paid) > 0 ? '<div class="item-cat">' + fmtMoney(t.amount_paid) + ' adv · ' + fmtMoney(Math.max(0, ticketGrandTotal(t) - Number(t.amount_paid))) + ' due</div>' : '') + '</td>' +
           '<td class="last-mv">' + fmtTimeOnly(t.created_at) + gapHtml +
             '<div class="item-cat">by ' + escHtml(staffName(t.created_by) || '—') + ((t.operator_name || t.assigned_operator_id) ? ' · op ' + escHtml(titleCase(t.operator_name) || staffName(t.assigned_operator_id)) : '') + '</div></td>' +
           '<td><div class="row-actions">' +
@@ -4596,8 +4636,28 @@
     tbody.querySelectorAll('.tk-approve').forEach(btn => btn.addEventListener('click', async function(){
       if (!requireTicketApprover()) return;
       this.disabled = true;
+      const t = currentlyRenderedTickets.get(this.dataset.id);
       const { error } = await supabaseClient.rpc('approve_ticket', { p_ticket_id: this.dataset.id });
       if (error){ alert(error.message); this.disabled = false; return; }
+      // Approval is when the advance is usually taken: record it and print the slip with it.
+      if (t && !isWalkinOnly && t.payment_status !== 'paid'){
+        const due = Math.max(0, ticketGrandTotal(t) - (Number(t.amount_paid) || 0));
+        const raw = window.prompt(t.ticket_no + ' approved ✓\n\nAdvance received? Enter the amount (₹) — total ' + fmtMoney(ticketGrandTotal(t)) + '.\nLeave empty if none.', '');
+        const adv = Math.round((parseFloat(raw) || 0) * 100) / 100;
+        if (adv > 0){
+          if (adv > due + 0.005) alert('That is more than the ' + fmtMoney(due) + ' due — not recorded. Use ₹ to record it.');
+          else {
+            const modeRaw = (window.prompt('Advance ' + fmtMoney(adv) + ' paid by — cash, upi or bank', 'cash') || 'cash').trim().toLowerCase();
+            const mode = ['cash', 'upi', 'bank', 'cheque', 'other'].includes(modeRaw) ? modeRaw : 'cash';
+            try {
+              const { data: fresh } = await supabaseClient.from('job_tickets').select('*').eq('id', t.id).single();
+              await recordTicketPayment(fresh, mode, adv);
+              const { data: items } = await supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', t.id);
+              openTicketPrintPreview(fresh, items || []);
+            } catch (err){ alert('Approved, but the advance could not be recorded: ' + (err.message || err)); }
+          }
+        }
+      }
       await refreshTicketsPanel();
     }));
     tbody.querySelectorAll('.tk-edit').forEach(btn => btn.addEventListener('click', function(){
@@ -5102,7 +5162,10 @@
         (Number(ticket.round_off || 0) !== 0 ? '<div class="t-row"><span>Round off</span><span>' + fmtMoney(ticket.round_off) + '</span></div>' : '')
         : '') +
       '<div class="t-row t-total"><span>TOTAL</span><span>' + fmtMoney(ticketGrandTotal(ticket)) + '</span></div>' +
-      '<div class="t-row"><span>Payment</span><span>' + ticket.payment_status.toUpperCase() + '</span></div>' +
+      (ticket.payment_status !== 'paid' && Number(ticket.amount_paid) > 0
+        ? '<div class="t-row"><span>Advance paid</span><span>' + fmtMoney(ticket.amount_paid) + '</span></div>' +
+          '<div class="t-row t-total"><span>BALANCE DUE</span><span>' + fmtMoney(Math.max(0, ticketGrandTotal(ticket) - Number(ticket.amount_paid))) + '</span></div>'
+        : '<div class="t-row"><span>Payment</span><span>' + ticket.payment_status.toUpperCase() + '</span></div>') +
       (ticket.notes ? '<div class="t-rule"></div><div>' + ticket.notes + '</div>' : '') +
       '<div class="t-rule"></div>' +
       '<div class="t-row"><span>Job taken by</span><span>' + handlerName + '</span></div>' +
@@ -5147,7 +5210,8 @@
 
   async function markTicketPaid(ticket){
     if (isWalkinOnly){ alert('You are not authorized for this — payment recording is handled by regular staff or an admin.'); return; }
-    const modeInput = window.prompt('Payment mode for ' + ticket.ticket_no + ' — cash, bank, upi, cheque, or other', 'cash');
+    const paidSoFar = Number(ticket.amount_paid) || 0;
+    const modeInput = window.prompt('Payment mode for ' + ticket.ticket_no + (paidSoFar > 0 ? ' — balance ' + fmtMoney(Math.max(0, ticketGrandTotal(ticket) - paidSoFar)) + ' (advance ' + fmtMoney(paidSoFar) + ' already paid)' : '') + ' — cash, bank, upi, cheque, or other', 'cash');
     if (modeInput === null) return;
     const mode = ['cash','bank','upi','cheque','other'].includes(modeInput.trim().toLowerCase()) ? modeInput.trim().toLowerCase() : 'cash';
     try {
@@ -5167,19 +5231,37 @@
   }
   // Records the payment for a slip: against its existing invoice, or a new paid invoice (the
   // party's, or "Walk-in / Cash Customers"). Used by ₹ Mark paid and by QR orders on delivery.
-  async function recordTicketPayment(ticket, mode){
+  // Records money received for a slip: an advance (amount given) or whatever is still due
+  // (amount left out). Always against the slip's bill -- its party's, or "Walk-in / Cash
+  // Customers" -- so an advance followed by "₹ Mark paid" only ever takes the balance.
+  async function recordTicketPayment(ticket, mode, amount){
+    const invoice = await ensureTicketInvoice(ticket);
+    const { data: pays } = await supabaseClient.from('payments').select('amount').eq('invoice_id', invoice.id);
+    const paid = (pays || []).reduce((sum, x) => sum + Number(x.amount), 0);
+    const due = Math.max(0, Math.round((ticketGrandTotal(ticket) - paid) * 100) / 100);
+    const amt = amount == null ? due : Math.min(Math.round(amount * 100) / 100, due);
+    if (amt > 0){
+      const { error: payErr } = await supabaseClient.from('payments').insert({
+        org_id: currentOrgId, party_id: invoice.party_id, invoice_id: invoice.id, direction:'in', amount: amt, mode,
+        payment_date: todayISO(), note: (amount == null ? 'Walk-in job ' : 'Advance — walk-in job ') + ticket.ticket_no, created_by: currentUserId
+      });
+      if (payErr) throw payErr;
+    }
+    await recomputeInvoiceStatus(invoice.id);
+    const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_mode: mode }).eq('id', ticket.id);
+    if (tkErr) throw tkErr;
+    ticket.invoice_id = invoice.id;
+    ticket.amount_paid = paid + amt;
+    ticket.payment_status = ticket.amount_paid >= ticketGrandTotal(ticket) - 0.005 ? 'paid' : 'unpaid';
+    ticket.payment_mode = mode;
+  }
+  // The slip's bill: the one made for its saved party when the slip was created, or a new unpaid
+  // one now (that party's, or "Walk-in / Cash Customers" for an anonymous slip).
+  async function ensureTicketInvoice(ticket){
       if (ticket.invoice_id){
-        // This ticket already has a linked receivable (created for its saved party when the
-        // ticket itself was made) — just record the payment against that existing invoice
-        // instead of creating a duplicate one.
-        const { error: payErr } = await supabaseClient.from('payments').insert({
-          org_id: currentOrgId, party_id: ticket.party_id, invoice_id: ticket.invoice_id, direction:'in',
-          amount: ticketGrandTotal(ticket), mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
-        });
-        if (payErr) throw payErr;
-        await recomputeInvoiceStatus(ticket.invoice_id);
-        const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode }).eq('id', ticket.id);
-        if (tkErr) throw tkErr;
+        const { data: inv, error } = await supabaseClient.from('invoices').select('id, party_id').eq('id', ticket.invoice_id).single();
+        if (error) throw error;
+        return inv;
       } else {
         // No linked invoice yet. If the ticket is attached to a saved party (e.g. it was
         // edited after creation to link a customer, so the create-time auto-invoice never
@@ -5195,7 +5277,7 @@
         const { data: invRow, error: invErr } = await supabaseClient.from('invoices').insert({
           org_id: currentOrgId, type:'sale', invoice_no: invoiceNo, party_id: partyId, invoice_date: todayISO(),
           subtotal: ticket.subtotal, discount_total: 0, tax_total: Number(ticket.gst_amount || 0), round_off: Number(ticket.round_off || 0), grand_total: grandTotal,
-          status:'paid', amount_paid: grandTotal, notes:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
+          status:'unpaid', amount_paid: 0, notes:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId
         }).select().single();
         if (invErr) throw invErr;
 
@@ -5211,11 +5293,10 @@
           if (itemsErr) throw itemsErr;
         }
 
-        const { error: payErr } = await supabaseClient.from('payments').insert({ org_id: currentOrgId, party_id: partyId, invoice_id: invRow.id, direction:'in', amount: grandTotal, mode, payment_date: todayISO(), note:'Walk-in job ' + ticket.ticket_no, created_by: currentUserId });
-        if (payErr) throw payErr;
-
-        const { error: tkErr } = await supabaseClient.from('job_tickets').update({ payment_status:'paid', payment_mode: mode, invoice_id: invRow.id }).eq('id', ticket.id);
+        const { error: tkErr } = await supabaseClient.from('job_tickets').update({ invoice_id: invRow.id }).eq('id', ticket.id);
         if (tkErr) throw tkErr;
+        ticket.invoice_id = invRow.id;
+        return { id: invRow.id, party_id: partyId };
       }
   }
 
@@ -5746,7 +5827,7 @@
         steps: [
           'On the counter PC tick **This device is in the shop** (it records the shop Wi-Fi so only customers inside the shop can order) and **Auto-print new orders**.',
           'A new order rings and appears under **New**. With auto-print it prints by itself; otherwise press **🖨 Print**. Check the **B&W** badge and the chips (paper, double-sided, pages per sheet, copies).',
-          'When the prints are done press **✓ Ready** — the customer\'s page shows Ready and WhatsApp opens with the message if they gave a number.',
+          'When the prints are done press **✓ Ready** — the customer\'s page shows Ready, WhatsApp opens with the message if they gave a number, and the uploaded file is deleted so storage never fills up (reprint before pressing Ready if needed).',
           'Customer shows the order number → take the money (or check the UPI payment) → **✓ Delivered**. It becomes a job slip and the file is deleted.',
           'Word, PowerPoint or iPhone photo (HEIC) files: press **⬇** to download and print them yourself.'
         ],
@@ -5759,7 +5840,7 @@
         steps: [
           'काउंटर PC पर **This device is in the shop** (इससे दुकान का Wi-Fi सेव होता है, ताकि सिर्फ़ दुकान के अंदर के ग्राहक ऑर्डर कर सकें) और **Auto-print new orders** पर टिक करें।',
           'नया ऑर्डर आने पर घंटी बजती है और **New** में दिखता है। Auto-print चालू हो तो अपने-आप प्रिंट होगा, वरना **🖨 Print** दबाएँ। **B&W** और बाकी चिप्स (पेपर, दोनों तरफ़, एक शीट पर कितने पेज, कॉपी) देख लें।',
-          'प्रिंट हो जाए तो **✓ Ready** दबाएँ — ग्राहक के पेज पर Ready दिखेगा और नंबर दिया हो तो WhatsApp मैसेज खुलेगा।',
+          'प्रिंट हो जाए तो **✓ Ready** दबाएँ — ग्राहक के पेज पर Ready दिखेगा, नंबर दिया हो तो WhatsApp मैसेज खुलेगा, और अपलोड की गई फ़ाइल डिलीट हो जाएगी ताकि स्टोरेज न भरे (दोबारा प्रिंट करना हो तो Ready से पहले करें)।',
           'ग्राहक ऑर्डर नंबर दिखाए → पैसे लें (या UPI चेक करें) → **✓ Delivered**। यह जॉब स्लिप बन जाएगा और फ़ाइल डिलीट हो जाएगी।',
           'Word, PowerPoint या iPhone फ़ोटो (HEIC): **⬇** से डाउनलोड करके खुद प्रिंट करें।'
         ],
@@ -6982,9 +7063,11 @@
         const busy = qrBusy.has(o.id);
         const old = o.order_date !== today ? '<span class="qr-old">' + fmtDate(o.order_date) + '</span>' : '';
         const actions = [];
-        if (st === 'new') actions.push('<button class="qr-act primary" data-act="print">🖨 Print</button>', '<button class="qr-act" data-act="ready">✓ Ready</button>');
-        if (st === 'printing') actions.push('<button class="qr-act primary" data-act="ready">✓ Ready</button>', '<button class="qr-act" data-act="reprint">🖨 Reprint</button>');
-        if (st === 'ready') actions.push('<button class="qr-act primary" data-act="deliver">✓ Delivered</button>', '<button class="qr-act" data-act="reprint">🖨 Reprint</button>');
+        if (st === 'new') actions.push('<button class="qr-act primary" data-act="print">🖨 Print</button>', '<button class="qr-act" data-act="ready" title="Printing done — also deletes the customer\'s files">✓ Ready</button>');
+        const filesLeft = o.files.some(f => !f.file_removed_at);
+        if (st === 'printing') actions.push('<button class="qr-act primary" data-act="ready" title="Printing done — also deletes the customer\'s files">✓ Ready</button>', '<button class="qr-act" data-act="reprint">🖨 Reprint</button>');
+        if (st === 'ready') actions.push('<button class="qr-act primary" data-act="deliver">✓ Delivered</button>');
+        if (st === 'ready' && filesLeft) actions.push('<button class="qr-act" data-act="reprint">🖨 Reprint</button>');
         if (st !== 'delivered' && o.payment_status !== 'paid') actions.push('<button class="qr-act" data-act="paid">₹ Mark paid</button>');
         if (st === 'ready' && o.customer_phone) actions.push('<button class="qr-act wa" data-act="wa">💬 WhatsApp</button>');
         if (st !== 'delivered') actions.push('<button class="qr-act danger" data-act="cancel" title="Cancel order">✕</button>');
@@ -6999,6 +7082,7 @@
           ((o.customer_name || o.customer_phone) ? '<div class="qr-cust">' + escHtml(o.customer_name || '') + (o.customer_phone ? ' · ' + escHtml(o.customer_phone) : '') + '</div>' : '') +
           (o.notes ? '<div class="qr-note">“' + escHtml(o.notes) + '”</div>' : '') +
           (o.job_ticket_id ? '<div class="hint" style="margin-top:6px;">Added to job slips ✓</div>' : '') +
+          (o.files.length && !o.files.some(f => !f.file_removed_at) ? '<div class="hint" style="margin-top:4px;">🗑 Customer files deleted</div>' : '') +
           (actions.length ? '<div class="qr-actions">' + actions.join('') + '</div>' : '') +
         '</div>';
       }).join('') || '<div class="board-empty">Nothing here.</div>';
@@ -7032,6 +7116,8 @@
         if (o.status === 'new') await qrUpdate(o, { status: 'printing' });
       } else if (act === 'ready'){
         await qrUpdate(o, { status: 'ready' });
+        // Printing is done, so the customer's files aren't needed any more -- delete them now.
+        await qrRemoveFiles(o);
         if (o.customer_phone) qrWhatsApp(o);
       } else if (act === 'wa'){
         qrWhatsApp(o);
@@ -9305,7 +9391,7 @@
     // invoice funnels through, so keep it synced here rather than at each call site -- a
     // deleted payment was previously leaving its ticket stuck showing PAID with nothing to
     // back it up (a real ₹200 "paid" job with zero payment records was found this way).
-    await supabaseClient.from('job_tickets').update({ payment_status: status === 'paid' ? 'paid' : 'unpaid' }).eq('invoice_id', invoiceId);
+    await supabaseClient.from('job_tickets').update({ payment_status: status === 'paid' ? 'paid' : 'unpaid', amount_paid: paid }).eq('invoice_id', invoiceId);
   }
 
   async function loadPayments(){
