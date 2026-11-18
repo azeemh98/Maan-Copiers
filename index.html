@@ -1538,12 +1538,13 @@
         <div class="row3">
           <div class="field"><label for="qrSetUpi">Shop UPI ID (blank = pay at counter only)</label><input type="text" id="qrSetUpi" maxlength="60" placeholder="e.g. maancopiers@okhdfc"></div>
           <div class="field"><label for="qrSetUpiName">UPI payee name (as on the bank QR)</label><input type="text" id="qrSetUpiName" maxlength="60" placeholder="e.g. M/S.SOULFUL EVENTS"></div>
+          <div class="field"><label for="qrSetOnlineGst">GST added when paying online / UPI (%)</label><input type="number" id="qrSetOnlineGst" min="0" max="28" step="1"></div>
           <div class="field"><label for="qrSetBwMachine">B&amp;W machine</label><input type="text" id="qrSetBwMachine" list="tkMachineDatalist"></div>
           <div class="field"><label for="qrSetColorMachine">Colour machine</label><input type="text" id="qrSetColorMachine" list="tkMachineDatalist"></div>
         </div>
         <label class="mpw-check" style="margin:4px 0 10px;"><input type="checkbox" id="qrSetAllowColor"> Allow colour printing on QR</label>
         </div>
-        <div class="hint" style="margin-bottom:6px;">Rates are ₹ per printed side. Price = sides × rate × copies. Set a rate to 0 to hide that size.</div>
+        <div class="hint" style="margin-bottom:6px;">Rates are ₹ per printed side. Price = sides × rate × copies. Set a rate to 0 to hide that size. Paying online / UPI adds the GST % set above (total rounded to the rupee); paying at the counter doesn't.</div>
         <div class="table-scroll"><table class="data-table qr-rates"><thead id="qrRatesHead"></thead><tbody id="qrRatesBody"></tbody></table></div>
         <button class="add-btn save-btn" id="qrSaveSettings" style="margin-top:14px;"><span id="qrSaveLabel">Save QR settings</span><span></span></button>
         <div class="status-msg" id="qrSettingsStatus"></div>
@@ -7115,7 +7116,8 @@
           o.files.map(f => '<div class="qr-file"><div class="qr-fname">' + escHtml(f.file_name) + ' <span class="hint">· ' + f.print_pages + ' of ' + f.pages + ' pg</span>' +
               (f.file_removed_at ? '' : ' <button class="qr-dl" data-path="' + escHtml(f.file_path) + '" title="Download original">⬇</button>') + '</div>' +
             '<div class="qr-chips">' + qrChips(f) + '</div></div>').join('') +
-          '<div class="qr-money"><span>' + sheets + ' sheet' + (sheets === 1 ? '' : 's') + ' · <b>' + fmtMoney(o.amount) + '</b></span>' + qrPayBadge(o) + '</div>' +
+          '<div class="qr-money"><span>' + sheets + ' sheet' + (sheets === 1 ? '' : 's') + ' · <b>' + fmtMoney(o.amount) + '</b>' +
+            (Number(o.gst_amount) > 0 ? ' <span class="hint">(₹' + Number(o.subtotal) + ' + ' + fmtMoney(o.gst_amount) + ' GST)</span>' : '') + '</span>' + qrPayBadge(o) + '</div>' +
           ((o.customer_name || o.customer_phone) ? '<div class="qr-cust">' + escHtml(o.customer_name || '') + (o.customer_phone ? ' · ' + escHtml(o.customer_phone) : '') + '</div>' : '') +
           (o.notes ? '<div class="qr-note">“' + escHtml(o.notes) + '”</div>' : '') +
           (o.job_ticket_id ? '<div class="hint" style="margin-top:6px;">Added to job slips ✓</div>' : '') +
@@ -7218,7 +7220,7 @@
       for (const [machine, items] of Object.entries(byMachine)){
         const { data: tk, error } = await supabaseClient.rpc('create_job_ticket_full', {
           p_org_id: currentOrgId, p_party_id: null, p_customer_name: o.customer_name || ('QR order ' + qrLabel(o.order_no)),
-          p_phone: o.customer_phone || null, p_items: items, p_gst_pct: 0,
+          p_phone: o.customer_phone || null, p_items: items, p_gst_pct: Number(o.gst_pct) || 0,
           p_notes: 'Smart QR Print order ' + qrLabel(o.order_no) + (o.notes ? ' — ' + o.notes : ''), p_expected_at: null,
           p_machine: machine, p_assigned_operator_id: null, p_operator_name: null, p_is_approved: isTicketApprover
         });
@@ -7395,6 +7397,7 @@
     $('qrSetWifiName').value = s.wifi_name || '';
     $('qrSetUpi').value = s.upi_id || '';
     $('qrSetUpiName').value = s.upi_name || '';
+    $('qrSetOnlineGst').value = s.online_gst_pct != null ? s.online_gst_pct : 18;
     $('qrSetBwMachine').value = s.bw_machine || 'CANON 8505';
     $('qrSetColorMachine').value = s.color_machine || 'KONIKA MINOLTA';
     $('qrSetAllowColor').checked = !!s.allow_color;
@@ -7441,7 +7444,7 @@
       const access = $('qrSetAccess').value;
       const patch = { org_id: currentOrgId, enabled: $('qrSetEnabled').checked, wifi_only: access === 'wifi', require_code: access === 'code',
         shop_code: access === 'code' ? ((qrSettings && qrSettings.shop_code) || qrNewCode()) : ((qrSettings && qrSettings.shop_code) || null),
-        wifi_name: $('qrSetWifiName').value.trim() || null, upi_id: upi || null, upi_name: $('qrSetUpiName').value.trim() || null, allow_color: $('qrSetAllowColor').checked,
+        wifi_name: $('qrSetWifiName').value.trim() || null, upi_id: upi || null, upi_name: $('qrSetUpiName').value.trim() || null, online_gst_pct: Math.min(28, Math.max(0, parseFloat($('qrSetOnlineGst').value) || 0)), allow_color: $('qrSetAllowColor').checked,
         bw_machine: $('qrSetBwMachine').value.trim() || 'CANON 8505', color_machine: $('qrSetColorMachine').value.trim() || 'KONIKA MINOLTA',
         create_ticket_on_delivery: $('qrSetTicket').checked, updated_at: new Date().toISOString() };
       const { error } = await supabaseClient.from('qr_print_settings').upsert(patch, { onConflict: 'org_id' });
