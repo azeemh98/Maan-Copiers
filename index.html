@@ -294,6 +294,8 @@
   .li-table.tk-lines input, .li-table.tk-lines select{ width:100% !important; min-width:0 !important; box-sizing:border-box; }
   .li-table.tk-lines .li-amt .tk-amt{ width:100% !important; }
   .li-table.tk-lines td:last-child{ padding-left:0; padding-right:0; text-align:center; }
+  /* Sides dropdown: smaller arrow gutter so "Single Side" / "Front & Back" never run under the arrow */
+  .li-table select{ padding-right:24px; background-position:right 8px center; text-overflow:ellipsis; white-space:nowrap; }
   .tk-rate-hint{ font-size:11px; color:var(--muted); margin-top:4px; line-height:1.35; }
   .tk-rate-hint b{ color:var(--ink, inherit); }
   .tk-rate-hint button{ font-size:11px; padding:1px 6px; margin-left:4px; border:1px solid var(--line, #ddd); background:var(--card, #fff); border-radius:5px; cursor:pointer; }
@@ -1154,7 +1156,7 @@
           <datalist id="tkServiceDatalist"></datalist>
           <div class="tk-lines-scroll">
           <table class="li-table li-edit tk-lines">
-            <colgroup><col style="width:25%"><col style="width:8%"><col style="width:20%"><col style="width:8%"><col style="width:13%"><col style="width:10%"><col style="width:12%"><col style="width:34px"></colgroup>
+            <colgroup><col style="width:27%"><col style="width:8%"><col style="width:22%"><col style="width:9%"><col style="width:140px"><col style="width:11%"><col style="width:13%"><col style="width:34px"></colgroup>
             <thead><tr><th>Service / Stock Item</th><th>Size</th><th>Description</th><th>Qty</th><th>Sides</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
             <tbody id="tkLineItems"></tbody>
           </table>
