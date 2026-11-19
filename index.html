@@ -629,11 +629,11 @@
   body.is-walkin-only #tkAdvanceWrap{ display:none !important; }
 
   /* Stock & wastage editing: admins only (also enforced by the database) */
-  body:not(.is-admin) .stock-admin-only,
-  body:not(.is-admin) #panel-stock .quick-in, body:not(.is-admin) #panel-stock .quick-out,
-  body:not(.is-admin) #panel-stock .quick-wastage, body:not(.is-admin) #panel-stock .quick-reorder,
-  body:not(.is-admin) #panel-stock .quick-edit-item, body:not(.is-admin) #panel-stock .quick-toggle{ display:none !important; }
-  body.is-admin .stock-viewer-note{ display:none; }
+  body:not(.can-edit-stock) .stock-admin-only,
+  body:not(.can-edit-stock) #panel-stock .quick-in, body:not(.can-edit-stock) #panel-stock .quick-out,
+  body:not(.can-edit-stock) #panel-stock .quick-wastage, body:not(.can-edit-stock) #panel-stock .quick-reorder,
+  body:not(.can-edit-stock) #panel-stock .quick-edit-item, body:not(.can-edit-stock) #panel-stock .quick-toggle{ display:none !important; }
+  body.can-edit-stock .stock-viewer-note{ display:none; }
 
   /* Sheet consumption report */
   .cons-bar-cell{ width:28%; min-width:90px; }
@@ -819,7 +819,7 @@
     <div class="content-grid">
       <div class="main-col">
 
-        <div class="card stock-viewer-note" style="padding:12px 16px; font-size:13px; color:var(--muted);">🔒 Only admins can add stock, change items or record wastage. You can view stock, reports and consumption here.</div>
+        <div class="card stock-viewer-note" style="padding:12px 16px; font-size:13px; color:var(--muted);">🔒 Only admins and Azad can add stock, change items or record wastage. You can view stock, reports and consumption here.</div>
 
         <section class="card stock-admin-only">
           <h2>Record Stock Movement</h2>
@@ -1520,7 +1520,8 @@
         <div id="qrAdminSettings">
         <div class="row2">
           <label class="mpw-check" style="margin:0;"><input type="checkbox" id="qrSetEnabled"> Accept QR orders (customers can order)</label>
-          <label class="mpw-check" style="margin:0;"><input type="checkbox" id="qrSetTicket"> On Delivered, add it to job slips (stock, Konica &amp; reports)</label>
+          <label class="mpw-check" style="margin:0; display:none;"><input type="checkbox" id="qrSetTicket"> On Delivered, add it to job slips</label>
+          <span class="hint">QR orders stay in this tab only — no job slip or bill is made, so JT / INV numbers aren't used.</span>
         </div>
         <div class="row2" style="margin-top:12px;">
           <div class="field"><label for="qrSetAccess">Who can order</label>
@@ -2586,6 +2587,7 @@
     // so this is a UX convenience on top of a real server-side restriction, not the only wall.
     document.body.classList.toggle('is-walkin-only', isWalkinOnly);
     document.body.classList.toggle('is-admin', isAdmin);
+    document.body.classList.toggle('can-edit-stock', isAdmin || isTicketApprover);
     document.querySelectorAll('.nav-tab').forEach(tab => {
       if (isWalkinOnly && tab.dataset.nav !== 'tickets' && tab.dataset.nav !== 'machine' && tab.dataset.nav !== 'tasks' && tab.dataset.nav !== 'qr') tab.style.display = 'none';
     });
@@ -3492,7 +3494,7 @@
     $('cancelItemEditBtn').style.display = 'none';
   }
   function startEditItem(m){
-    if (!requireAdmin()) return;
+    if (!isAdmin && !isTicketApprover){ alert('Only admins or Azad can change items.'); return; }
     editingItemId = m.material_id;
     renderCategorySelect();
     $('newItemCategory').value = m.category;
@@ -3581,7 +3583,7 @@
           '<button class="quick-out" data-id="' + m.material_id + '" title="Quick exit">−</button>' +
           '<button class="quick-wastage" data-id="' + m.material_id + '" title="Record wastage">🗑</button>' +
           '<button class="quick-reorder" data-id="' + m.material_id + '" title="Set low-stock alert">⚠</button>' +
-          (isAdmin ? '<button class="quick-edit-item" data-id="' + m.material_id + '" title="Edit name / category / unit">✎</button>' : '') +
+          (isAdmin || isTicketApprover ? '<button class="quick-edit-item" data-id="' + m.material_id + '" title="Edit name / category / unit">✎</button>' : '') +
           '<button class="quick-toggle danger" data-id="' + m.material_id + '" title="' + (m.is_active ? 'Discontinue item' : 'Reactivate item') + '">' + (m.is_active ? '⦸' : '↺') + '</button>' +
         '</div></td></tr>';
     }).join('');
@@ -7199,10 +7201,11 @@
     }
   }
 
-  // Delivered: becomes a normal walk-in job slip (one per machine), marked delivered and paid, so
-  // the paper comes out of stock, the Konica counts it and reports include it. Then the files go.
+  // Delivered: QR orders stay in the QR Print tab only. They never make a job slip or a bill, so
+  // JT / INV numbers and the slip & bill registers are untouched. Then the files go.
+  const QR_MAKES_SLIPS = false;
   async function qrDeliver(o){
-    if (!o.job_ticket_id && qrSettings && qrSettings.create_ticket_on_delivery){
+    if (QR_MAKES_SLIPS && !o.job_ticket_id && qrSettings && qrSettings.create_ticket_on_delivery){
       if (!services.length) await loadServices();
       if (!ticketMaterials.length) await loadTicketMaterials();
       const byMachine = {};
