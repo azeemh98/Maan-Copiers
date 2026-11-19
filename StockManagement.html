@@ -288,6 +288,15 @@
   .li-table input, .li-table select{ padding:7px 8px; font-size:12.5px; }
   .li-table .li-amt{ text-align:right; font-weight:700; white-space:nowrap; }
   .li-table .li-amt .tk-amt{ width:100px; text-align:right; font-weight:700; }
+  /* Job slip lines: fixed column widths so the Amount box can't squeeze Service / Description */
+  .tk-lines-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .li-table.tk-lines{ table-layout:fixed; min-width:780px; }
+  .li-table.tk-lines input, .li-table.tk-lines select{ width:100% !important; min-width:0 !important; box-sizing:border-box; }
+  .li-table.tk-lines .li-amt .tk-amt{ width:100% !important; }
+  .li-table.tk-lines td:last-child{ padding-left:0; padding-right:0; text-align:center; }
+  .tk-rate-hint{ font-size:11px; color:var(--muted); margin-top:4px; line-height:1.35; }
+  .tk-rate-hint b{ color:var(--ink, inherit); }
+  .tk-rate-hint button{ font-size:11px; padding:1px 6px; margin-left:4px; border:1px solid var(--line, #ddd); background:var(--card, #fff); border-radius:5px; cursor:pointer; }
   .li-remove{ background:none; border:none; color:var(--faint); cursor:pointer; font-size:15px; }
   .li-remove:hover{ color:var(--danger); }
   .totals-box{ margin-left:auto; width:280px; max-width:100%; }
@@ -1143,10 +1152,13 @@
             <div class="field"><label for="tkPhone">Phone (optional)</label><input type="tel" id="tkPhone" placeholder="10-digit mobile"></div>
           </div>
           <datalist id="tkServiceDatalist"></datalist>
-          <table class="li-table li-edit">
-            <thead><tr><th style="width:20%">Service / Stock Item</th><th style="width:8%">Size</th><th>Description</th><th>Qty</th><th style="width:130px;">Sides</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+          <div class="tk-lines-scroll">
+          <table class="li-table li-edit tk-lines">
+            <colgroup><col style="width:25%"><col style="width:8%"><col style="width:20%"><col style="width:8%"><col style="width:13%"><col style="width:10%"><col style="width:12%"><col style="width:34px"></colgroup>
+            <thead><tr><th>Service / Stock Item</th><th>Size</th><th>Description</th><th>Qty</th><th>Sides</th><th>Rate</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
             <tbody id="tkLineItems"></tbody>
           </table>
+          </div>
           <button class="btn-sm" id="tkAddLineBtn">+ Add line</button>
           <div class="field" style="margin-top:14px; max-width:220px;">
             <label for="tkGstPct">GST</label>
@@ -1607,6 +1619,31 @@
   <section class="section-panel" id="panel-parties">
     <div class="content-grid">
       <div class="main-col">
+        <section class="card" id="partyRatesCard">
+          <h2 class="collapsible" id="prToggle"><span>📋 Party Rates</span><span class="chev">▶</span></h2>
+          <div id="prBody" style="display:none; margin-top:16px;">
+            <div class="hint" style="margin-bottom:12px;">Fixed rates for each customer. On a new job slip, picking the customer fills their rate automatically. If no rate is saved here, the slip uses the last rate they were charged, so nobody has to open old slips.</div>
+            <div class="field"><label for="prParty">Customer</label>
+              <input type="text" id="prParty" list="tkPartyDatalist" placeholder="Search a saved customer…" autocomplete="off"></div>
+            <div id="prContent" style="display:none;">
+              <div id="prAddRow" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:12px;">
+                <div class="field" style="flex:2; min-width:200px; margin:0;"><label for="prItem">Service / stock item</label>
+                  <input type="text" id="prItem" list="tkServiceDatalist" placeholder="Search…" autocomplete="off"></div>
+                <div class="field" style="flex:1; min-width:90px; margin:0;"><label for="prRate">Rate (₹)</label><input type="number" id="prRate" min="0" step="0.01"></div>
+                <button class="btn-sm" id="prAddBtn" style="height:38px;">⭐ Save rate</button>
+              </div>
+              <div style="overflow-x:auto;">
+                <table class="data-table">
+                  <thead><tr><th>Item</th><th style="text-align:right;">Saved rate</th><th style="text-align:right;">Last charged</th><th></th></tr></thead>
+                  <tbody id="prRows"></tbody>
+                </table>
+              </div>
+              <button class="btn-sm" id="prSaveAllLast" style="margin-top:10px; display:none;">⭐ Save all last-charged rates as party rates</button>
+              <div class="status" id="prStatus"></div>
+            </div>
+          </div>
+        </section>
+
         <section class="card">
           <h2 class="collapsible" id="addPartyToggle"><span id="addPartyToggleLabel">+ Add Customer / Supplier</span><span class="chev">▶</span></h2>
           <div id="addPartyBody" style="display:none; margin-top:18px;">
@@ -3886,6 +3923,55 @@
   }
 
   // ---- Ticket line items ----
+  // ---- Party rates on the job slip: the customer's saved rate, else the last rate they were
+  // charged for that service / stock item. Never overrides a rate typed by hand on the line. ----
+  let partyRateMap = {}, partyRateKey = '', partyRateTimer = null;
+  const rateFmt = v => Math.round(Number(v) * 100) / 100;
+  async function loadPartyRatesForTicket(){
+    const pid = selectedTicketPartyId || null;
+    const name = pid ? '' : $('tkCustomerName').value.trim();
+    const key = pid ? 'p:' + pid : (name.length >= 3 ? 'n:' + name.toLowerCase() : '');
+    if (key === partyRateKey) return;
+    partyRateKey = key;
+    const map = {};
+    if (key){
+      try {
+        const [lastRes, savedRes] = await Promise.all([
+          supabaseClient.rpc('party_last_rates', { p_org_id: currentOrgId, p_party_id: pid, p_name: pid ? null : name }),
+          pid ? supabaseClient.from('party_rates').select('item_key, rate').eq('org_id', currentOrgId).eq('party_id', pid) : Promise.resolve({ data: [] })
+        ]);
+        (lastRes.data || []).forEach(r => { map[r.item_key] = { last: Number(r.rate), ticket_no: r.ticket_no, date: r.ticket_date }; });
+        (savedRes.data || []).forEach(r => { (map[r.item_key] = map[r.item_key] || {}).saved = Number(r.rate); });
+      } catch (_){}
+    }
+    if (key !== partyRateKey) return;   // customer changed again while loading
+    partyRateMap = map;
+    ticketLineItems.forEach(applyPartyRate);
+    renderTicketLineItems();
+  }
+  function partyRateOf(li){
+    const e = li.service_id && partyRateMap[li.service_id];
+    return e ? (e.saved != null ? e.saved : (e.last != null ? e.last : null)) : null;
+  }
+  function applyPartyRate(li){
+    if (li.rateManual) return false;
+    const r = partyRateOf(li);
+    if (r == null) return false;
+    li.rate = r;
+    return true;
+  }
+  function partyRateHintHtml(li){
+    if (!li.service_id) return '';
+    const e = partyRateMap[li.service_id] || {};
+    let h = '';
+    if (e.saved != null) h += '⭐ Party rate <b>₹' + rateFmt(e.saved) + '</b>';
+    if (e.last != null) h += (h ? ' · ' : '') + 'Last ₹' + rateFmt(e.last) + ' <span style="opacity:.8;">(' + e.ticket_no + ', ' + fmtDate(e.date) + ')</span>';
+    const r = partyRateOf(li);
+    if (r != null && Math.abs(r - li.rate) > 0.00005) h += '<button type="button" class="tk-use-rate">Use ₹' + rateFmt(r) + '</button>';
+    if (isTicketApprover && selectedTicketPartyId && li.rate > 0 && e.saved !== li.rate)
+      h += '<button type="button" class="tk-save-rate" title="Save as this customer\'s fixed rate">⭐ Save ₹' + rateFmt(li.rate) + '</button>';
+    return h;
+  }
   function newTicketLineRow(){ return { service_id:'', paper_id:'', description:'', qty:1, unit:'', rate:0, size:'', sides:'single', autoLinked:false }; }
   // Photocopy / printout and any other service with a "Paper used" set in Manage Services: the
   // slip line keeps the service (for the rate) and carries the paper, which is what gets
@@ -3915,6 +4001,7 @@
   let autoLinkedTicketParty = false;
   let editingTicketId = null, editingTicketPaid = 0;
   function resetTicketForm(){
+    partyRateMap = {}; partyRateKey = ''; clearTimeout(partyRateTimer);
     ticketLineItems = [newTicketLineRow()];
     renderTicketLineItems();
     $('tkCustomerName').value = ''; $('tkPhone').value = ''; $('tkNotes').value = ''; $('tkExpected').value = '';
@@ -3948,6 +4035,7 @@
       sides: li.print_sides === 'double' ? 'double' : 'single',
       autoLinked: false // an existing saved link is explicit, whether it was originally picked or auto-matched
     }));
+    ticketLineItems.forEach(li => { li.rateManual = true; });
     renderTicketLineItems();
     $('tkCustomerName').value = ticket.customer_name || '';
     $('tkPhone').value = ticket.phone || '';
@@ -3957,6 +4045,7 @@
     autoLinkedTicketParty = false;
     const party = ticket.party_id ? parties.find(p => p.id === ticket.party_id) : null;
     $('tkPartySearch').value = party ? (party.name + (party.phone ? ' — ' + party.phone : '')) : '';
+    partyRateKey = ''; loadPartyRatesForTicket();
     $('tkMachine').value = ticket.machine || '';
     $('tkOperator').value = ticket.operator_name || '';
     $('tkGstPct').value = String(Number(ticket.gst_pct) || 0);
@@ -4016,6 +4105,33 @@
   }
   $('tkCustomerName').addEventListener('input', tryAutoLinkTicketByTypedInfo);
   $('tkPhone').addEventListener('input', tryAutoLinkTicketByTypedInfo);
+  // Customer picked / typed -> fetch their rates (after the auto-link above has run)
+  $('tkPartySearch').addEventListener('input', () => loadPartyRatesForTicket());
+  ['tkCustomerName', 'tkPhone'].forEach(id => $(id).addEventListener('input', () => {
+    clearTimeout(partyRateTimer); partyRateTimer = setTimeout(loadPartyRatesForTicket, 450);
+  }));
+  $('tkLineItems').addEventListener('click', async function(e){
+    const btn = e.target.closest('.tk-use-rate, .tk-save-rate');
+    if (!btn) return;
+    e.preventDefault();
+    const tr = btn.closest('tr'), idx = parseInt(tr.dataset.idx), li = ticketLineItems[idx];
+    if (!li) return;
+    if (btn.classList.contains('tk-use-rate')){
+      li.rateManual = false; applyPartyRate(li);
+      tr.querySelector('.tk-rate').value = li.rate;
+      updateTicketLineAmount(tr, idx);
+      return;
+    }
+    if (!isTicketApprover || !selectedTicketPartyId) return;
+    btn.disabled = true;
+    const { error } = await supabaseClient.from('party_rates').upsert({ org_id: currentOrgId, party_id: selectedTicketPartyId, item_key: li.service_id,
+      item_name: serviceLabelFor(li.service_id).split(' — ')[0] || li.description, rate: li.rate, updated_at: new Date().toISOString(), updated_by: currentUserId },
+      { onConflict: 'org_id,party_id,item_key' });
+    if (error){ alert(error.message); btn.disabled = false; return; }
+    (partyRateMap[li.service_id] = partyRateMap[li.service_id] || {}).saved = li.rate;
+    const hintEl = tr.querySelector('.tk-rate-hint'); if (hintEl) hintEl.innerHTML = partyRateHintHtml(li);
+    showToast('⭐ Party rate saved', '₹' + li.rate + ' — used automatically on this customer\'s next slips');
+  });
 
   // Search-as-you-type picker for ticket lines (Services + Stock catalog combined) — a plain
   // <select> with 100+ options grouped across 15 categories was too slow to hunt through by
@@ -4084,7 +4200,7 @@
         '<td><input type="text" class="tk-service" list="tkServiceDatalist" value="' + serviceLabelFor(li.service_id).replace(/"/g,'&quot;') + '" placeholder="Search or leave blank for custom…" autocomplete="off">' +
           (li.service_id && li.service_id.indexOf('svc:') === 0 && (li.paper_id || serviceDefaultPaper(li.service_id))
             ? '<label class="tk-paper-wrap">📄 Paper <select class="tk-paper" title="Paper used — deducted from stock (1 sheet per quantity)">' + paperOptionsHtml(li.paper_id) + '</select></label>' : '') +
-          '<div class="tk-stock-hint">' + ticketStockHintFor(li) + '</div></td>' +
+          '<div class="tk-stock-hint">' + ticketStockHintFor(li) + '</div><div class="tk-rate-hint">' + partyRateHintHtml(li) + '</div></td>' +
         '<td><input type="text" class="tk-size" value="' + (li.size || '').replace(/"/g,'&quot;') + '" placeholder="4X5" style="width:64px;"></td>' +
         '<td><input type="text" class="tk-desc" value="' + (li.description || '').replace(/"/g,'&quot;') + '" placeholder="Description"></td>' +
         '<td><input type="number" class="tk-qty" value="' + li.qty + '" min="0.01" step="0.01" style="width:70px;"></td>' +
@@ -4110,6 +4226,8 @@
         // Stock items don't have a fixed sale rate (they're tracked inventory, not a priced
         // service) — autofill the name/unit and leave the rate for staff to key in per job.
         if (match.rate !== null) ticketLineItems[idx].rate = match.rate;
+        ticketLineItems[idx].rateManual = false;
+        applyPartyRate(ticketLineItems[idx]);
         renderTicketLineItems(); updateTicketTotal();
       });
       tr.querySelector('.tk-size').addEventListener('input', function(){
@@ -4158,6 +4276,7 @@
           li.unit = match.unit;
           if (hadPaperPicker !== !!li.paper_id){ renderTicketLineItems(); const el = $('tkLineItems').querySelector('tr[data-idx="' + idx + '"] .tk-desc'); if (el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } return; }
           if (match.rate !== null) li.rate = match.rate;
+          applyPartyRate(li);
           const rateInput = tr.querySelector('.tk-rate');
           if (rateInput) rateInput.value = li.rate;
           updateTicketLineAmount(tr, idx);
@@ -4179,7 +4298,7 @@
       });
       tr.querySelector('.tk-qty').addEventListener('input', function(){ ticketLineItems[idx].qty = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
       tr.querySelector('.tk-sides').addEventListener('change', function(){ ticketLineItems[idx].sides = this.value; ticketLineItems[idx].sidesManual = true; });
-      tr.querySelector('.tk-rate').addEventListener('input', function(){ ticketLineItems[idx].rate = parseFloat(this.value) || 0; updateTicketLineAmount(tr, idx); });
+      tr.querySelector('.tk-rate').addEventListener('input', function(){ ticketLineItems[idx].rate = parseFloat(this.value) || 0; ticketLineItems[idx].rateManual = true; updateTicketLineAmount(tr, idx); });
       // Typing the total works the rate out (amount ÷ quantity, to 4 decimals so the line
       // still comes back to the typed total); quantity and rate keep working as before.
       tr.querySelector('.tk-amt').addEventListener('input', function(){
@@ -4187,7 +4306,9 @@
         const amt = parseFloat(this.value) || 0;
         if (!(li.qty > 0)) return;
         li.rate = Math.round(amt / li.qty * 10000) / 10000;
+        li.rateManual = true;
         tr.querySelector('.tk-rate').value = li.rate;
+        const hintEl = tr.querySelector('.tk-rate-hint'); if (hintEl) hintEl.innerHTML = partyRateHintHtml(li);
         updateTicketTotal();
       });
       tr.querySelector('.li-remove').addEventListener('click', function(){ ticketLineItems.splice(idx, 1); if (ticketLineItems.length === 0) ticketLineItems.push(newTicketLineRow()); renderTicketLineItems(); updateTicketTotal(); });
@@ -4198,6 +4319,7 @@
     const li = ticketLineItems[idx];
     const amtInput = tr.querySelector('.tk-amt');
     if (amtInput && document.activeElement !== amtInput) amtInput.value = Math.round(li.qty * li.rate * 100) / 100;
+    const rateHint = tr.querySelector('.tk-rate-hint'); if (rateHint) rateHint.innerHTML = partyRateHintHtml(li);
     updateTicketTotal();
   }
   function computeTicketTotal(){ return ticketLineItems.reduce((s,li) => s + li.qty * li.rate, 0); }
@@ -5088,6 +5210,7 @@
         $('tkCustomerName').value = party.name;
         $('tkPhone').value = party.phone || '';
         $('tkPartyHint').textContent = 'Linked to saved customer "' + party.name + '".';
+        loadPartyRatesForTicket();
       }
     }
     $('tkNotes').value = 'From task: ' + task.title;
@@ -8335,6 +8458,81 @@
     this.classList.add('active'); newPartyType = this.dataset.v;
   }));
   toggleCollapsible($('addPartyToggle'), $('addPartyBody'));
+
+  // ---- Party Rates (Parties tab): view / set each customer's rates ----
+  let prPartyId = null, prRows = [];
+  const prEsc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  toggleCollapsible($('prToggle'), $('prBody'));
+  function prItemName(key, fallback){ const l = serviceLabelFor(key); return l ? l.split(' — ')[0] : (fallback || 'Item'); }
+  async function prLoad(){
+    const statusEl = $('prStatus');
+    if (!prPartyId){ $('prContent').style.display = 'none'; return; }
+    $('prContent').style.display = '';
+    $('prAddRow').style.display = isTicketApprover ? 'flex' : 'none';
+    const [{ data: saved, error: e1 }, { data: last, error: e2 }] = await Promise.all([
+      supabaseClient.from('party_rates').select('*').eq('org_id', currentOrgId).eq('party_id', prPartyId),
+      supabaseClient.rpc('party_last_rates', { p_org_id: currentOrgId, p_party_id: prPartyId, p_name: null })
+    ]);
+    if (e1 || e2){ showStatus(statusEl, (e1 || e2).message, false); return; }
+    const byKey = {};
+    (last || []).forEach(r => { byKey[r.item_key] = { key: r.item_key, name: prItemName(r.item_key, r.item_name), last: Number(r.rate), ticket_no: r.ticket_no, date: r.ticket_date }; });
+    (saved || []).forEach(r => { const e = byKey[r.item_key] = byKey[r.item_key] || { key: r.item_key, name: prItemName(r.item_key, r.item_name) }; e.saved = Number(r.rate); e.id = r.id; });
+    prRows = Object.values(byKey).sort((a, b) => (a.saved == null) - (b.saved == null) || a.name.localeCompare(b.name));
+    prRender();
+  }
+  function prRender(){
+    const tbody = $('prRows');
+    if (!prRows.length){ tbody.innerHTML = '<tr><td colspan="4" class="hint">No rates yet — this customer has no past slips with a picked service. Add a rate above.</td></tr>'; $('prSaveAllLast').style.display = 'none'; return; }
+    tbody.innerHTML = prRows.map((r, i) => '<tr data-i="' + i + '"><td>' + prEsc(r.name) + '</td>' +
+      '<td style="text-align:right;">' + (isTicketApprover
+        ? '<input type="number" class="pr-rate" min="0" step="0.01" value="' + (r.saved != null ? r.saved : '') + '" placeholder="—" style="width:90px; text-align:right;">'
+        : (r.saved != null ? '<b>₹' + rateFmt(r.saved) + '</b>' : '—')) + '</td>' +
+      '<td style="text-align:right;">' + (r.last != null ? '₹' + rateFmt(r.last) + '<div class="hint" style="font-size:11px;">' + prEsc(r.ticket_no) + ' · ' + fmtDate(r.date) + '</div>' : '—') + '</td>' +
+      '<td style="white-space:nowrap;">' + (isTicketApprover ? '<button class="btn-sm pr-save">Save</button>' + (r.id ? ' <button class="btn-sm pr-del" title="Remove saved rate">✕</button>' : '') : '') + '</td></tr>').join('');
+    $('prSaveAllLast').style.display = isTicketApprover && prRows.some(r => r.last != null && r.saved == null) ? '' : 'none';
+    tbody.querySelectorAll('.pr-save').forEach(b => b.addEventListener('click', async function(){
+      const tr = this.closest('tr'), r = prRows[Number(tr.dataset.i)];
+      const v = parseFloat(tr.querySelector('.pr-rate').value);
+      if (!(v >= 0)){ showStatus($('prStatus'), 'Type a rate first.', false); return; }
+      await prSave([{ key: r.key, name: r.name, rate: v }]);
+    }));
+    tbody.querySelectorAll('.pr-del').forEach(b => b.addEventListener('click', async function(){
+      const r = prRows[Number(this.closest('tr').dataset.i)];
+      if (!window.confirm('Remove the saved rate for ' + r.name + '? (Past slips are not touched.)')) return;
+      const { error } = await supabaseClient.from('party_rates').delete().eq('id', r.id);
+      if (error){ showStatus($('prStatus'), error.message, false); return; }
+      partyRateKey = ''; await prLoad();
+    }));
+  }
+  async function prSave(list){
+    if (!isTicketApprover){ showStatus($('prStatus'), 'Only admins or Azad can set party rates.', false); return false; }
+    const rows = list.map(x => ({ org_id: currentOrgId, party_id: prPartyId, item_key: x.key, item_name: x.name, rate: Math.round(x.rate * 10000) / 10000,
+      updated_at: new Date().toISOString(), updated_by: currentUserId }));
+    const { error } = await supabaseClient.from('party_rates').upsert(rows, { onConflict: 'org_id,party_id,item_key' });
+    if (error){ showStatus($('prStatus'), error.message, false); return false; }
+    showStatus($('prStatus'), rows.length === 1 ? 'Rate saved for ' + list[0].name + '.' : rows.length + ' rates saved.', true);
+    partyRateKey = '';   // the open job slip picks up the new rates
+    await prLoad();
+    return true;
+  }
+  $('prParty').addEventListener('input', function(){
+    const match = parties.find(p => p.is_active && (p.name + (p.phone ? ' — ' + p.phone : '')) === this.value);
+    prPartyId = match ? match.id : null;
+    prLoad();
+  });
+  $('prAddBtn').addEventListener('click', async function(){
+    const m = serviceLookupByLabel[$('prItem').value];
+    const v = parseFloat($('prRate').value);
+    if (!m){ showStatus($('prStatus'), 'Pick a service or stock item from the list.', false); return; }
+    if (!(v >= 0)){ showStatus($('prStatus'), 'Type the rate.', false); return; }
+    if (await prSave([{ key: m.value, name: m.name, rate: v }])){ $('prItem').value = ''; $('prRate').value = ''; }
+  });
+  $('prSaveAllLast').addEventListener('click', async function(){
+    const list = prRows.filter(r => r.last != null && r.saved == null).map(r => ({ key: r.key, name: r.name, rate: r.last }));
+    if (!list.length) return;
+    if (!window.confirm('Save ' + list.length + ' last-charged rate' + (list.length === 1 ? '' : 's') + ' as this customer\'s fixed rates?')) return;
+    await prSave(list);
+  });
 
   async function loadPartiesAndBalances(){
     const [{ data: pData, error: pErr }, { data: bData, error: bErr }] = await Promise.all([
