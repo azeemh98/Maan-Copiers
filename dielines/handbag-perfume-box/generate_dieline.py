@@ -6,7 +6,7 @@ import cairosvg
 OUT = sys.argv[1]
 # ---- finished box size (mm) ----
 WB, WT = 115.0, 100.0   # width at bottom / top
-DB, DT = 40.0, 15.0     # depth at bottom / top
+DB, DT = 40.0, 22.0     # depth at bottom / top (22 fits 20 mm-deep, 80 mm-tall bottles)
 H = 85.0                # vertical height
 TAB = 12.0              # glue tab width
 BLEED = 3.0

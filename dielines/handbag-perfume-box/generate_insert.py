@@ -8,10 +8,11 @@ import cairosvg
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "."
 # ---- box interior (must match generate_dieline.py) ----
-WB, DB, H, ix, iy = 115.0, 40.0, 85.0, 7.5, 12.5
+WB, DB, DT, H = 115.0, 40.0, 22.0, 85.0
+ix, iy = 7.5, (DB-DT)/2
 BOARD = 0.5                       # board thickness allowance
 # ---- bottle (EDIT to your real bottle) ----
-BW, BD, BH = 30.0, 18.0, 75.0     # bottle body width, depth, height incl. cap
+BW, BD, BH = 32.0, 20.0, 80.0     # bottle body width, depth, height incl. cap
 CLEAR = 1.0                       # clearance around bottle in hole
 GAP = 12.0                        # space between the two bottles
 LEG = 25.0                        # platform height above box floor
@@ -24,7 +25,8 @@ hw, hd = BW + CLEAR, BD + CLEAR
 assert 2*hw + GAP < PW - 8, "bottles too wide for platform"
 assert hd < PD - 6, "bottle too deep for platform"
 # sanity: bottle depth must fit the narrowing box up to its height
-assert DB - 2*iy*BH/H - 2*BOARD > BD * 0.85, "bottle may be too tall/deep for sloped walls"
+assert DB - 2*iy*BH/H - 2*BOARD >= BD, "bottle too tall/deep for sloped walls"
+assert BH <= H - 2*BOARD - 2, "bottle too tall for box"
 
 parts = {
  'PLATFORM': rect(0, 0, PW, PD),
@@ -89,7 +91,7 @@ def build(guides):
         o.append('</g>')
         y0 = PGH - 40; x0 = 12
         notes = [
-          f"Fits inside: Handbag Perfume Box (W 115 × H 85 × D 40). Holds 2 bottles of {BW:.0f} × {BD:.0f} mm, up to {BH:.0f} mm tall.",
+          f"Fits inside: Handbag Perfume Box (W 115 × H 85 × D 40, top 100 × 22). Holds 2 bottles of {BW:.0f} × {BD:.0f} mm, up to {BH:.0f} mm tall.",
           f"Platform sits {LEG:.0f} mm above the box floor; bottles go through the holes and stand on the floor.",
           "Assembly: crease all folds → fold 4 legs down (printed side up) → glue tabs inside the left/right legs → drop into box.",
           "Edit bottle size in generate_insert.py (BW, BD, BH) if your bottles differ, then re-run.",
