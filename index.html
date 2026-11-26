@@ -1009,6 +1009,54 @@
           </div>
         </section>
 
+        <!-- Every stock movement, and which item went to which customer, day by day. -->
+        <section class="card" id="shCard">
+          <h2 class="collapsible" id="shToggle"><span>📒 Stock History &amp; Summary — every entry, and who got what</span><span class="chev">▶</span></h2>
+          <div id="shBody" style="display:none; margin-top:18px;">
+            <div class="cat-tabs" id="shTabs">
+              <button class="cat-tab active" data-shv="hist">History — every entry</button>
+              <button class="cat-tab" data-shv="sum">Summary — which item went to which customer, day by day</button>
+            </div>
+            <div class="row4">
+              <div class="field"><label for="shFrom">From</label><input type="date" id="shFrom"></div>
+              <div class="field"><label for="shTo">To</label><input type="date" id="shTo"></div>
+              <div class="field" id="shKindWrap"><label for="shKind">Type</label><select id="shKind">
+                <option value="">All entries</option><option value="in">Stock In (hand entry)</option><option value="purchase">Bought (purchase bill)</option>
+                <option value="job">Used on job slip</option><option value="job_return">Returned from job slip</option><option value="sale">Sold on bill</option>
+                <option value="wastage">Wastage</option><option value="out">Stock Out (hand entry)</option><option value="counter">Machine counter</option></select></div>
+              <div class="field"><label for="shCategory">Material</label><select id="shCategory"><option value="">All materials</option></select></div>
+            </div>
+            <div class="field"><label for="shSearch">Search</label><input type="text" id="shSearch" placeholder="Item, customer, JT / INV number, machine, note…"></div>
+            <div class="stats-row">
+              <div class="stat-card ok"><div class="s-label">Stock In / bought</div><div class="s-val" id="shStatIn">—</div></div>
+              <div class="stat-card"><div class="s-label">Used on job slips</div><div class="s-val" id="shStatJob">—</div></div>
+              <div class="stat-card"><div class="s-label">Sold on bills</div><div class="s-val" id="shStatSale">—</div></div>
+              <div class="stat-card danger"><div class="s-label">Wastage / out</div><div class="s-val" id="shStatWaste">—</div></div>
+            </div>
+            <div class="table-head-row" style="margin-top:6px;"><div class="hint" id="shHint"></div><button class="export-btn" id="shExportBtn">⭳ Export to Excel</button></div>
+            <div id="shHistWrap"><div class="table-scroll"><table class="data-table">
+              <thead><tr><th>Date</th><th>Type</th><th>Item</th><th style="text-align:right;">Qty</th><th>Slip / bill</th><th>Customer</th><th>Machine</th><th>Note</th><th>By</th></tr></thead>
+              <tbody id="shBodyRows"><tr class="empty-row"><td colspan="9">—</td></tr></tbody>
+            </table></div>
+            <button class="btn-sm" id="shMore" style="margin-top:8px; display:none;"></button></div>
+            <div id="shSumWrap" style="display:none;">
+              <div class="table-scroll"><table class="data-table pm-table">
+                <thead><tr><th>Date</th><th>Customer</th><th>Item</th><th style="text-align:right;">Qty</th><th>Slips / bills</th></tr></thead>
+                <tbody id="shSumRows"></tbody>
+              </table></div>
+              <button class="btn-sm" id="shSumMore" style="margin-top:8px; display:none;"></button>
+              <div class="row2" style="margin-top:18px; align-items:start;">
+                <div><h2>Totals by customer</h2><div class="table-scroll"><table class="data-table">
+                  <thead><tr><th>Customer</th><th style="text-align:right;">Sheets</th><th style="text-align:right;">Sq ft</th><th style="text-align:right;">Pcs</th><th style="text-align:right;">Slips / bills</th></tr></thead>
+                  <tbody id="shSumByCust"></tbody></table></div></div>
+                <div><h2>Totals by item</h2><div class="table-scroll"><table class="data-table">
+                  <thead><tr><th>Item</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Customers</th></tr></thead>
+                  <tbody id="shSumByItem"></tbody></table></div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- How much stock was used: per day for a month, or per month for a year. -->
         <section class="card">
           <h2 class="collapsible" id="consToggle"><span>📊 Material Consumption — day, month, machine &amp; customer wise</span><span class="chev">▶</span></h2>
@@ -7080,6 +7128,135 @@
     finally { this.disabled = false; }
   });
 
+
+  // ======================================================================
+  // STOCK HISTORY & SUMMARY — every movement (stock_history) with its slip / bill / customer,
+  // plus "who got what" grouped by day -> customer -> item. Loaded when the card is opened.
+  // ======================================================================
+  let shRows = [], shView = 'hist', shOpened = false, shLimit = 300, shSumLimit = 40;
+  const SH_KIND = { in: ['Stock In', 'ok', 1], purchase: ['Bought', 'ok', 1], job: ['Job slip', 'received', -1], job_return: ['Job return', 'ok', 1],
+    sale: ['Sold · bill', 'received', -1], wastage: ['Wastage', 'out', -1], out: ['Stock Out', 'low', -1], counter: ['Counter', 'low', -1] };
+  toggleCollapsible($('shToggle'), $('shBody'));
+  $('shTo').value = todayISO();
+  $('shFrom').value = toISODateLocal(new Date(Date.now() - 6 * 86400000));
+  $('shToggle').addEventListener('click', () => { if ($('shBody').style.display !== 'none' && !shOpened){ shOpened = true; loadStockHistory(); } });
+  ['shFrom', 'shTo'].forEach(id => $(id).addEventListener('change', loadStockHistory));
+  ['shKind', 'shCategory'].forEach(id => $(id).addEventListener('change', () => { shLimit = 300; shSumLimit = 40; renderStockHistory(); }));
+  $('shSearch').addEventListener('input', () => { shLimit = 300; shSumLimit = 40; renderStockHistory(); });
+  document.querySelectorAll('#shTabs .cat-tab').forEach(b => b.addEventListener('click', function(){
+    document.querySelectorAll('#shTabs .cat-tab').forEach(x => x.classList.remove('active'));
+    this.classList.add('active'); shView = this.dataset.shv; renderStockHistory();
+  }));
+  $('shMore').addEventListener('click', () => { shLimit += 500; renderStockHistory(); });
+  $('shSumMore').addEventListener('click', () => { shSumLimit += 60; renderStockHistory(); });
+  async function loadStockHistory(){
+    if (!shOpened) return;
+    $('shBodyRows').innerHTML = '<tr class="empty-row"><td colspan="9">Loading…</td></tr>';
+    const from = $('shFrom').value || todayISO(), to = $('shTo').value || todayISO();
+    let res;
+    try { res = await fetchAllPages(() => supabaseClient.rpc('stock_history', { p_org_id: currentOrgId, p_from: from, p_to: to }).order('day', { ascending: false }).order('created_at', { ascending: false }).order('id')); }
+    catch (err){ res = { error: err }; }
+    if (!res || res.error){ shRows = []; $('shBodyRows').innerHTML = '<tr class="empty-row"><td colspan="9">Could not load stock history.</td></tr>'; return; }
+    shRows = (res.data || []).map(r => ({ ...r, fam: consFam(r.unit) }));
+    const sel = $('shCategory'), prev = sel.value;
+    const cats = [...new Set(shRows.map(r => r.category))].sort((a, b) => a.localeCompare(b));
+    sel.innerHTML = '<option value="">All materials</option>' + cats.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('');
+    sel.value = cats.includes(prev) ? prev : '';
+    shLimit = 300; shSumLimit = 40;
+    renderStockHistory();
+  }
+  function shFiltered(ignoreKind){
+    const term = $('shSearch').value.trim().toLowerCase(), kind = ignoreKind ? '' : $('shKind').value, cat = $('shCategory').value;
+    return shRows.filter(r => (!kind || r.kind === kind) && (!cat || r.category === cat) &&
+      (!term || [r.item, r.category, r.customer, r.ticket_no, r.invoice_no, r.machine, r.note].some(v => (v || '').toLowerCase().includes(term))));
+  }
+  const shQtyByFam = rows => { const acc = {}; rows.forEach(r => { acc[r.fam] = (acc[r.fam] || 0) + Number(r.quantity); }); return acc; };
+  const shFamText = acc => CONS_FAMS.filter(f => acc[f.key]).map(f => fmtQty(Math.round(acc[f.key] * 100) / 100) + ' ' + f.unit).join(' · ') || '—';
+  function renderStockHistory(){
+    $('shHistWrap').style.display = shView === 'hist' ? '' : 'none';
+    $('shSumWrap').style.display = shView === 'sum' ? '' : 'none';
+    $('shKindWrap').style.visibility = shView === 'hist' ? 'visible' : 'hidden';
+    const base = shFiltered(true);
+    const pick = kinds => base.filter(r => kinds.includes(r.kind));
+    $('shStatIn').textContent = shFamText(shQtyByFam(pick(['in', 'purchase'])));
+    const jobNet = shQtyByFam(pick(['job'])), ret = shQtyByFam(pick(['job_return']));
+    Object.keys(ret).forEach(k => { jobNet[k] = (jobNet[k] || 0) - ret[k]; });
+    $('shStatJob').textContent = shFamText(jobNet);
+    $('shStatSale').textContent = shFamText(shQtyByFam(pick(['sale'])));
+    $('shStatWaste').textContent = shFamText(shQtyByFam(pick(['wastage', 'out', 'counter'])));
+    const range = fmtDate($('shFrom').value || todayISO()) + ' to ' + fmtDate($('shTo').value || todayISO());
+
+    if (shView === 'hist'){
+      const rows = shFiltered(false);
+      const shown = rows.slice(0, shLimit);
+      $('shBodyRows').innerHTML = shown.length ? shown.map(r => {
+        const k = SH_KIND[r.kind] || [r.kind, 'received', -1];
+        return '<tr><td>' + fmtDate(r.day) + '</td><td><span class="status-badge ' + k[1] + '">' + k[0] + '</span></td>' +
+          '<td class="item-name">' + escHtml(r.item) + '<div class="item-cat">' + escHtml(r.category) + '</div></td>' +
+          '<td style="text-align:right; font-weight:700;">' + (k[2] > 0 ? '+' : '−') + fmtQty(Number(r.quantity)) + ' <span class="item-cat">' + escHtml(r.unit) + '</span></td>' +
+          '<td>' + escHtml(r.ticket_no || r.invoice_no || '—') + '</td><td>' + escHtml(r.customer ? titleCase(r.customer) : '—') + '</td>' +
+          '<td>' + escHtml(r.machine || '—') + '</td><td>' + escHtml(r.note || '—') + '</td><td>' + escHtml(staffName(r.created_by)) + '</td></tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="9">' + (shRows.length ? 'Nothing matches the filters.' : 'No stock movements in ' + range + '.') + '</td></tr>';
+      $('shMore').style.display = rows.length > shLimit ? '' : 'none';
+      $('shMore').textContent = 'Show more (' + (rows.length - shLimit) + ' more)';
+      $('shHint').textContent = rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + ' · ' + range;
+      return;
+    }
+
+    // ---- summary: day -> customer -> item (job slips net of returns, plus items sold on bills) ----
+    const outs = base.filter(r => r.customer && ['job', 'job_return', 'sale'].includes(r.kind));
+    const byDay = new Map();
+    outs.forEach(r => {
+      const key = (r.party_key || r.customer) + '|' + r.material_id;
+      if (!byDay.has(r.day)) byDay.set(r.day, new Map());
+      const d = byDay.get(r.day);
+      if (!d.has(key)) d.set(key, { cust: titleCase(r.customer), item: r.item, unit: r.unit, cat: r.category, qty: 0, refs: new Set() });
+      const x = d.get(key); x.qty += (r.kind === 'job_return' ? -1 : 1) * Number(r.quantity);
+      const ref = r.ticket_no || r.invoice_no; if (ref) x.refs.add(ref);
+    });
+    const days = [...byDay.keys()].sort().reverse();
+    let html = '', shownLines = 0, hidden = 0;
+    days.forEach(day => {
+      const list = [...byDay.get(day).values()].filter(x => Math.abs(x.qty) > 0.0001).sort((a, b) => a.cust.localeCompare(b.cust) || b.qty - a.qty);
+      if (!list.length) return;
+      if (shownLines >= shSumLimit){ hidden += list.length; return; }
+      const custs = new Set(list.map(x => x.cust)).size;
+      html += '<tr class="pm-row open"><td colspan="5"><b>' + fmtDate(day) + '</b> <span class="hint">' + new Date(day).toLocaleDateString('en-IN', { weekday: 'short' }) +
+        ' · ' + custs + ' customer' + (custs === 1 ? '' : 's') + '</span></td></tr>' +
+        list.map((x, i) => '<tr class="pm-sub"><td></td><td>' + (i === 0 || list[i - 1].cust !== x.cust ? '<b>' + escHtml(x.cust) + '</b>' : '') + '</td>' +
+          '<td>' + escHtml(x.item) + ' <span class="item-cat">' + escHtml(x.cat) + '</span></td>' +
+          '<td style="text-align:right; font-weight:700;">' + fmtQty(Math.round(x.qty * 100) / 100) + ' <span class="item-cat">' + escHtml(x.unit) + '</span></td>' +
+          '<td style="font-size:12px;">' + escHtml([...x.refs].join(', ')) + '</td></tr>').join('');
+      shownLines += list.length;
+    });
+    $('shSumRows').innerHTML = html || '<tr class="empty-row"><td colspan="5">No stock went to a customer in ' + range + '.</td></tr>';
+    $('shSumMore').style.display = hidden ? '' : 'none';
+    $('shSumMore').textContent = 'Show more days (' + hidden + ' more lines)';
+    const byCust = new Map(), byItem = new Map();
+    outs.forEach(r => {
+      const sign = r.kind === 'job_return' ? -1 : 1, c = r.party_key || r.customer;
+      if (!byCust.has(c)) byCust.set(c, { name: titleCase(r.customer), acc: {}, refs: new Set() });
+      const x = byCust.get(c); x.acc[r.fam] = (x.acc[r.fam] || 0) + sign * Number(r.quantity); const ref = r.ticket_no || r.invoice_no; if (ref) x.refs.add(ref);
+      if (!byItem.has(r.material_id)) byItem.set(r.material_id, { name: r.item, unit: r.unit, qty: 0, custs: new Set() });
+      const y = byItem.get(r.material_id); y.qty += sign * Number(r.quantity); y.custs.add(c);
+    });
+    const n = v => v ? fmtQty(Math.round(v * 100) / 100) : '—';
+    const custRows = [...byCust.values()].sort((a, b) => (b.acc.sheet || 0) - (a.acc.sheet || 0) || (b.acc.sqft || 0) - (a.acc.sqft || 0));
+    $('shSumByCust').innerHTML = custRows.length ? custRows.slice(0, 100).map(x => '<tr><td class="item-name">' + escHtml(x.name) + '</td><td style="text-align:right;">' + n(x.acc.sheet) + '</td><td style="text-align:right;">' + n(x.acc.sqft) + '</td><td style="text-align:right;">' + n(x.acc.pcs) + '</td><td style="text-align:right;">' + x.refs.size + '</td></tr>').join('') : '<tr class="empty-row"><td colspan="5">—</td></tr>';
+    $('shSumByItem').innerHTML = byItem.size ? [...byItem.values()].sort((a, b) => b.qty - a.qty).slice(0, 100).map(y => '<tr><td class="item-name">' + escHtml(y.name) + '</td><td style="text-align:right; font-weight:700;">' + n(y.qty) + ' <span class="item-cat">' + escHtml(y.unit) + '</span></td><td style="text-align:right;">' + y.custs.size + '</td></tr>').join('') : '<tr class="empty-row"><td colspan="3">—</td></tr>';
+    $('shHint').textContent = custRows.length + ' customer' + (custRows.length === 1 ? '' : 's') + ' · ' + range + ' · job slips (returns taken off) and items sold on bills.';
+  }
+  $('shExportBtn').addEventListener('click', () => {
+    const hist = shFiltered(false);
+    if (!hist.length){ alert('Nothing to export for these filters.'); return; }
+    const outs = shFiltered(true).filter(r => r.customer && ['job', 'job_return', 'sale'].includes(r.kind));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hist.map(r => { const k = SH_KIND[r.kind] || [r.kind, '', -1]; return { Date: r.day, Type: k[0], Item: r.item, Category: r.category,
+      Qty: k[2] * Number(r.quantity), Unit: r.unit, 'Slip / bill': r.ticket_no || r.invoice_no || '', Customer: r.customer ? titleCase(r.customer) : '', Machine: r.machine || '', Note: r.note || '', By: staffName(r.created_by) }; })), 'History');
+    if (outs.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(outs.slice().sort((a, b) => a.day.localeCompare(b.day) || (a.customer || '').localeCompare(b.customer || ''))
+      .map(r => ({ Date: r.day, Customer: titleCase(r.customer), Item: r.item, Category: r.category, Qty: (r.kind === 'job_return' ? -1 : 1) * Number(r.quantity), Unit: r.unit, 'Slip / bill': r.ticket_no || r.invoice_no || '' }))), 'Who got what');
+    XLSX.writeFile(wb, 'Stock-History-' + ($('shFrom').value || '') + '-to-' + ($('shTo').value || todayISO()) + '.xlsx');
+  });
 
   // ======================================================================
   // MATERIAL CONSUMPTION — stock used per day (one month) or per month (12 months), from
