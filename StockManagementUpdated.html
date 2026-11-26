@@ -2328,6 +2328,33 @@
       </div>
     </section>
 
+    <!-- Per customer, per month: material used on their job slips. -->
+    <section class="card">
+      <div class="table-head-row">
+        <h2>🧱 Party-wise Material Consumption — month wise</h2>
+        <button class="export-btn" id="pcExportBtn">⭳ Export to Excel</button>
+      </div>
+      <div class="hint" id="pcRangeLabel" style="margin-bottom:10px;">Run a report to see how much material each customer used, month by month.</div>
+      <div class="row4">
+        <div class="field"><label for="pcUnit">Measure</label><select id="pcUnit">
+          <option value="sheet">Sheets</option><option value="sqft">Sq ft (vinyl, flex, sun board…)</option><option value="pcs">Pieces / other</option></select></div>
+        <div class="field"><label for="pcCategory">Material</label><select id="pcCategory"><option value="">All materials</option></select></div>
+        <div class="field"><label for="pcItem">Item</label><select id="pcItem"><option value="">All items</option></select></div>
+        <div class="field"><label for="pcSearch">Find a customer</label><input type="text" id="pcSearch" placeholder="Type a name…"></div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card"><div class="s-label">Customers</div><div class="s-val" id="pcParties">—</div></div>
+        <div class="stat-card ok"><div class="s-label" id="pcTotalLabel">Used on job slips</div><div class="s-val" id="pcTotal">—</div></div>
+        <div class="stat-card"><div class="s-label">Average per month</div><div class="s-val" id="pcAvg">—</div></div>
+        <div class="stat-card"><div class="s-label">Top customer</div><div class="s-val" id="pcTop" style="font-size:15px;">—</div></div>
+      </div>
+      <div class="hint" style="margin:-4px 0 8px;">Click a customer to see the items they used each month. Only job slips count — wastage and hand Stock Out have no customer.</div>
+      <div class="table-scroll"><table class="data-table pm-table">
+        <thead id="pcHead"></thead>
+        <tbody id="pcBody"><tr class="empty-row"><td>Run a report first.</td></tr></tbody>
+      </table></div>
+    </section>
+
     <section class="card">
       <h2>Party Outstanding</h2>
       <table class="data-table">
@@ -10171,10 +10198,108 @@
     XLSX.writeFile(wb, 'Staff-Productivity-' + prodRange.from + '-to-' + prodRange.to + '.xlsx');
   });
 
+  // ======================================================================
+  // PARTY-WISE MATERIAL CONSUMPTION (Reports) — per customer, per month, material used on their
+  // job slips (from sheet_consumption_daily). One unit at a time: sheets, sq ft or pieces.
+  // ======================================================================
+  let pcData = null, pcExpanded = new Set();
+  ['pcUnit', 'pcCategory'].forEach(id => $(id).addEventListener('change', () => { pcRenderSelects(); renderPartyConsumption(); }));
+  $('pcItem').addEventListener('change', renderPartyConsumption);
+  $('pcSearch').addEventListener('input', renderPartyConsumption);
+  async function loadPartyConsumption(from, to){
+    $('pcBody').innerHTML = '<tr class="empty-row"><td>Loading…</td></tr>';
+    let res;
+    try { res = await fetchAllPages(() => supabaseClient.rpc('sheet_consumption_daily', { p_org_id: currentOrgId, p_from: from, p_to: to }).order('day').order('material_id').order('machine')); }
+    catch (err){ res = { error: err }; }
+    if (!res || res.error){ pcData = null; $('pcBody').innerHTML = '<tr class="empty-row"><td>Could not load material consumption.</td></tr>'; return; }
+    const rows = (res.data || []).filter(r => r.party_key).map(r => ({ ...r, fam: consFam(r.unit), mk: String(r.day).slice(0, 7),
+      qty: Number(r.used_jobs) || 0 })).filter(r => r.qty);
+    pcData = { from, to, months: pmMonthsBetween(from.slice(0, 7), to.slice(0, 7)), rows };
+    // default measure: whichever unit has the most use
+    const famTot = {}; rows.forEach(r => { famTot[r.fam] = (famTot[r.fam] || 0) + r.qty; });
+    if (!famTot[$('pcUnit').value]){ const best = Object.keys(famTot).sort((a, b) => famTot[b] - famTot[a])[0]; if (best) $('pcUnit').value = best; }
+    pcRenderSelects();
+    renderPartyConsumption();
+  }
+  function pcRenderSelects(){
+    if (!pcData) return;
+    const fam = $('pcUnit').value;
+    const rows = pcData.rows.filter(r => r.fam === fam);
+    const cSel = $('pcCategory'), cPrev = cSel.value;
+    const cats = [...new Set(rows.map(r => r.category))].sort((a, b) => a.localeCompare(b));
+    cSel.innerHTML = '<option value="">All materials</option>' + cats.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('');
+    cSel.value = cats.includes(cPrev) ? cPrev : '';
+    const iSel = $('pcItem'), iPrev = iSel.value;
+    const items = new Map(); rows.filter(r => !cSel.value || r.category === cSel.value).forEach(r => items.set(r.material_id, r.name));
+    iSel.innerHTML = '<option value="">All items</option>' + [...items].sort((a, b) => a[1].localeCompare(b[1])).map(([id, nm]) => '<option value="' + id + '">' + escHtml(nm) + '</option>').join('');
+    iSel.value = items.has(iPrev) ? iPrev : '';
+  }
+  function pcAggregate(){
+    const fam = $('pcUnit').value, cat = $('pcCategory').value, item = $('pcItem').value;
+    const byParty = new Map();
+    pcData.rows.filter(r => r.fam === fam && (!cat || r.category === cat) && (!item || r.material_id === item)).forEach(r => {
+      if (!byParty.has(r.party_key)) byParty.set(r.party_key, { key: r.party_key, name: titleCase(r.party_name || 'Walk-in'), total: 0, months: {}, items: new Map() });
+      const x = byParty.get(r.party_key);
+      x.total += r.qty; x.months[r.mk] = (x.months[r.mk] || 0) + r.qty;
+      if (!x.items.has(r.material_id)) x.items.set(r.material_id, { name: r.name, unit: r.unit, total: 0, months: {} });
+      const it = x.items.get(r.material_id); it.total += r.qty; it.months[r.mk] = (it.months[r.mk] || 0) + r.qty;
+    });
+    return [...byParty.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  }
+  function renderPartyConsumption(){
+    if (!pcData) return;
+    const unitLabel = (CONS_FAMS.find(f => f.key === $('pcUnit').value) || CONS_FAMS[0]).unit;
+    const q = v => v ? fmtQty(Math.round(v * 100) / 100) : '<span class="pm-dash">—</span>';
+    const all = pcAggregate();
+    const term = $('pcSearch').value.trim().toLowerCase();
+    const rows = all.filter(r => !term || r.name.toLowerCase().includes(term));
+    const months = pcData.months, grand = all.reduce((s, r) => s + r.total, 0);
+    const activeMonths = months.filter(k => all.some(r => r.months[k])).length;
+    $('pcRangeLabel').textContent = 'Customers — ' + fmtDate(pcData.from) + ' to ' + fmtDate(pcData.to) + ' · in ' + unitLabel + ' · material used on their job slips (returns from edited / cancelled slips taken off).';
+    $('pcParties').textContent = fmtQty(all.length);
+    $('pcTotalLabel').textContent = 'Used on job slips (' + unitLabel + ')';
+    $('pcTotal').textContent = grand ? fmtQty(Math.round(grand)) : '—';
+    $('pcAvg').textContent = activeMonths ? fmtQty(Math.round(grand / activeMonths)) + ' ' + unitLabel : '—';
+    $('pcTop').textContent = all[0] ? all[0].name + ' · ' + fmtQty(Math.round(all[0].total)) : '—';
+    $('pcHead').innerHTML = '<tr><th>Customer</th>' + months.map(k => '<th class="num">' + pmMonthLabel(k) + '</th>').join('') + '<th class="num">Total</th><th class="num">Share</th></tr>';
+    const cols = months.length + 3;
+    $('pcBody').innerHTML = rows.length ? rows.map(r => {
+      const open = pcExpanded.has(r.key);
+      let html = '<tr class="pm-row' + (open ? ' open' : '') + '" data-key="' + escHtml(r.key) + '"><td class="item-name"><span class="pm-chev">' + (open ? '▼' : '▶') + '</span> ' + escHtml(r.name) + '</td>' +
+        months.map(k => '<td class="num">' + q(r.months[k]) + '</td>').join('') +
+        '<td class="num"><b>' + q(r.total) + '</b></td><td class="num">' + (grand ? (r.total * 100 / grand).toFixed(1) + '%' : '—') + '</td></tr>';
+      if (open) html += [...r.items.values()].sort((a, b) => b.total - a.total).map(it => '<tr class="pm-sub"><td>' + escHtml(it.name) + '</td>' +
+        months.map(k => '<td class="num">' + q(it.months[k]) + '</td>').join('') + '<td class="num">' + q(it.total) + ' ' + escHtml(it.unit || '') + '</td><td></td></tr>').join('');
+      return html;
+    }).join('') + '<tr class="pm-total"><td>Total</td>' + months.map(k => '<td class="num">' + q(rows.reduce((s, r) => s + (r.months[k] || 0), 0)) + '</td>').join('') +
+      '<td class="num">' + q(rows.reduce((s, r) => s + r.total, 0)) + '</td><td></td></tr>'
+      : '<tr class="empty-row"><td colspan="' + cols + '">' + (all.length ? 'No customer matches the search.' : 'No ' + unitLabel + ' used on job slips in this period.') + '</td></tr>';
+    $('pcBody').querySelectorAll('.pm-row').forEach(tr => tr.addEventListener('click', function(){
+      const k = this.dataset.key;
+      if (pcExpanded.has(k)) pcExpanded.delete(k); else pcExpanded.add(k);
+      renderPartyConsumption();
+    }));
+  }
+  $('pcExportBtn').addEventListener('click', () => {
+    if (!pcData){ alert('Run a report first.'); return; }
+    const rows = pcAggregate();
+    if (!rows.length){ alert('Nothing to export for this period.'); return; }
+    const unitLabel = (CONS_FAMS.find(f => f.key === $('pcUnit').value) || CONS_FAMS[0]).unit;
+    const r2 = v => Math.round((v || 0) * 100) / 100;
+    const sheet1 = rows.map(r => { const o = { Customer: r.name }; pcData.months.forEach(k => { o[pmMonthLabel(k)] = r2(r.months[k]); }); o['Total (' + unitLabel + ')'] = r2(r.total); return o; });
+    const sheet2 = [];
+    rows.forEach(r => r.items.forEach(it => { const o = { Customer: r.name, Item: it.name, Unit: it.unit }; pcData.months.forEach(k => { o[pmMonthLabel(k)] = r2(it.months[k]); }); o.Total = r2(it.total); sheet2.push(o); }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheet1), 'By customer');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheet2), 'Customer x item');
+    XLSX.writeFile(wb, 'Party-Material-Consumption-' + unitLabel.replace(/\s+/g, '') + '-' + pcData.from + '-to-' + pcData.to + '.xlsx');
+  });
+
   async function runReport(){
     const { from, to } = reportRange();
     loadStaffProductivity(from, to);
     loadPartyMonthly(from, to);
+    loadPartyConsumption(from, to);
     const [{ data: saleInv }, { data: purInv }, { data: expRows }, { data: payRows }] = await Promise.all([
       fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','sale').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
       fetchAllPages(() => supabaseClient.from('invoices').select('*').eq('org_id', currentOrgId).eq('type','purchase').neq('status','cancelled').gte('invoice_date', from).lte('invoice_date', to).order('id')),
