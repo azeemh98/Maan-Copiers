@@ -983,7 +983,7 @@
 
         <!-- How much stock was used: per day for a month, or per month for a year. -->
         <section class="card">
-          <h2 class="collapsible" id="consToggle"><span>📊 Material Consumption — day, month &amp; machine wise</span><span class="chev">▶</span></h2>
+          <h2 class="collapsible" id="consToggle"><span>📊 Material Consumption — day, month, machine &amp; customer wise</span><span class="chev">▶</span></h2>
           <div id="consBody" style="display:none; margin-top:18px;">
             <div class="cat-tabs" id="consViewTabs">
               <button class="cat-tab active" data-cview="day">Day-wise (one month)</button>
@@ -994,6 +994,10 @@
               <div class="field"><label for="consCategory">Material</label><select id="consCategory"></select></div>
               <div class="field"><label for="consMachine">Machine</label><select id="consMachine"><option value="">All machines</option></select></div>
               <div class="field"><label for="consItem">Item</label><select id="consItem"><option value="">All items</option></select></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label for="consParty">Customer</label><select id="consParty"><option value="">All customers</option></select></div>
+              <div class="field" style="align-self:end;"><div class="hint" id="consPartyHint">Pick a customer to see only the material used on their job slips, day by day.</div></div>
             </div>
             <div class="stats-row" style="margin-top:4px;">
               <div class="stat-card"><div class="s-label">Total used</div><div class="s-val" id="consTotal">—</div></div>
@@ -1015,6 +1019,14 @@
               <thead id="consMachHead"></thead>
               <tbody id="consMachines"><tr class="empty-row"><td>—</td></tr></tbody>
             </table></div>
+            <div id="consPartiesWrap">
+              <h2 style="margin-top:20px;">By customer <span class="hint" style="font-weight:400;">— material used on their job slips · tap a name to see it day by day</span></h2>
+              <div class="table-scroll"><table class="data-table cons-table">
+                <thead id="consPartyHead"></thead>
+                <tbody id="consParties"><tr class="empty-row"><td>—</td></tr></tbody>
+              </table></div>
+              <button class="btn-sm" id="consPartiesMore" style="margin-top:8px; display:none;"></button>
+            </div>
             <h2 style="margin-top:20px;">By item <span class="hint" style="font-weight:400;" id="consItemsRange"></span></h2>
             <div class="table-scroll"><table class="data-table cons-table">
               <thead><tr><th>Item</th><th>Category</th><th class="num">Used on jobs</th><th class="num">Other use</th><th class="num">Wastage</th><th class="num">Total</th><th class="num">Share</th><th>Machines</th></tr></thead>
@@ -6711,6 +6723,17 @@
   $('consCategory').addEventListener('change', () => { renderConsItemSelect(); renderConsumption(); });
   $('consMachine').addEventListener('change', renderConsumption);
   $('consItem').addEventListener('change', renderConsumption);
+  $('consParty').addEventListener('change', renderConsumption);
+  let consPartiesAll = false;
+  $('consPartiesMore').addEventListener('click', () => { consPartiesAll = !consPartiesAll; renderConsumption(); });
+  function renderConsPartySelect(){
+    const sel = $('consParty'), prev = sel.value;
+    const names = new Map();
+    consRows.forEach(r => { if (r.party_key && !names.has(r.party_key)) names.set(r.party_key, r.party_name || 'Walk-in'); });
+    sel.innerHTML = '<option value="">All customers</option>' + [...names].sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([k, label]) => '<option value="' + escHtml(k) + '">' + escHtml(titleCase(label)) + '</option>').join('');
+    sel.value = prev && names.has(prev) ? prev : '';
+  }
 
   function renderConsCategorySelect(){
     const sel = $('consCategory'), prev = sel.value;
@@ -6771,12 +6794,13 @@
     renderConsCategorySelect();
     renderConsMachineSelect();
     renderConsItemSelect();
+    renderConsPartySelect();
     renderConsumption();
   }
 
   function consFiltered(){
-    const item = $('consItem').value;
-    return consRows.filter(r => consCategoryMatch(r.category) && consMachineMatch(r.machine) && (!item || r.material_id === item));
+    const item = $('consItem').value, party = $('consParty').value;
+    return consRows.filter(r => consCategoryMatch(r.category) && consMachineMatch(r.machine) && (!item || r.material_id === item) && (!party || r.party_key === party));
   }
   const consBlank = () => ({ jobs: 0, other: 0, waste: 0 });
   const consTot = a => a.jobs + a.other + a.waste;
@@ -6850,7 +6874,9 @@
     const n = v => v ? fmtQty(Math.round(v * 100) / 100) : '—';
     const max = Math.max(1, ...buckets.map(b => consFamTot(b.acc, main.key)));
     const bar = b => { const v = consFamTot(b.acc, main.key); return '<td class="cons-bar-cell">' + (v ? '<div class="cons-bar" style="width:' + (v * 100 / max).toFixed(1) + '%"></div>' : '') + '</td>'; };
-    $('consTableTitle').textContent = (consView === 'day' ? 'Day by day — ' + MONTH_NAMES[consRange.m - 1] + ' ' + consRange.y : 'Month by month — last 12 months');
+    const partySel = $('consParty');
+    $('consTableTitle').textContent = (consView === 'day' ? 'Day by day — ' + MONTH_NAMES[consRange.m - 1] + ' ' + consRange.y : 'Month by month — last 12 months') +
+      (partySel.value ? ' — ' + partySel.options[partySel.selectedIndex].text : '');
     const first = '<th>' + (consView === 'day' ? 'Date' : 'Month') + '</th>';
     const monthCols = consView === 'month' ? '<th class="num">Days worked</th>' : '';
     const labelCell = b => '<td>' + b.label + (b.dow ? '<span class="cons-dow">' + b.dow + '</span>' : '') + '</td>';
@@ -6890,6 +6916,33 @@
         '<td class="num">' + (mainTotal && consFamTot(acc, main.key) ? (consFamTot(acc, main.key) * 100 / mainTotal).toFixed(1) + '%' : '—') + '</td></tr>').join('')
       : '<tr class="empty-row"><td colspan="5">Nothing used in this period.</td></tr>';
 
+    // ---- by customer (job slips only; hidden once one customer is picked) ----
+    const byParty = new Map();
+    rows.forEach(r => {
+      if (!r.party_key) return;
+      if (!byParty.has(r.party_key)) byParty.set(r.party_key, { key: r.party_key, name: titleCase(r.party_name || 'Walk-in'), acc: {}, days: new Set() });
+      const x = byParty.get(r.party_key); consFamAdd(x.acc, r); x.days.add(r.day);
+    });
+    const parties = [...byParty.values()].sort((a, b) => fams.reduce((s, f) => s || consFamTot(b.acc, f.key) - consFamTot(a.acc, f.key), 0) || a.name.localeCompare(b.name));
+    const slipTotal = parties.reduce((s, x) => s + consFamTot(x.acc, main.key), 0);
+    $('consPartiesWrap').style.display = $('consParty').value ? 'none' : '';
+    $('consPartyHead').innerHTML = '<tr><th>Customer</th>' + fams.map(f => '<th class="num">' + f.label + '</th>').join('') + '<th class="num">Days</th><th class="num">Share of ' + main.unit + '</th></tr>';
+    const LIMIT = 25, shown = consPartiesAll ? parties : parties.slice(0, LIMIT);
+    $('consParties').innerHTML = shown.length ? shown.map(x => '<tr class="cons-party-row" data-k="' + escHtml(x.key) + '" style="cursor:pointer;" title="See ' + escHtml(x.name) + ' day by day">' +
+        '<td class="item-name">' + escHtml(x.name) + '</td>' + fams.map(f => '<td class="num">' + n(consFamTot(x.acc, f.key)) + '</td>').join('') +
+        '<td class="num">' + x.days.size + '</td>' +
+        '<td class="num">' + (slipTotal && consFamTot(x.acc, main.key) ? (consFamTot(x.acc, main.key) * 100 / slipTotal).toFixed(1) + '%' : '—') + '</td></tr>').join('')
+      : '<tr class="empty-row"><td colspan="6">No job slips used stock in this period.</td></tr>';
+    $('consParties').querySelectorAll('.cons-party-row').forEach(tr => tr.addEventListener('click', () => {
+      $('consParty').value = tr.dataset.k; renderConsumption();
+      $('consTableTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+    $('consPartiesMore').style.display = parties.length > LIMIT ? '' : 'none';
+    $('consPartiesMore').textContent = consPartiesAll ? 'Show top ' + LIMIT + ' only' : 'Show all ' + parties.length + ' customers';
+    $('consPartyHint').textContent = $('consParty').value
+      ? 'Only this customer\'s job slips are counted (no wastage or hand Stock Out). Pick "All customers" to go back.'
+      : 'Pick a customer to see only the material used on their job slips, day by day.';
+
     // ---- by item ----
     const byItem = new Map();
     rows.forEach(r => {
@@ -6924,12 +6977,12 @@
         '<td>' + escHtml(u.machine || '—') + '</td><td class="num">' + n(u.qty) + ' ' + escHtml(u.unit || '') + '</td><td class="num">' + u.lines + '</td></tr>').join('')
       : '<tr class="empty-row"><td colspan="5">Every job line in this period used a stock item. 👍</td></tr>';
 
-    consLastRender = { buckets, items, machines, unlinked, fams, single, total, any: rows.length > 0 };
+    consLastRender = { buckets, items, machines, unlinked, fams, single, total, parties, any: rows.length > 0 };
   }
 
   $('consExportBtn').addEventListener('click', () => {
     if (!consLastRender || (!consLastRender.any && !consLastRender.unlinked.length)){ alert('Nothing to export for this period.'); return; }
-    const { buckets, items, machines, unlinked, fams, single } = consLastRender;
+    const { buckets, items, machines, unlinked, fams, single, parties } = consLastRender;
     const r2 = v => Math.round(v * 100) / 100;
     const firstCol = consView === 'day' ? 'Date' : 'Month';
     const periodRows = buckets.slice().reverse().map(b => {
@@ -6946,8 +6999,12 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(periodRows), consView === 'day' ? 'Day by day' : 'Month by month');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'By item');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(machineRows), 'By machine');
+    const partyRows = (parties || []).map(x => { const row = { Customer: x.name }; fams.forEach(f => { row[f.label] = r2(consFamTot(x.acc, f.key)); }); row.Days = x.days.size; return row; });
+    if (partyRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(partyRows), 'By customer');
     if (unlinkedRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(unlinkedRows), 'No stock linked');
-    const label = consView === 'day' ? consRange.from.slice(0, 7) : consRange.from.slice(0, 7) + '_to_' + consRange.to.slice(0, 7);
+    const psel = $('consParty');
+    const label = (consView === 'day' ? consRange.from.slice(0, 7) : consRange.from.slice(0, 7) + '_to_' + consRange.to.slice(0, 7)) +
+      (psel.value ? '-' + psel.options[psel.selectedIndex].text.replace(/[^\w]+/g, '-').slice(0, 30) : '');
     XLSX.writeFile(wb, 'Material-Consumption-' + label + '.xlsx');
   });
 
