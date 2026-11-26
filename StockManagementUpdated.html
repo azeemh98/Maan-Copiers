@@ -1433,18 +1433,49 @@
       </table>
     </section>
 
-    <section class="card">
+    <section class="card" id="rsHistCard">
       <div class="table-head-row">
-        <h2>📤 Stock Out log</h2>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <div class="search-wrap"><input type="text" id="rsLogSearch" placeholder="Search item / bill / customer…"></div>
-          <button class="export-btn" id="rsLogExportBtn">⭳ Export to Excel</button>
+        <h2>📒 Ready Stock History &amp; Summary</h2>
+        <button class="export-btn" id="rsLogExportBtn">⭳ Export to Excel</button>
+      </div>
+      <div class="cat-tabs" id="rsHistTabs">
+        <button class="cat-tab active" data-rsv="hist">History — every entry</button>
+        <button class="cat-tab" data-rsv="sum">Summary — which item went to which customer, day by day</button>
+      </div>
+      <div class="row4">
+        <div class="field"><label for="rsLogFrom">From</label><input type="date" id="rsLogFrom"></div>
+        <div class="field"><label for="rsLogTo">To</label><input type="date" id="rsLogTo"></div>
+        <div class="field" id="rsLogKindWrap"><label for="rsLogKind">Type</label><select id="rsLogKind">
+          <option value="">All entries</option><option value="in">Stock In (added / made)</option><option value="out">Stock Out (against bill)</option>
+          <option value="reduce">Reduced (edit / count)</option><option value="removed">Item deleted</option></select></div>
+        <div class="field"><label for="rsLogSearch">Search</label><input type="text" id="rsLogSearch" placeholder="Item, category, bill, customer, note…"></div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card ok"><div class="s-label">Stock In</div><div class="s-val" id="rsSumIn">—</div></div>
+        <div class="stat-card"><div class="s-label">Out against bills</div><div class="s-val" id="rsSumOut">—</div></div>
+        <div class="stat-card danger"><div class="s-label">Reduced / deleted</div><div class="s-val" id="rsSumRed">—</div></div>
+        <div class="stat-card"><div class="s-label">Customers supplied</div><div class="s-val" id="rsSumCust">—</div></div>
+      </div>
+      <div id="rsHistWrap">
+        <div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Item</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Left after</th><th>Bill</th><th>Customer</th><th>Note</th><th>By</th><th></th></tr></thead>
+          <tbody id="rsLogBody"><tr class="empty-row"><td colspan="10">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+      <div id="rsSumWrap" style="display:none;">
+        <div class="table-scroll"><table class="data-table pm-table">
+          <thead><tr><th>Date</th><th>Customer</th><th>Item</th><th style="text-align:right;">Qty out</th><th>Bills</th></tr></thead>
+          <tbody id="rsSumBody"></tbody>
+        </table></div>
+        <div class="row2" style="margin-top:18px; align-items:start;">
+          <div><h2>Totals by customer</h2><div class="table-scroll"><table class="data-table">
+            <thead><tr><th>Customer</th><th style="text-align:right;">Qty out</th><th style="text-align:right;">Items</th><th style="text-align:right;">Bills</th></tr></thead>
+            <tbody id="rsSumByCust"></tbody></table></div></div>
+          <div><h2>Totals by item</h2><div class="table-scroll"><table class="data-table">
+            <thead><tr><th>Item</th><th style="text-align:right;">Qty out</th><th style="text-align:right;">Customers</th></tr></thead>
+            <tbody id="rsSumByItem"></tbody></table></div></div>
         </div>
       </div>
-      <div class="table-scroll"><table class="data-table">
-        <thead><tr><th>Date</th><th>Item</th><th style="text-align:right;">Qty out</th><th>Bill</th><th>Customer</th><th>Note</th><th>By</th><th></th></tr></thead>
-        <tbody id="rsLogBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
-      </table></div>
       <div class="hint" id="rsLogHint" style="margin-top:8px;"></div>
     </section>
 
@@ -5734,45 +5765,116 @@
   });
   $('rsOutQty').addEventListener('input', function(){ const q = parseFloat(this.value); $('rsOutBtnQty').textContent = q > 0 ? fmtQty(q) : ''; });
 
+  // ---- Ready Stock history (every change) + summary of what went to whom, day by day ----
+  let rsView = 'hist';
+  $('rsLogTo').value = todayISO();
+  $('rsLogFrom').value = toISODateLocal(new Date(Date.now() - 30 * 86400000));
+  document.querySelectorAll('#rsHistTabs .cat-tab').forEach(b => b.addEventListener('click', function(){
+    document.querySelectorAll('#rsHistTabs .cat-tab').forEach(x => x.classList.remove('active'));
+    this.classList.add('active'); rsView = this.dataset.rsv; renderReadyStockOutLog();
+  }));
+  ['rsLogFrom', 'rsLogTo'].forEach(id => $(id).addEventListener('change', loadReadyStockOutLog));
+  $('rsLogKind').addEventListener('change', renderReadyStockOutLog);
+  const RS_KIND = { in: ['Stock In', 'ok'], out: ['Out · bill', 'received'], reduce: ['Reduced', 'low'], removed: ['Deleted', 'out'] };
+  const RS_SRC = { new: 'new item', edit: 'edited', import: 'Excel import', delete: 'item deleted', bill: '' };
   async function loadReadyStockOutLog(){
+    const from = $('rsLogFrom').value || '2000-01-01', to = $('rsLogTo').value || todayISO();
     const { data, error } = await supabaseClient.from('ready_stock_moves').select('*').eq('org_id', currentOrgId)
-      .order('moved_on', { ascending: false }).order('created_at', { ascending: false }).limit(500);
+      .gte('moved_on', from).lte('moved_on', to).order('moved_on', { ascending: false }).order('created_at', { ascending: false }).limit(3000);
     rsOutLog = error ? [] : (data || []);
     renderReadyStockOutLog();
   }
-  function rsLogFiltered(){
-    const term = $('rsLogSearch').value.trim().toLowerCase();
-    return rsOutLog.filter(m => !term || [m.item_code, m.item_category, m.invoice_no, m.party_name, m.note].some(v => (v || '').toLowerCase().includes(term)));
+  function rsLogFiltered(ignoreKind){
+    const term = $('rsLogSearch').value.trim().toLowerCase(), kind = ignoreKind ? '' : $('rsLogKind').value;
+    return rsOutLog.filter(m => (!kind || m.kind === kind) &&
+      (!term || [m.item_code, m.item_category, m.invoice_no, m.party_name, m.note].some(v => (v || '').toLowerCase().includes(term))));
   }
+  function rsSummaryRows(){ return rsLogFiltered(true).filter(m => m.kind === 'out'); }
   function renderReadyStockOutLog(){
-    const rows = rsLogFiltered();
-    $('rsLogBody').innerHTML = rows.length ? rows.map(m => '<tr><td>' + fmtDate(m.moved_on) + '</td>' +
-        '<td class="item-name">' + escHtml(m.item_code) + '<div class="item-cat">' + escHtml(m.item_category || '') + '</div></td>' +
-        '<td style="text-align:right; font-weight:700;">' + fmtQty(m.quantity) + '</td>' +
-        '<td><b>' + escHtml(m.invoice_no) + '</b></td><td>' + escHtml(m.party_name || '—') + '</td><td>' + escHtml(m.note || '—') + '</td>' +
-        '<td>' + escHtml(staffName(m.created_by)) + '</td>' +
-        '<td>' + (isAdmin ? '<button class="rs-undo danger" data-id="' + m.id + '" title="Undo — puts the quantity back on the shelf">↩</button>' : '') + '</td></tr>').join('')
-      : '<tr class="empty-row"><td colspan="8">' + (rsOutLog.length ? 'Nothing matches the search.' : 'No ready stock has gone out against a bill yet.') + '</td></tr>';
-    const tot = rows.reduce((s, m) => s + Number(m.quantity), 0);
-    $('rsLogHint').textContent = rows.length ? rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + ' · ' + fmtQty(tot) + ' pieces out' + (rsOutLog.length >= 500 ? ' · showing the latest 500' : '') : '';
-    $('rsLogBody').querySelectorAll('.rs-undo').forEach(b => b.addEventListener('click', async function(){
-      if (!requireAdmin()) return;
-      const m = rsOutLog.find(x => x.id === this.dataset.id);
-      if (!m || !window.confirm('Undo this Stock Out?\n\n' + fmtQty(m.quantity) + ' × ' + m.item_code + ' against ' + m.invoice_no + ' will go back on the shelf and the entry is removed.')) return;
-      this.disabled = true;
-      const { error } = await supabaseClient.rpc('ready_stock_out_undo', { p_move_id: m.id });
-      if (error){ alert(error.message); this.disabled = false; return; }
-      await refreshReadyStockPanel();
-    }));
+    $('rsHistWrap').style.display = rsView === 'hist' ? '' : 'none';
+    $('rsSumWrap').style.display = rsView === 'sum' ? '' : 'none';
+    $('rsLogKindWrap').style.visibility = rsView === 'hist' ? 'visible' : 'hidden';
+    const base = rsLogFiltered(true);
+    const sum = k => base.filter(m => k.includes(m.kind)).reduce((s, m) => s + Number(m.quantity), 0);
+    $('rsSumIn').textContent = fmtQty(sum(['in']));
+    $('rsSumOut').textContent = fmtQty(sum(['out']));
+    $('rsSumRed').textContent = fmtQty(sum(['reduce', 'removed']));
+    $('rsSumCust').textContent = fmtQty(new Set(base.filter(m => m.kind === 'out').map(m => m.party_id || m.party_name || '?')).size);
+    const range = fmtDate($('rsLogFrom').value || todayISO()) + ' to ' + fmtDate($('rsLogTo').value || todayISO());
+
+    if (rsView === 'hist'){
+      const rows = rsLogFiltered(false);
+      $('rsLogBody').innerHTML = rows.length ? rows.map(m => {
+        const k = RS_KIND[m.kind] || [m.kind, 'received'];
+        const sign = m.kind === 'in' ? '+' : '−';
+        const src = RS_SRC[m.source || ''] || '';
+        return '<tr><td>' + fmtDate(m.moved_on) + '</td><td><span class="status-badge ' + k[1] + '">' + k[0] + '</span></td>' +
+          '<td class="item-name">' + escHtml(m.item_code) + '<div class="item-cat">' + escHtml(m.item_category || '') + '</div></td>' +
+          '<td style="text-align:right; font-weight:700;">' + sign + fmtQty(m.quantity) + '</td>' +
+          '<td style="text-align:right;">' + (m.qty_after != null ? fmtQty(m.qty_after) : '—') + '</td>' +
+          '<td>' + (m.invoice_no ? '<b>' + escHtml(m.invoice_no) + '</b>' : '—') + '</td><td>' + escHtml(m.party_name || '—') + '</td>' +
+          '<td>' + escHtml([m.note, src].filter(Boolean).join(' · ') || '—') + '</td>' +
+          '<td>' + escHtml(staffName(m.created_by)) + '</td>' +
+          '<td>' + (isAdmin && m.kind === 'out' ? '<button class="rs-undo danger" data-id="' + m.id + '" title="Undo — puts the quantity back on the shelf">↩</button>' : '') + '</td></tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="10">' + (rsOutLog.length ? 'Nothing matches the filters.' : 'No Ready Stock entries in ' + range + '.') + '</td></tr>';
+      $('rsLogHint').textContent = rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + ' · ' + range + (rsOutLog.length >= 3000 ? ' · showing the latest 3,000 — narrow the dates' : '') +
+        '. History starts from when this log was switched on.';
+      $('rsLogBody').querySelectorAll('.rs-undo').forEach(b => b.addEventListener('click', async function(){
+        if (!requireAdmin()) return;
+        const m = rsOutLog.find(x => x.id === this.dataset.id);
+        if (!m || !window.confirm('Undo this Stock Out?\n\n' + fmtQty(m.quantity) + ' × ' + m.item_code + ' against ' + m.invoice_no + ' will go back on the shelf and the entry is removed.')) return;
+        this.disabled = true;
+        const { error } = await supabaseClient.rpc('ready_stock_out_undo', { p_move_id: m.id });
+        if (error){ alert(error.message); this.disabled = false; return; }
+        await refreshReadyStockPanel();
+      }));
+      return;
+    }
+
+    // ---- summary: day -> customer -> item ----
+    const outs = rsSummaryRows();
+    const byDay = new Map();
+    outs.forEach(m => {
+      const day = m.moved_on, cust = m.party_name || 'No customer on bill', key = cust + '|' + m.item_code + '|' + (m.item_category || '');
+      if (!byDay.has(day)) byDay.set(day, new Map());
+      const d = byDay.get(day);
+      if (!d.has(key)) d.set(key, { cust, item: m.item_code, cat: m.item_category, qty: 0, bills: new Set() });
+      const x = d.get(key); x.qty += Number(m.quantity); if (m.invoice_no) x.bills.add(m.invoice_no);
+    });
+    const days = [...byDay.keys()].sort().reverse();
+    $('rsSumBody').innerHTML = days.length ? days.map(day => {
+      const list = [...byDay.get(day).values()].sort((a, b) => a.cust.localeCompare(b.cust) || b.qty - a.qty);
+      const dayTot = list.reduce((s, x) => s + x.qty, 0);
+      return '<tr class="pm-row open"><td colspan="3"><b>' + fmtDate(day) + '</b> <span class="hint">' + new Date(day).toLocaleDateString('en-IN', { weekday: 'short' }) + '</span></td>' +
+        '<td style="text-align:right;"><b>' + fmtQty(dayTot) + '</b></td><td></td></tr>' +
+        list.map((x, i) => '<tr class="pm-sub"><td></td><td>' + (i === 0 || list[i - 1].cust !== x.cust ? '<b>' + escHtml(x.cust) + '</b>' : '') + '</td>' +
+          '<td>' + escHtml(x.item) + (x.cat ? ' <span class="item-cat">' + escHtml(x.cat) + '</span>' : '') + '</td>' +
+          '<td style="text-align:right; font-weight:700;">' + fmtQty(x.qty) + '</td><td>' + escHtml([...x.bills].join(', ')) + '</td></tr>').join('');
+    }).join('') : '<tr class="empty-row"><td colspan="5">No Ready Stock went out against a bill in ' + range + (($('rsLogSearch').value || '').trim() ? ' for this search' : '') + '.</td></tr>';
+    const byCust = new Map(), byItem = new Map();
+    outs.forEach(m => {
+      const c = m.party_name || 'No customer on bill';
+      if (!byCust.has(c)) byCust.set(c, { qty: 0, items: new Set(), bills: new Set() });
+      const x = byCust.get(c); x.qty += Number(m.quantity); x.items.add(m.item_code); if (m.invoice_no) x.bills.add(m.invoice_no);
+      if (!byItem.has(m.item_code)) byItem.set(m.item_code, { qty: 0, custs: new Set() });
+      const y = byItem.get(m.item_code); y.qty += Number(m.quantity); y.custs.add(c);
+    });
+    $('rsSumByCust').innerHTML = byCust.size ? [...byCust].sort((a, b) => b[1].qty - a[1].qty).map(([c, x]) => '<tr><td class="item-name">' + escHtml(c) + '</td><td style="text-align:right; font-weight:700;">' + fmtQty(x.qty) + '</td><td style="text-align:right;">' + x.items.size + '</td><td style="text-align:right;">' + x.bills.size + '</td></tr>').join('') : '<tr class="empty-row"><td colspan="4">—</td></tr>';
+    $('rsSumByItem').innerHTML = byItem.size ? [...byItem].sort((a, b) => b[1].qty - a[1].qty).map(([it, y]) => '<tr><td class="item-name">' + escHtml(it) + '</td><td style="text-align:right; font-weight:700;">' + fmtQty(y.qty) + '</td><td style="text-align:right;">' + y.custs.size + '</td></tr>').join('') : '<tr class="empty-row"><td colspan="3">—</td></tr>';
+    $('rsLogHint').textContent = outs.length + ' Stock Out entr' + (outs.length === 1 ? 'y' : 'ies') + ' · ' + range + '. Only stock that went out against a bill is counted here.';
   }
   $('rsLogSearch').addEventListener('input', renderReadyStockOutLog);
   $('rsLogExportBtn').addEventListener('click', () => {
-    const rows = rsLogFiltered();
-    if (!rows.length){ alert('Nothing to export.'); return; }
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(m => ({ Date: m.moved_on, Item: m.item_code, Category: m.item_category || '',
-      'Qty out': Number(m.quantity), Bill: m.invoice_no, Customer: m.party_name || '', Note: m.note || '', By: staffName(m.created_by) }))), 'Stock Out');
-    XLSX.writeFile(wb, 'Ready-Stock-Out-' + todayISO() + '.xlsx');
+    const hist = rsLogFiltered(false);
+    const outs = rsSummaryRows();
+    if (!hist.length && !outs.length){ alert('Nothing to export for these filters.'); return; }
+    if (hist.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hist.map(m => ({ Date: m.moved_on, Type: (RS_KIND[m.kind] || [m.kind])[0],
+      Item: m.item_code, Category: m.item_category || '', Qty: (m.kind === 'in' ? 1 : -1) * Number(m.quantity), 'Left after': m.qty_after != null ? Number(m.qty_after) : '',
+      Bill: m.invoice_no || '', Customer: m.party_name || '', Note: [m.note, RS_SRC[m.source || ''] || ''].filter(Boolean).join(' · '), By: staffName(m.created_by) }))), 'History');
+    if (outs.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(outs.slice().sort((a, b) => a.moved_on.localeCompare(b.moved_on) || (a.party_name || '').localeCompare(b.party_name || ''))
+      .map(m => ({ Date: m.moved_on, Customer: m.party_name || '', Item: m.item_code, Category: m.item_category || '', 'Qty out': Number(m.quantity), Bill: m.invoice_no || '' }))), 'Who got what');
+    XLSX.writeFile(wb, 'Ready-Stock-History-' + ($('rsLogFrom').value || '') + '-to-' + ($('rsLogTo').value || todayISO()) + '.xlsx');
   });
   function renderReadyStockCategorySelect(){
     const sel = $('rsCategory');
