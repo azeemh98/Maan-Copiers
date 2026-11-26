@@ -1397,6 +1397,26 @@
       </div>
     </section>
 
+    <section class="card" id="rsOutCard">
+      <h2 class="collapsible" id="rsOutToggle"><span>📤 Ready Stock Out — against bill (INV)</span><span class="chev">▶</span></h2>
+      <div id="rsOutBody" style="display:none; margin-top:18px;">
+        <div class="hint" style="margin-bottom:10px;">Dispatch finished goods against a sale bill. The quantity comes off the shelf and the entry is logged below with the bill and customer.</div>
+        <div class="row2">
+          <div class="field"><label for="rsOutItem">Item</label><input type="text" id="rsOutItem" list="rsOutItemList" placeholder="Search code / name…" autocomplete="off"><datalist id="rsOutItemList"></datalist>
+            <div class="hint" id="rsOutAvail" style="margin-top:4px;"></div></div>
+          <div class="field"><label for="rsOutQty">Quantity out</label><input type="number" id="rsOutQty" min="1" step="1" placeholder="0"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label for="rsOutInv">Bill (INV) number</label><input type="text" id="rsOutInv" list="rsOutInvList" placeholder="e.g. INV-1317 or 1317" autocomplete="off"><datalist id="rsOutInvList"></datalist>
+            <div class="hint" id="rsOutInvHint" style="margin-top:4px;"></div></div>
+          <div class="field"><label for="rsOutDate">Date</label><input type="date" id="rsOutDate"></div>
+        </div>
+        <div class="field"><label for="rsOutNote">Note (optional)</label><input type="text" id="rsOutNote" maxlength="200" placeholder="e.g. sent by courier, 2 cartons"></div>
+        <button class="add-btn save-btn" id="rsOutBtn"><span>📤 Record Stock Out</span><span id="rsOutBtnQty"></span></button>
+        <div class="status-msg" id="rsOutStatus"></div>
+      </div>
+    </section>
+
     <section class="card">
       <div class="table-head-row">
         <h2>Ready to Deliver</h2>
@@ -1411,6 +1431,21 @@
         <thead><tr><th>Category</th><th>Code / Name</th><th style="text-align:right;">Qty</th><th>Note</th><th>Updated</th><th></th></tr></thead>
         <tbody id="rsTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
       </table>
+    </section>
+
+    <section class="card">
+      <div class="table-head-row">
+        <h2>📤 Stock Out log</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <div class="search-wrap"><input type="text" id="rsLogSearch" placeholder="Search item / bill / customer…"></div>
+          <button class="export-btn" id="rsLogExportBtn">⭳ Export to Excel</button>
+        </div>
+      </div>
+      <div class="table-scroll"><table class="data-table">
+        <thead><tr><th>Date</th><th>Item</th><th style="text-align:right;">Qty out</th><th>Bill</th><th>Customer</th><th>Note</th><th>By</th><th></th></tr></thead>
+        <tbody id="rsLogBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="hint" id="rsLogHint" style="margin-top:8px;"></div>
     </section>
 
     <section class="card printable-doc" id="rsPrintDoc">
@@ -5634,7 +5669,111 @@
     renderReadyStockCategorySelect();
     renderReadyImportCategories();
     renderReadyStock();
+    rsOutRenderItems();
+    loadReadyStockOutLog();
+    loadRsOutBills();
   }
+
+  // ---- Ready Stock Out against a sale bill (INV) ----
+  let rsOutLog = [], rsOutBills = [];
+  toggleCollapsible($('rsOutToggle'), $('rsOutBody'));
+  $('rsOutDate').value = todayISO();
+  const rsItemLabel = r => r.code + ' — ' + r.category + ' (' + fmtQty(r.quantity) + ' ready)';
+  function rsOutRenderItems(){
+    $('rsOutItemList').innerHTML = readyStockItems.filter(r => Number(r.quantity) > 0)
+      .map(r => '<option value="' + escHtml(rsItemLabel(r)) + '"></option>').join('');
+    rsOutShowAvail();
+  }
+  const rsOutPicked = () => readyStockItems.find(r => rsItemLabel(r) === $('rsOutItem').value) || null;
+  function rsOutShowAvail(){
+    const r = rsOutPicked();
+    $('rsOutAvail').textContent = r ? 'On the shelf: ' + fmtQty(r.quantity) + (r.note ? ' · ' + r.note : '') : ($('rsOutItem').value ? 'Pick an item from the list.' : '');
+  }
+  $('rsOutItem').addEventListener('input', rsOutShowAvail);
+  async function loadRsOutBills(){
+    const since = toISODateLocal(new Date(Date.now() - 180 * 86400000));
+    const { data } = await supabaseClient.from('invoices').select('id, invoice_no, invoice_date, grand_total, party_id, parties(name)')
+      .eq('org_id', currentOrgId).eq('type', 'sale').neq('status', 'cancelled').gte('invoice_date', since).order('invoice_date', { ascending: false }).limit(400);
+    rsOutBills = data || [];
+    $('rsOutInvList').innerHTML = rsOutBills.map(i => '<option value="' + escHtml(i.invoice_no) + '">' + escHtml(((i.parties && i.parties.name) || '') + ' · ' + fmtMoney(i.grand_total) + ' · ' + fmtDate(i.invoice_date)) + '</option>').join('');
+  }
+  $('rsOutInv').addEventListener('input', function(){
+    const digits = this.value.replace(/\D/g, '');
+    const b = digits ? rsOutBills.find(i => i.invoice_no.replace(/\D/g, '').replace(/^0+/, '') === digits.replace(/^0+/, '')) : null;
+    $('rsOutInvHint').textContent = b ? '✓ ' + b.invoice_no + ' · ' + ((b.parties && b.parties.name) || 'no party') + ' · ' + fmtMoney(b.grand_total) + ' · ' + fmtDate(b.invoice_date) : (digits ? 'Will be checked when you save.' : '');
+  });
+  function rsOutStart(r){
+    const body = $('rsOutBody');
+    if (body.style.display === 'none') $('rsOutToggle').click();
+    $('rsOutItem').value = rsItemLabel(r); rsOutShowAvail();
+    $('rsOutQty').value = ''; $('rsOutStatus').textContent = '';
+    $('rsOutCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => $('rsOutQty').focus(), 300);
+  }
+  $('rsOutBtn').addEventListener('click', async function(){
+    const statusEl = $('rsOutStatus');
+    const r = rsOutPicked();
+    const qty = parseFloat($('rsOutQty').value);
+    const inv = $('rsOutInv').value.trim();
+    if (!r){ showStatus(statusEl, 'Pick the item from the list.', false); return; }
+    if (!(qty > 0)){ showStatus(statusEl, 'Enter the quantity going out.', false); return; }
+    if (qty > Number(r.quantity)){ showStatus(statusEl, 'Only ' + fmtQty(r.quantity) + ' of ' + r.code + ' on the shelf.', false); return; }
+    if (!inv){ showStatus(statusEl, 'Enter the bill (INV) number.', false); return; }
+    this.disabled = true;
+    try {
+      const { data, error } = await supabaseClient.rpc('ready_stock_out', { p_org_id: currentOrgId, p_item_id: r.id, p_qty: qty, p_invoice_no: inv,
+        p_date: $('rsOutDate').value || null, p_note: $('rsOutNote').value.trim() || null });
+      if (error) throw error;
+      showStatus(statusEl, '📤 ' + fmtQty(qty) + ' × ' + r.code + ' out against ' + data.invoice_no + (data.party_name ? ' (' + data.party_name + ')' : '') + ' — ' + fmtQty(data.left) + ' left.', true);
+      $('rsOutQty').value = ''; $('rsOutNote').value = ''; $('rsOutInv').value = ''; $('rsOutInvHint').textContent = '';
+      await refreshReadyStockPanel();
+      const again = readyStockItems.find(x => x.id === r.id);
+      $('rsOutItem').value = again && Number(again.quantity) > 0 ? rsItemLabel(again) : ''; rsOutShowAvail();
+    } catch (err){ showStatus(statusEl, err.message || 'Could not record the stock out.', false); }
+    finally { this.disabled = false; }
+  });
+  $('rsOutQty').addEventListener('input', function(){ const q = parseFloat(this.value); $('rsOutBtnQty').textContent = q > 0 ? fmtQty(q) : ''; });
+
+  async function loadReadyStockOutLog(){
+    const { data, error } = await supabaseClient.from('ready_stock_moves').select('*').eq('org_id', currentOrgId)
+      .order('moved_on', { ascending: false }).order('created_at', { ascending: false }).limit(500);
+    rsOutLog = error ? [] : (data || []);
+    renderReadyStockOutLog();
+  }
+  function rsLogFiltered(){
+    const term = $('rsLogSearch').value.trim().toLowerCase();
+    return rsOutLog.filter(m => !term || [m.item_code, m.item_category, m.invoice_no, m.party_name, m.note].some(v => (v || '').toLowerCase().includes(term)));
+  }
+  function renderReadyStockOutLog(){
+    const rows = rsLogFiltered();
+    $('rsLogBody').innerHTML = rows.length ? rows.map(m => '<tr><td>' + fmtDate(m.moved_on) + '</td>' +
+        '<td class="item-name">' + escHtml(m.item_code) + '<div class="item-cat">' + escHtml(m.item_category || '') + '</div></td>' +
+        '<td style="text-align:right; font-weight:700;">' + fmtQty(m.quantity) + '</td>' +
+        '<td><b>' + escHtml(m.invoice_no) + '</b></td><td>' + escHtml(m.party_name || '—') + '</td><td>' + escHtml(m.note || '—') + '</td>' +
+        '<td>' + escHtml(staffName(m.created_by)) + '</td>' +
+        '<td>' + (isAdmin ? '<button class="rs-undo danger" data-id="' + m.id + '" title="Undo — puts the quantity back on the shelf">↩</button>' : '') + '</td></tr>').join('')
+      : '<tr class="empty-row"><td colspan="8">' + (rsOutLog.length ? 'Nothing matches the search.' : 'No ready stock has gone out against a bill yet.') + '</td></tr>';
+    const tot = rows.reduce((s, m) => s + Number(m.quantity), 0);
+    $('rsLogHint').textContent = rows.length ? rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + ' · ' + fmtQty(tot) + ' pieces out' + (rsOutLog.length >= 500 ? ' · showing the latest 500' : '') : '';
+    $('rsLogBody').querySelectorAll('.rs-undo').forEach(b => b.addEventListener('click', async function(){
+      if (!requireAdmin()) return;
+      const m = rsOutLog.find(x => x.id === this.dataset.id);
+      if (!m || !window.confirm('Undo this Stock Out?\n\n' + fmtQty(m.quantity) + ' × ' + m.item_code + ' against ' + m.invoice_no + ' will go back on the shelf and the entry is removed.')) return;
+      this.disabled = true;
+      const { error } = await supabaseClient.rpc('ready_stock_out_undo', { p_move_id: m.id });
+      if (error){ alert(error.message); this.disabled = false; return; }
+      await refreshReadyStockPanel();
+    }));
+  }
+  $('rsLogSearch').addEventListener('input', renderReadyStockOutLog);
+  $('rsLogExportBtn').addEventListener('click', () => {
+    const rows = rsLogFiltered();
+    if (!rows.length){ alert('Nothing to export.'); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(m => ({ Date: m.moved_on, Item: m.item_code, Category: m.item_category || '',
+      'Qty out': Number(m.quantity), Bill: m.invoice_no, Customer: m.party_name || '', Note: m.note || '', By: staffName(m.created_by) }))), 'Stock Out');
+    XLSX.writeFile(wb, 'Ready-Stock-Out-' + todayISO() + '.xlsx');
+  });
   function renderReadyStockCategorySelect(){
     const sel = $('rsCategory');
     const prev = sel.value;
@@ -5670,9 +5809,10 @@
       '<tr><td>' + escHtml(r.category) + '</td><td class="item-name">' + escHtml(r.code) + '</td>' +
       '<td style="text-align:right; font-weight:700;">' + fmtQty(r.quantity) + '</td><td>' + (r.note ? escHtml(r.note) : '—') + '</td>' +
       '<td>' + fmtDate(toISODateLocal(r.updated_at)) + '</td>' +
-      '<td><div class="row-actions"><button class="rs-edit" data-id="' + r.id + '" title="Edit">✎</button>' +
+      '<td><div class="row-actions">' + (Number(r.quantity) > 0 ? '<button class="rs-out" data-id="' + r.id + '" title="Stock out against a bill">📤</button>' : '') + '<button class="rs-edit" data-id="' + r.id + '" title="Edit">✎</button>' +
       (isAdmin ? '<button class="rs-del danger" data-id="' + r.id + '" title="Delete">✕</button>' : '') + '</div></td></tr>').join('');
     tbody.querySelectorAll('.rs-edit').forEach(b => b.addEventListener('click', function(){ const r = readyStockItems.find(x => x.id === this.dataset.id); if (r) startEditReadyStock(r); }));
+    tbody.querySelectorAll('.rs-out').forEach(b => b.addEventListener('click', function(){ const r = readyStockItems.find(x => x.id === this.dataset.id); if (r) rsOutStart(r); }));
     tbody.querySelectorAll('.rs-del').forEach(b => b.addEventListener('click', async function(){
       if (!requireAdmin()) return;
       const r = readyStockItems.find(x => x.id === this.dataset.id);
