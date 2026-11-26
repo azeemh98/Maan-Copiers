@@ -393,6 +393,34 @@
      user regardless of role, since role gating hides most of Settings (where account stuff
      normally lives) for walkin-only/operator accounts. */
   .cpw-backdrop{ position:fixed; inset:0; background:rgba(15,37,64,0.4); z-index:800; display:none; }
+  /* Job slip details pop-up (Machine board) */
+  .board-card.bc-open{ cursor:pointer; }
+  .board-card.bc-open:hover{ border-color:var(--accent); }
+  .board-card .bc-no .bc-view{ font-size:10.5px; font-weight:600; color:var(--accent); margin-left:6px; }
+  .jd-backdrop{ position:fixed; inset:0; background:rgba(15,37,64,0.45); z-index:850; display:none; }
+  .jd-backdrop.show{ display:block; }
+  .jd-panel{ position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:780px; max-width:95vw; max-height:90vh; overflow:auto;
+    background:var(--surface); border-radius:14px; box-shadow:0 24px 70px rgba(15,37,64,0.45); z-index:851; display:none; }
+  .jd-panel.show{ display:block; }
+  .jd-head{ position:sticky; top:0; background:var(--surface); padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; z-index:1; }
+  .jd-head h3{ margin:0; font-size:18px; }
+  .jd-head .jd-x{ margin-left:auto; background:none; border:none; font-size:20px; cursor:pointer; color:var(--muted); }
+  .jd-body{ padding:16px 20px 20px; }
+  .jd-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px 18px; margin-bottom:14px; }
+  .jd-grid .k{ font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--faint); font-weight:700; }
+  .jd-grid .v{ font-size:14px; font-weight:600; margin-top:2px; word-break:break-word; }
+  .jd-notes{ background:var(--bg); border-radius:8px; padding:10px 12px; font-size:13.5px; margin-bottom:14px; white-space:pre-wrap; }
+  .jd-sec{ font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:800; margin:16px 0 6px; }
+  .jd-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  .jd-table th{ text-align:left; font-size:10.5px; text-transform:uppercase; color:var(--faint); padding:6px 8px; border-bottom:1px solid var(--border); }
+  .jd-table td{ padding:8px; border-bottom:1px solid var(--border); vertical-align:top; }
+  .jd-table .num{ text-align:right; white-space:nowrap; }
+  .jd-table .sub{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .jd-tot{ margin-left:auto; max-width:300px; margin-top:10px; font-size:13.5px; }
+  .jd-tot div{ display:flex; justify-content:space-between; padding:3px 0; }
+  .jd-tot .big{ font-weight:800; font-size:15px; border-top:1px solid var(--border); margin-top:4px; padding-top:6px; }
+  .jd-tot .due{ color:var(--danger); font-weight:800; }
+  .jd-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
   .cpw-backdrop.show{ display:block; }
   .cpw-panel{
     position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:340px; max-width:90vw;
@@ -2500,6 +2528,11 @@
 </div>
 
 <!-- Change Password — reachable by everyone from the top bar, regardless of role -->
+<div class="no-print jd-backdrop" id="jdBackdrop"></div>
+<div class="no-print jd-panel" id="jdPanel" role="dialog" aria-modal="true" aria-labelledby="jdTitle">
+  <div class="jd-head"><h3 id="jdTitle">Job slip</h3><span id="jdBadges"></span><button class="jd-x" id="jdClose" title="Close">✕</button></div>
+  <div class="jd-body" id="jdBody">Loading…</div>
+</div>
 <div class="no-print cpw-backdrop" id="cpwBackdrop"></div>
 <div class="no-print cpw-panel" id="changePasswordPanel">
   <div class="cpw-head"><span>Change Password</span><button id="closeChangePassword">✕</button></div>
@@ -4983,8 +5016,8 @@
           actionHtml = '<button class="bc-advance" data-id="' + t.id + '" data-next="' + col.next + '">' + col.action + '</button>';
           if (col.alt) actionHtml += '<button class="bc-advance bc-alt" data-id="' + t.id + '" data-next="' + col.alt.next + '">' + col.alt.action + '</button>';
         }
-        return '<div class="board-card" data-id="' + t.id + '">' +
-          '<div class="bc-no">' + t.ticket_no + '</div>' +
+        return '<div class="board-card bc-open" data-id="' + t.id + '" title="Tap to see the full slip">' +
+          '<div class="bc-no">' + t.ticket_no + '<span class="bc-view">details ›</span></div>' +
           '<div class="bc-cust">' + (t.customer_name || 'Walk-in') + '</div>' +
           '<div class="bc-amt">' + fmtMoney(ticketGrandTotal(t)) + ' · ' + timeAgo(t.created_at) + '</div>' +
           (tags ? '<div class="bc-amt">🖨 ' + tags + '</div>' : '') +
@@ -5033,7 +5066,98 @@
       t.phone = data;
       renderMachineBoard();
     }));
+    // Tap a card (not one of its buttons) -> full slip details
+    wrap.querySelectorAll('.board-card.bc-open').forEach(card => card.addEventListener('click', e => {
+      if (e.target.closest('button, a, input, select')) return;
+      openJobDetails(card.dataset.id);
+    }));
     loadReadyInvoiceDues(rows.filter(t => t.status === 'ready'));
+  }
+
+  // ---- Job slip details pop-up: customer, machine, every line with its material, money, history ----
+  function closeJobDetails(){ $('jdPanel').classList.remove('show'); $('jdBackdrop').classList.remove('show'); }
+  $('jdClose').addEventListener('click', closeJobDetails);
+  $('jdBackdrop').addEventListener('click', closeJobDetails);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('jdPanel').classList.contains('show')) closeJobDetails(); });
+  async function openJobDetails(ticketId){
+    let t = tickets.find(x => x.id === ticketId);
+    $('jdTitle').textContent = t ? t.ticket_no : 'Job slip';
+    $('jdBadges').innerHTML = '';
+    $('jdBody').innerHTML = '<div class="hint">Loading…</div>';
+    $('jdPanel').classList.add('show'); $('jdBackdrop').classList.add('show');
+    const [tkRes, itemsRes, mvRes] = await Promise.all([
+      supabaseClient.from('job_tickets').select('*').eq('id', ticketId).single(),
+      supabaseClient.from('job_ticket_items').select('*').eq('ticket_id', ticketId),
+      supabaseClient.from('stock_movements').select('material_id, type, quantity').eq('ticket_id', ticketId).eq('source', 'ticket')
+    ]);
+    if (tkRes.data) t = tkRes.data;
+    if (!t){ $('jdBody').innerHTML = '<div class="hint">Could not load this slip.</div>'; return; }
+    let paid = Number(t.amount_paid) || 0, billNo = '';
+    if (t.invoice_id && !isWalkinOnly){
+      const { data: inv } = await supabaseClient.from('invoices').select('invoice_no, amount_paid').eq('id', t.invoice_id).maybeSingle();
+      if (inv){ billNo = inv.invoice_no; paid = Math.max(paid, Number(inv.amount_paid) || 0); }
+    }
+    const items = (itemsRes.data || []);
+    const svcName = id => { const x = services.find(v => v.id === id); return x ? x.name : ''; };
+    const matName = id => { const x = ticketMaterials.find(v => v.id === id) || materials.find(v => v.material_id === id); return x ? x.name : ''; };
+    const matUnit = id => { const x = ticketMaterials.find(v => v.id === id) || materials.find(v => v.material_id === id); return x ? x.unit : ''; };
+    const party = t.party_id ? parties.find(p => p.id === t.party_id) : null;
+    const total = ticketGrandTotal(t), due = Math.max(0, Math.round((total - paid) * 100) / 100);
+    const kv = (k, v) => v ? '<div><div class="k">' + k + '</div><div class="v">' + v + '</div></div>' : '';
+    const statusCls = { received: 'received', in_progress: 'low', post_press: 'low', ready: 'ok', delivered: 'paid', cancelled: 'out' }[t.status] || 'received';
+    $('jdTitle').textContent = t.ticket_no;
+    $('jdBadges').innerHTML = '<span class="status-badge ' + statusCls + '">' + (TICKET_STATUS_LABEL[t.status] || t.status) + '</span> ' +
+      (t.approval_status !== 'approved' ? '<span class="status-badge low">⏳ Awaiting approval</span> ' : '') +
+      '<span class="status-badge ' + (t.payment_status === 'paid' ? 'paid' : 'unpaid') + '">' + (t.payment_status === 'paid' ? 'Paid' : (paid > 0 ? 'Part paid' : 'Unpaid')) + '</span>';
+    const phone = t.phone || (party && party.phone) || '';
+    let html = '<div class="jd-grid">' +
+      kv('Customer', escHtml(t.customer_name || (party && party.name) || 'Walk-in') + (party ? ' <span class="hint" style="font-weight:400;">(saved customer)</span>' : '')) +
+      kv('Phone', escHtml(phone)) +
+      kv('Machine', escHtml(t.machine || '')) +
+      kv('Operator', escHtml(titleCase(t.operator_name || ''))) +
+      kv('Created', fmtDateTime(t.created_at) + (t.created_by ? ' · ' + escHtml(staffName(t.created_by)) : '')) +
+      kv('Approved by', t.approved_by ? escHtml(staffName(t.approved_by)) : '') +
+      kv('Expected ready', t.expected_at ? fmtDateTime(t.expected_at) : '') +
+      kv('Started', t.started_at ? fmtDateTime(t.started_at) : '') +
+      kv('Ready message', t.ready_notified_at ? 'Sent ' + fmtDateTime(t.ready_notified_at) : '') +
+      kv('Bill', escHtml(billNo)) +
+      '</div>';
+    if (t.notes) html += '<div class="jd-notes">📝 ' + escHtml(t.notes) + '</div>';
+
+    html += '<div class="jd-sec">Job lines</div><div class="table-scroll"><table class="jd-table"><thead><tr><th>Item</th><th>Material / paper</th><th class="num">Qty</th><th>Sides</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead><tbody>' +
+      (items.length ? items.map(li => {
+        const svc = li.service_id ? svcName(li.service_id) : '';
+        const mat = li.material_id ? matName(li.material_id) : '';
+        const title = li.description || svc || mat || '—';
+        const sub = svc && svc !== title ? svc : '';
+        return '<tr><td><b>' + escHtml(title) + '</b>' + (sub ? '<div class="sub">' + escHtml(sub) + '</div>' : '') + '</td>' +
+          '<td>' + (mat ? escHtml(mat) : '<span class="hint">—</span>') + '</td>' +
+          '<td class="num">' + fmtQty(Number(li.quantity)) + ' ' + escHtml(li.unit || '') + '</td>' +
+          '<td>' + (li.print_sides === 'double' ? 'Front &amp; Back' : 'Single') + '</td>' +
+          '<td class="num">' + fmtMoney(Number(li.rate)) + '</td><td class="num"><b>' + fmtMoney(Number(li.amount)) + '</b></td></tr>';
+      }).join('') : '<tr><td colspan="6" class="hint">No lines.</td></tr>') + '</tbody></table></div>';
+
+    // stock actually taken for this slip (net of any returns when it was edited)
+    if (!mvRes.error){
+      const used = new Map();
+      (mvRes.data || []).forEach(m => used.set(m.material_id, (used.get(m.material_id) || 0) + (m.type === 'exit' ? 1 : -1) * Number(m.quantity)));
+      const rowsUsed = [...used].filter(([, q]) => Math.abs(q) > 0.0001);
+      html += '<div class="jd-sec">Stock used for this job</div>' + (rowsUsed.length
+        ? '<table class="jd-table"><tbody>' + rowsUsed.map(([id, q]) => '<tr><td>' + escHtml(matName(id) || 'Stock item') + '</td><td class="num"><b>' + fmtQty(Math.round(q * 100) / 100) + '</b> ' + escHtml(matUnit(id)) + '</td></tr>').join('') + '</tbody></table>'
+        : '<div class="hint">No stock item is linked to this slip, so nothing was taken from stock.</div>');
+    }
+
+    html += '<div class="jd-tot"><div><span>Subtotal</span><span>' + fmtMoney(Number(t.subtotal)) + '</span></div>' +
+      (Number(t.gst_amount) ? '<div><span>GST ' + Number(t.gst_pct) + '%</span><span>' + fmtMoney(Number(t.gst_amount)) + '</span></div>' : '') +
+      (Number(t.round_off) ? '<div><span>Round off</span><span>' + fmtMoney(Number(t.round_off)) + '</span></div>' : '') +
+      '<div class="big"><span>Total</span><span>' + fmtMoney(total) + '</span></div>' +
+      (paid ? '<div><span>Paid / advance</span><span>' + fmtMoney(paid) + '</span></div>' : '') +
+      '<div class="' + (due ? 'due' : '') + '"><span>Balance due</span><span>' + fmtMoney(due) + '</span></div></div>';
+
+    html += '<div class="jd-actions"><button class="btn-sm" id="jdPrint">🖨 Print slip</button><button class="btn-sm" id="jdClose2">Close</button></div>';
+    $('jdBody').innerHTML = html;
+    $('jdClose2').addEventListener('click', closeJobDetails);
+    $('jdPrint').addEventListener('click', () => { closeJobDetails(); openTicketPrintPreview(t, items); });
   }
 
   // ---- "Order ready" WhatsApp to the customer ----
